@@ -6,8 +6,8 @@
 #
 # What lives here:
 #   - Account alias
-#   - (Future) GitHub OIDC identity provider — after aegis-shared state bucket
-#   - (Future) CI/CD IAM roles — after GitHub Actions workflows
+#   - GitHub OIDC identity provider (oidc-github.tf)
+#   - CI/CD IAM role for GitHub Actions (oidc-github.tf)
 #
 # What does NOT live here (per ADR-001 management account boundary):
 #   - No workloads, no application resources
