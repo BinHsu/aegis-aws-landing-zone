@@ -1117,6 +1117,53 @@ EOF
 
 This ensures `terraform plan` must pass before a PR can be merged.
 
+### 10.4 Enable signed commits
+
+Signed commits prove that every commit was made by a key the owner controls, not someone impersonating them. GitHub displays a "Verified" badge next to signed commits. This is a portfolio signal for security-consciousness.
+
+**Local setup (one-time, per machine):**
+
+Configure git to sign with your SSH key (no GPG required):
+
+```
+git config --global user.signingkey ~/.ssh/id_ed25519.pub
+git config --global commit.gpgsign true
+git config --global gpg.format ssh
+```
+
+Register the SSH key as a **signing key** in GitHub (separate from the auth key):
+
+1. Navigate to **GitHub → Settings → SSH and GPG keys → New SSH key**.
+2. Set **Key type** to **Signing Key** (not Authentication Key).
+3. Paste the content of `~/.ssh/id_ed25519.pub`.
+
+**Verify signing works:**
+
+```
+git commit --allow-empty -m "test: verify signing" && git log -1 --show-signature
+```
+
+Expected output includes `Good "git" signature for <your-email>`.
+
+After pushing, check GitHub's verification status:
+
+```
+gh api repos/<owner>/<repo>/commits/<sha> --jq '.commit.verification'
+```
+
+Expected: `"verified": true, "reason": "valid"`.
+
+**Require signed commits on main:**
+
+```
+gh api repos/<owner>/<repo>/branches/main/protection/required_signatures \
+  --method POST
+```
+
+This is a separate endpoint from the main branch protection config. Once enabled, any unsigned commit pushed to main will be rejected.
+
+> **Note**: Historical commits made before signing was configured will show "Unverified" in the GitHub UI. This is expected and cannot be retroactively fixed without rewriting history. Only new commits are subject to the signing requirement.
+
 ---
 
 ## Cross-References
