@@ -27,3 +27,8 @@ output "github_ci_role_arn" {
   description = "IAM role ARN for GitHub Actions CI/CD"
   value       = aws_iam_role.github_ci.arn
 }
+
+output "github_ci_role_name" {
+  description = "IAM role name for GitHub Actions CI/CD"
+  value       = aws_iam_role.github_ci.name
+}
