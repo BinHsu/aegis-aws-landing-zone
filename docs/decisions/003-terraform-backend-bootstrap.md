@@ -48,3 +48,15 @@ The one-time bootstrap of the state bucket is a minor operational cost, document
 Adding a new layer — for example, a future `data` layer for RDS and backups — is additive. Existing layers are untouched. The state key convention gives every new layer an obvious place to live.
 
 The choice of S3 native locking means Terraform version 1.10 or later is a hard dependency. This is documented in the repository README and enforced by a `.terraform-version` file consumed by `tenv` or `tfenv`.
+
+The Terraform backend configuration block does not support variables or locals — this is a Terraform language limitation, not a design choice. The S3 backend block in each environment therefore contains a hardcoded bucket name and region. This is the only place in the project where values are hardcoded rather than read from `config/landing-zone.yaml`, and it is an accepted trade-off documented inline.
+
+### Future Hardening
+
+The following items are deliberately deferred from the initial state bucket deployment. Each is documented here so that future operators know they were considered and consciously deferred, not overlooked.
+
+**S3 access logging.** The state bucket does not currently have S3 server access logging enabled. ISO 27001:2022 Annex A.8.15 (Logging) recommends access logging on critical storage. Enabling it requires a dedicated log-destination bucket with ACL-based write permissions (S3 access logs cannot use bucket policies). This is a Phase 2 hardening item — the state bucket should be functional before adding observability on top of it.
+
+**Per-layer state isolation.** The current bucket policy grants read/write access to any principal in the AWS Organization via `aws:PrincipalOrgID`. This means a role in the staging account can theoretically read or write the production state file. For a single-operator lab project this is acceptable. When multiple teams or operators are introduced, the bucket policy should be tightened with IAM path conditions or S3 prefix-scoped policies to enforce per-account or per-layer access boundaries.
+
+**Cross-region state replication.** The state bucket exists in a single region (`eu-central-1`) with no cross-region replication. State file loss in a regional outage would require reconstruction from AWS resource inspection. For a lab project the risk is acceptable. Production deployments should enable S3 Cross-Region Replication to the DR region (`eu-west-1`) with a dedicated replica bucket.

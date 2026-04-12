@@ -777,6 +777,7 @@ This file should not exist or should be empty of `aegis-*` content. If it does c
 - **Terraform says "no valid credential sources"**: Confirm `AWS_PROFILE` is exported in the current shell. Confirm `aws sts get-caller-identity` works in the same shell before running Terraform.
 - **SSO session expires mid-`terraform apply`**: Run `aws sso login` in another terminal and then rerun the apply. Terraform will re-read the refreshed credentials.
 - **Control Tower enrollment fails after 90 minutes**: Check `AWS CloudTrail > Event history` for errors. Common causes include pre-existing CloudTrail trails with overlapping names, or pre-existing Config recorders. This runbook assumes a fresh account (Scenario A) where none of these pre-existing resources are present.
+- **`terraform init -migrate-state` fails with `-input=false`**: State migration requires interactive confirmation and rejects the `-input=false` flag. Either run interactively and type `yes`, or pipe confirmation: `echo "yes" | terraform init -migrate-state`.
 
 ## Cross-References
 
