@@ -1,0 +1,46 @@
+name: Checkov Security Scan
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'terraform/**'
+  push:
+    branches: [main]
+    paths:
+      - 'terraform/**'
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write
+
+jobs:
+  checkov:
+    name: Checkov IaC Security Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Checkov
+        id: checkov
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: terraform/
+          framework: terraform
+          output_format: cli,sarif
+          output_file_path: console,results.sarif
+          soft_fail: false
+          quiet: true
+          skip_path: terraform/environments/shared/aft
+          # Skip the AFT environment — it is vendor code from the aws-ia module,
+          # not our code. Scanning it generates noise about upstream design
+          # choices we cannot change.
+
+      - name: Upload SARIF to GitHub Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif
+          category: checkov
