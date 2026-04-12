@@ -778,6 +778,7 @@ This file should not exist or should be empty of `aegis-*` content. If it does c
 - **SSO session expires mid-`terraform apply`**: Run `aws sso login` in another terminal and then rerun the apply. Terraform will re-read the refreshed credentials.
 - **Control Tower enrollment fails after 90 minutes**: Check `AWS CloudTrail > Event history` for errors. Common causes include pre-existing CloudTrail trails with overlapping names, or pre-existing Config recorders. This runbook assumes a fresh account (Scenario A) where none of these pre-existing resources are present.
 - **`terraform init -migrate-state` fails with `-input=false`**: State migration requires interactive confirmation and rejects the `-input=false` flag. Either run interactively and type `yes`, or pipe confirmation: `echo "yes" | terraform init -migrate-state`.
+- **`CreateAccountAlias` fails with `EntityAlreadyExists` but `list-account-aliases` returns empty**: IAM account aliases are **globally unique across all AWS accounts worldwide**, not just within your organization. If `aegis-prod` is taken by another AWS customer, you cannot use it. Fix: prefix with your domain or org name (e.g., `binhsu-aegis-prod`) to guarantee uniqueness. This project uses the `binhsu-aegis-*` pattern for all accounts.
 
 ## Cross-References
 
