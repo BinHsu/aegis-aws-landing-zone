@@ -3,12 +3,8 @@ name: Checkov Security Scan
 on:
   pull_request:
     branches: [main]
-    paths:
-      - 'terraform/**'
   push:
     branches: [main]
-    paths:
-      - 'terraform/**'
 
 permissions:
   contents: read
