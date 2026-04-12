@@ -1,0 +1,60 @@
+name: Terraform Apply
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'terraform/**'
+      - 'config/**'
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  TF_VERSION: "1.14.8"
+  AWS_REGION: "eu-central-1"
+
+jobs:
+  apply:
+    name: Apply ${{ matrix.env }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          # Order matters: bootstrap before scps (dependencies)
+          - env: shared/bootstrap
+            account_id: "345895787808"
+          - env: management/bootstrap
+            account_id: "186052668286"
+          - env: management/scps
+            account_id: "186052668286"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write config
+        run: |
+          mkdir -p config
+          cat <<'EOFCONFIG' > config/landing-zone.yaml
+          ${{ secrets.LANDING_ZONE_CONFIG }}
+          EOFCONFIG
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ matrix.account_id }}:role/github-actions-terraform
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        working-directory: terraform/environments/${{ matrix.env }}
+        run: terraform init -input=false
+
+      - name: Terraform Apply
+        working-directory: terraform/environments/${{ matrix.env }}
+        run: terraform apply -auto-approve -input=false -no-color
