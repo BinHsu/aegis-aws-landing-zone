@@ -34,6 +34,26 @@ jobs:
           # not our code. Scanning it generates noise about upstream design
           # choices we cannot change.
 
+          # Each skipped check must cite a reason. New findings (not listed here)
+          # will fail the build and require either a fix or an explicit skip entry
+          # with justification.
+          skip_check: >-
+            CKV_AWS_18,
+            CKV_AWS_144,
+            CKV2_AWS_62,
+            CKV_AWS_274
+          # CKV_AWS_18  (S3 access logging) — deferred per ADR-003 Future Hardening.
+          #   Enabling requires a separate log-destination bucket with ACL-based
+          #   write permissions. Tracked for Phase 2 observability work.
+          # CKV_AWS_144 (S3 cross-region replication) — deferred per ADR-003.
+          #   Lab project accepts single-region state risk. Production needs CRR
+          #   to the DR region (eu-west-1).
+          # CKV2_AWS_62 (S3 event notifications) — not applicable for Terraform
+          #   state bucket. No downstream consumer needs object-level events.
+          # CKV_AWS_274 (AdministratorAccess policy) — intentional for lab per
+          #   ADR-001 scope boundary and inline comments in oidc-github.tf.
+          #   Production should scope down to per-environment minimum permissions.
+
       - name: Upload SARIF to GitHub Security tab
         if: always()
         uses: github/codeql-action/upload-sarif@v3
