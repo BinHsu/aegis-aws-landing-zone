@@ -1117,6 +1117,78 @@ EOF
 
 This ensures `terraform plan` must pass before a PR can be merged.
 
+### 10.4 Enable signed commits
+
+Signed commits prove that every commit was made by a key the owner controls, not someone impersonating them. GitHub displays a "Verified" badge next to signed commits. This is a portfolio signal for security-consciousness.
+
+#### 10.4.1 Generate an SSH signing key (skip if you already have one)
+
+If you already use SSH to authenticate with GitHub and have `~/.ssh/id_ed25519`, you can reuse the same key for signing. Otherwise, generate a new Ed25519 key:
+
+```
+ssh-keygen -t ed25519 -C "your-email@example.com" -f ~/.ssh/id_ed25519
+```
+
+Press Enter at the passphrase prompt for no passphrase, or set one for additional security (you will need to enter it on every commit unless you use ssh-agent).
+
+The command creates two files:
+- `~/.ssh/id_ed25519` — private key, never share, protect with `chmod 600`
+- `~/.ssh/id_ed25519.pub` — public key, safe to upload to GitHub
+
+> **Ed25519 vs RSA**: Ed25519 is the modern default — shorter keys, faster signing, and no known weaknesses. RSA keys require at least 4096 bits to be considered secure today; Ed25519's 256-bit keys are equivalent to roughly 3072-bit RSA. Use Ed25519 unless you have a specific compatibility requirement.
+
+#### 10.4.2 Configure git to sign commits
+
+Configure git to sign with your SSH key (no GPG required — git 2.34+ supports SSH signing natively):
+
+```
+git config --global user.signingkey ~/.ssh/id_ed25519.pub
+git config --global commit.gpgsign true
+git config --global gpg.format ssh
+```
+
+The `--global` flag applies to all repos on this machine. Omit it to apply only to the current repo.
+
+#### 10.4.3 Register the SSH key as a signing key in GitHub
+
+The same SSH key can serve two purposes — authentication (for `git push`) and signing (for commit verification). These are registered as **separate** key entries in GitHub.
+
+1. Copy your public key: `pbcopy < ~/.ssh/id_ed25519.pub` (macOS) or `cat ~/.ssh/id_ed25519.pub` and copy manually.
+2. Navigate to **GitHub → Settings → SSH and GPG keys → New SSH key**.
+3. Set **Key type** to **Signing Key** (not Authentication Key).
+4. Paste the public key and save.
+
+If you also want to use the same key for authentication, add it again as a **Authentication Key**.
+
+#### 10.4.4 Verify signing works
+
+Local verification:
+
+```
+git commit --allow-empty -m "test: verify signing" && git log -1 --show-signature
+```
+
+Expected output includes `Good "git" signature for <your-email>`.
+
+After pushing, check GitHub's verification status:
+
+```
+gh api repos/<owner>/<repo>/commits/<sha> --jq '.commit.verification'
+```
+
+Expected: `"verified": true, "reason": "valid"`.
+
+#### 10.4.5 Require signed commits on main
+
+```
+gh api repos/<owner>/<repo>/branches/main/protection/required_signatures \
+  --method POST
+```
+
+This is a separate endpoint from the main branch protection config. Once enabled, any unsigned commit pushed to main will be rejected.
+
+> **Note**: Historical commits made before signing was configured will show "Unverified" in the GitHub UI. This is expected and cannot be retroactively fixed without rewriting history. Only new commits are subject to the signing requirement.
+
 ---
 
 ## Cross-References
