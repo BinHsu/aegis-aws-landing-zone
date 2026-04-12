@@ -1,0 +1,28 @@
+# Deployment-specific configuration (contains account IDs, emails, SSO URLs)
+# See config/landing-zone.example.yaml for the template
+config/landing-zone.yaml
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~

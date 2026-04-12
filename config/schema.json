@@ -1,0 +1,282 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/BinHsu/aegis-aws-landing-zone/config/schema.json",
+  "title": "Aegis AWS Landing Zone Configuration",
+  "description": "Deployment-specific configuration contract. See ADR-004 for rationale.",
+  "type": "object",
+  "required": [
+    "organization",
+    "domain",
+    "accounts",
+    "regions",
+    "sso",
+    "github",
+    "tags",
+    "budget",
+    "ipam",
+    "control_tower"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "organization": {
+      "type": "object",
+      "required": ["name", "id"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Organization name prefix used in resource naming"
+        },
+        "id": {
+          "type": "string",
+          "description": "AWS Organizations ID (format: o-xxxxxxxxxx)",
+          "pattern": "^o-[a-z0-9]{10,32}$"
+        }
+      }
+    },
+    "domain": {
+      "type": "object",
+      "required": ["name", "email_pattern"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Registered domain for AWS account root emails"
+        },
+        "email_pattern": {
+          "type": "string",
+          "description": "Email pattern with {account} placeholder, e.g. aws-aegis-{account}@example.com"
+        }
+      }
+    },
+    "accounts": {
+      "type": "object",
+      "required": [
+        "management",
+        "security",
+        "logarchive",
+        "shared",
+        "staging",
+        "prod"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "management": { "$ref": "#/$defs/account" },
+        "security": { "$ref": "#/$defs/account" },
+        "logarchive": { "$ref": "#/$defs/account" },
+        "shared": { "$ref": "#/$defs/account" },
+        "staging": { "$ref": "#/$defs/account" },
+        "prod": { "$ref": "#/$defs/account" }
+      }
+    },
+    "regions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "role", "zones"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "AWS region identifier",
+            "pattern": "^[a-z]{2}-[a-z]+-[0-9]+$"
+          },
+          "role": {
+            "type": "string",
+            "enum": ["primary", "dr"],
+            "description": "Region role: primary or disaster recovery"
+          },
+          "zones": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z]{2}-[a-z]+-[0-9]+[a-z]$"
+            },
+            "description": "Availability Zone names within the region"
+          }
+        }
+      }
+    },
+    "sso": {
+      "type": "object",
+      "required": ["start_url", "region"],
+      "additionalProperties": false,
+      "properties": {
+        "start_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "IAM Identity Center AWS access portal URL"
+        },
+        "region": {
+          "type": "string",
+          "pattern": "^[a-z]{2}-[a-z]+-[0-9]+$",
+          "description": "Region where Identity Center is deployed"
+        }
+      }
+    },
+    "github": {
+      "type": "object",
+      "required": ["org", "infra_repo", "app_repo"],
+      "additionalProperties": false,
+      "properties": {
+        "org": {
+          "type": "string",
+          "description": "GitHub organization or user name"
+        },
+        "infra_repo": {
+          "type": "string",
+          "description": "Infrastructure repository name (this repo)"
+        },
+        "app_repo": {
+          "type": "string",
+          "description": "Application repository name (aegis-core)"
+        }
+      }
+    },
+    "tags": {
+      "type": "object",
+      "required": [
+        "Project",
+        "ManagedBy",
+        "CostCenter",
+        "Owner",
+        "DataClassification",
+        "Compliance"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "Project": { "type": "string" },
+        "ManagedBy": { "type": "string" },
+        "CostCenter": { "type": "string" },
+        "Owner": { "type": "string" },
+        "DataClassification": {
+          "type": "string",
+          "enum": ["public", "internal", "confidential", "restricted"]
+        },
+        "Compliance": { "type": "string" }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "required": ["daily_usd", "monthly_usd", "alert_emails"],
+      "additionalProperties": false,
+      "properties": {
+        "daily_usd": {
+          "type": "number",
+          "minimum": 1,
+          "description": "Daily budget ceiling in USD"
+        },
+        "monthly_usd": {
+          "type": "number",
+          "minimum": 1,
+          "description": "Monthly budget ceiling in USD"
+        },
+        "alert_emails": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "format": "email" },
+          "description": "Email addresses for budget alert notifications"
+        }
+      }
+    },
+    "ipam": {
+      "type": "object",
+      "required": ["top_cidr", "pools"],
+      "additionalProperties": false,
+      "properties": {
+        "top_cidr": {
+          "type": "string",
+          "description": "Top-level CIDR block for AWS IPAM",
+          "pattern": "^([0-9]{1,3}\\.){3}[0-9]{1,3}/[0-9]{1,2}$"
+        },
+        "pools": {
+          "type": "object",
+          "description": "Regional IPAM pool declarations keyed by region name",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["cidr"],
+            "additionalProperties": false,
+            "properties": {
+              "cidr": {
+                "type": "string",
+                "pattern": "^([0-9]{1,3}\\.){3}[0-9]{1,3}/[0-9]{1,2}$"
+              }
+            }
+          }
+        }
+      }
+    },
+    "control_tower": {
+      "type": "object",
+      "required": ["home_region", "governed_regions", "kms_key_alias"],
+      "additionalProperties": false,
+      "properties": {
+        "home_region": {
+          "type": "string",
+          "pattern": "^[a-z]{2}-[a-z]+-[0-9]+$",
+          "description": "Control Tower home region (permanent, cannot change)"
+        },
+        "governed_regions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z]{2}-[a-z]+-[0-9]+$"
+          },
+          "description": "Regions governed by Control Tower guardrails"
+        },
+        "kms_key_alias": {
+          "type": "string",
+          "description": "KMS key alias for CloudTrail and Config encryption"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "account": {
+      "type": "object",
+      "required": ["id", "email", "ou"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "AWS account ID (12 digits) or empty string if not yet provisioned",
+          "pattern": "^$|^[0-9]{12}$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Root email address for the AWS account"
+        },
+        "ou": {
+          "type": "string",
+          "enum": ["root", "Security", "Infrastructure", "Workloads"],
+          "description": "Target OU placement per ADR-006"
+        },
+        "vpcs": {
+          "type": "object",
+          "description": "VPC declarations keyed by region name (IPAM-driven, see ADR-004 Mode B)",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["netmask_length", "ipam_pool"],
+            "additionalProperties": false,
+            "properties": {
+              "netmask_length": {
+                "type": "integer",
+                "minimum": 16,
+                "maximum": 28,
+                "description": "CIDR netmask length for IPAM allocation"
+              },
+              "ipam_pool": {
+                "type": "string",
+                "description": "Reference to an IPAM pool name in ipam.pools"
+              }
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

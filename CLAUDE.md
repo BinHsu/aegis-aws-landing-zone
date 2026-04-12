@@ -27,9 +27,14 @@ This is a hands-on portfolio project by **Bin Hsu**, a Senior Software Architect
 
 ## Communication Rules
 
-- **Primary Language**: English for all code, comments, and documentation.
-- **Secondary Language**: User may type in Chinese (Traditional) for efficiency. AI responds in English.
-- **English Correction**: Flag any incorrect or unnatural English the user types with a corrected version.
+- **Artifact Language**: All code, comments, commit messages, documentation, ADRs, runbooks, diagrams, and any file written to the repo MUST be in English. No exceptions.
+- **Conversation Language**: AI mirrors the language the user types in.
+  - User types English → AI responds in English.
+  - User types Chinese (Traditional) → AI responds in Chinese (Traditional).
+  - If a message mixes languages, AI responds in whichever language dominates the user's message.
+  - Language switching is per-message: the AI re-evaluates on every turn, not once per session.
+- **Technical terms stay in English** even in Chinese replies (e.g., "Terraform", "SCP", "break-glass", "burn-rate alert") — do not translate industry terminology.
+- **English Correction**: When the user types in English, flag any incorrect or unnatural phrasing with a corrected version. Do not correct Chinese input.
 
 ## Technical Standards
 
@@ -47,7 +52,7 @@ This is a hands-on portfolio project by **Bin Hsu**, a Senior Software Architect
 
 ### AWS
 - **Region**: `eu-central-1` (Frankfurt) as primary. SCPs deny all other regions except `eu-west-1` (Ireland) as DR
-- **Account naming**: `lzlab-management`, `lzlab-security`, `lzlab-staging`, `lzlab-prod`
+- **Account naming**: `aegis-management`, `aegis-security`, `aegis-logarchive`, `aegis-shared`, `aegis-staging`, `aegis-prod` (6 accounts per ADR-006; `aegis-logarchive` and `aegis-shared` are added versus the original 4-account sketch)
 - **No IAM users**: SSO only for humans, OIDC for GitHub, IRSA for K8s workloads
 - **Tagging**: All resources must have `Project=landing-zone-lab`, `Environment=<env>`, `ManagedBy=terraform`
 

@@ -1,0 +1,109 @@
+# =============================================================================
+# Aegis AWS Landing Zone — Deployment Configuration Template
+# =============================================================================
+# Copy this file to landing-zone.yaml and fill in your real values.
+# landing-zone.yaml is gitignored — never commit real account IDs or emails.
+# See ADR-004 for the contract rationale.
+# JSON Schema: config/schema.json
+# =============================================================================
+
+---
+organization:
+  name: aegis
+  id: "o-exampleorgid"
+
+domain:
+  name: example.com
+  email_pattern: "aws-aegis-{account}@example.com"
+
+accounts:
+  management:
+    id: "111111111111"
+    email: "aws-aegis-management@example.com"
+    ou: root
+  security:
+    id: "222222222222"
+    email: "aws-aegis-security@example.com"
+    ou: Security
+  logarchive:
+    id: "333333333333"
+    email: "aws-aegis-logarchive@example.com"
+    ou: Security
+  shared:
+    id: "444444444444"
+    email: "aws-aegis-shared@example.com"
+    ou: Infrastructure
+  staging:
+    id: "555555555555"
+    email: "aws-aegis-staging@example.com"
+    ou: Workloads
+    vpcs:
+      eu-central-1:
+        netmask_length: 20
+        ipam_pool: eu-central-1
+      eu-west-1:
+        netmask_length: 22
+        ipam_pool: eu-west-1
+  prod:
+    id: "666666666666"
+    email: "aws-aegis-prod@example.com"
+    ou: Workloads
+    vpcs:
+      eu-central-1:
+        netmask_length: 20
+        ipam_pool: eu-central-1
+      eu-west-1:
+        netmask_length: 22
+        ipam_pool: eu-west-1
+
+regions:
+  - name: eu-central-1
+    role: primary
+    zones:
+      - eu-central-1a
+      - eu-central-1b
+      - eu-central-1c
+  - name: eu-west-1
+    role: dr
+    zones:
+      - eu-west-1a
+      - eu-west-1b
+      - eu-west-1c
+
+sso:
+  start_url: "https://d-xxxxxxxxxxxx.awsapps.com/start"
+  region: eu-central-1
+
+github:
+  org: YourGitHubOrg
+  infra_repo: aegis-aws-landing-zone
+  app_repo: aegis-core
+
+tags:
+  Project: landing-zone-lab
+  ManagedBy: terraform
+  CostCenter: lab
+  Owner: your-name
+  DataClassification: internal
+  Compliance: iso27001
+
+budget:
+  daily_usd: 10
+  monthly_usd: 30
+  alert_emails:
+    - your-email@example.com
+
+ipam:
+  top_cidr: "10.0.0.0/8"
+  pools:
+    eu-central-1:
+      cidr: "10.0.0.0/12"
+    eu-west-1:
+      cidr: "10.16.0.0/12"
+
+control_tower:
+  home_region: eu-central-1
+  governed_regions:
+    - eu-central-1
+    - eu-west-1
+  kms_key_alias: "alias/aegis-control-tower-key"
