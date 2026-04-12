@@ -787,6 +787,168 @@ This file should not exist or should be empty of `aegis-*` content. If it does c
 - ADR-008: Landing Zone Tooling — the Control Tower + Terraform Hybrid decision that makes Part 4 the correct path.
 - ADR-009: Lifecycle and Teardown Strategy — what to do with all of this when the project reaches end of life.
 
+## Part 8: Create aegis-shared Account (Account Factory — Manual)
+
+This is the **only** account created manually via console. All subsequent accounts (aegis-staging, aegis-prod) are provisioned via Account Factory for Terraform (AFT) after the state bucket exists. See ADR-010 for the rationale: this manual step breaks the chicken-and-egg cycle between AFT (which needs a state bucket) and the shared account (which hosts the state bucket).
+
+### 8.1 Prerequisites — Service Catalog Portfolio Access
+
+> **CRITICAL GOTCHA**: Control Tower's Account Factory is a Service Catalog product. By default, Control Tower only grants portfolio access to its own built-in permission sets (`AWSAdministratorAccess` and `AWSServiceCatalogEndUserAccess`). If you created a custom permission set (e.g., `PlatformAdmin` per Part 5), it does **not** automatically have access to the Account Factory portfolio. Without this access, you will see: _"No launch paths found for resource: prod-xxxxxxxxx"_.
+>
+> **Fix before proceeding:**
+>
+> 1. Find your portfolio ID and SSO role ARN:
+>    ```
+>    aws servicecatalog list-portfolios --region eu-central-1 \
+>      --query 'PortfolioDetails[?starts_with(DisplayName,`AWS Control Tower`)].Id' --output text
+>    ```
+> 2. Associate your custom permission set role with the portfolio:
+>    ```
+>    aws servicecatalog associate-principal-with-portfolio \
+>      --portfolio-id <portfolio-id> \
+>      --principal-arn "arn:aws:iam::<management-account-id>:role/aws-reserved/sso.amazonaws.com/<region>/AWSReservedSSO_<YourPermissionSetName>_<suffix>" \
+>      --principal-type IAM \
+>      --region eu-central-1
+>    ```
+> 3. Verify:
+>    ```
+>    aws servicecatalog list-principals-for-portfolio \
+>      --portfolio-id <portfolio-id> --region eu-central-1 \
+>      --query 'Principals[].PrincipalARN' --output table
+>    ```
+>
+> Your custom role should now appear alongside the Control Tower defaults.
+
+### 8.1.1 Prerequisites — Clear Landing Zone Drift (if applicable)
+
+If Control Tower's **Create account** page shows _"potential drift in your landing zone"_, this may be caused by residual failed operations from initial Control Tower setup (e.g., the KMS key policy issue in Part 4). Even if the landing zone is currently `ACTIVE` and `IN_SYNC`, the failed operation history can trigger this block.
+
+**Fix:**
+
+1. Navigate to **Control Tower** → **Landing zone settings** → **Modify settings**.
+2. Do not change any values. Walk through the wizard and click **Update landing zone** at the end.
+3. Wait approximately 20-30 minutes for the re-baseline to complete.
+4. **Important**: The Control Tower UI does not auto-refresh after the update completes. You must navigate back to the previous page and reload the browser before retrying. If you stay on the same page, the stale drift error will persist even though the drift has been cleared.
+5. Retry **Create account** after refreshing.
+
+**Fallback — Service Catalog direct method**: If the CT UI still blocks after re-baseline and refresh, go to **Service Catalog** → **Products** → **AWS Control Tower Account Factory** → **Launch product**. Fill in the same field values from 8.3. This bypasses the CT UI drift check while still applying all CT baseline guardrails — the underlying provisioning product is identical.
+
+### 8.2 Navigate to Account Factory
+
+1. Sign in to the management account via SSO (`https://d-xxxxxxxxxxxx.awsapps.com/start` → aegis-management).
+2. Navigate to **AWS Control Tower** → **Organization** → **Create account**.
+
+> **IMPORTANT**: Use the Control Tower Account Factory, not the raw AWS Organizations "Add an AWS account" page. Account Factory applies the full Control Tower baseline (guardrails, Config recorder, CloudTrail integration, SCP inheritance). Raw Organizations API skips all of this and creates reconciliation debt.
+
+### 8.3 Fill in account details
+
+| Field | Value | Notes |
+|-------|-------|-------|
+| **Account email** | `aws-aegis-shared@your-domain.org` | Must be a real deliverable address. Uses the email pattern from `config/landing-zone.yaml`. |
+| **Display name** | `aegis-shared` | Matches the account naming convention in ADR-006. |
+| **SSO user email** | Your personal email (e.g., `pcpunkhades@gmail.com`) | Same Identity Center user; do NOT use the account root email here. |
+| **SSO first name / last name** | Your name | Same as Identity Center user created in Part 5. |
+| **Organizational unit** | `Infrastructure` | Per ADR-006 OU structure. |
+
+### 8.4 Review and create
+
+Review all fields. Click **Create account**. Account Factory provisions the account through a Service Catalog product, which takes approximately 20-30 minutes.
+
+Monitor progress: **AWS Control Tower** → **Organization** → look for the new account row. Status transitions: `Enrolling` → `Enrolled`.
+
+> **Do not close the browser or navigate away during provisioning.** The Service Catalog product runs a CloudFormation StackSet that creates baseline resources in the new account. Interrupting it leaves the account in an inconsistent state.
+
+### 8.5 Record the account ID
+
+Once the account shows `Enrolled`:
+
+1. Click on the account name → note the **Account ID** (12 digits).
+2. Open `config/landing-zone.yaml` and fill in `accounts.shared.id` with the new account ID.
+3. Verify the account appears in the correct OU:
+
+```
+aws organizations list-accounts-for-parent \
+  --parent-id <infrastructure-ou-id> \
+  --query 'Accounts[].{Name:Name,Id:Id,Status:Status}' \
+  --output table
+```
+
+### 8.6 Assign PlatformAdmin permission set to the new account
+
+> **GOTCHA**: Account Factory only provisions Control Tower's built-in permission sets (`AWSAdministratorAccess`, `AWSPowerUserAccess`, `AWSReadOnlyAccess`, `AWSOrganizationsFullAccess`) to the new account. Your custom `PlatformAdmin` permission set is **not** automatically assigned. Without this step, `aws sts get-caller-identity` with the `PlatformAdmin` profile will return `ForbiddenException: No access`.
+
+Assign PlatformAdmin to the new account:
+
+```
+aws sso-admin create-account-assignment \
+  --instance-arn "arn:aws:sso:::instance/<your-sso-instance-id>" \
+  --target-id <new-account-id> \
+  --target-type AWS_ACCOUNT \
+  --permission-set-arn "<your-PlatformAdmin-permission-set-arn>" \
+  --principal-type USER \
+  --principal-id "<your-identity-center-user-id>" \
+  --region eu-central-1
+```
+
+To find the required values:
+
+- **SSO instance ARN**: `aws sso-admin list-instances --region eu-central-1`
+- **Permission set ARN**: `aws sso-admin list-permission-sets --instance-arn <instance-arn> --region eu-central-1` then `describe-permission-set` to find `PlatformAdmin`
+- **User ID**: `aws identitystore list-users --identity-store-id <identity-store-id> --region eu-central-1 --query 'Users[?UserName==\`bin\`].UserId'`
+
+Wait for the assignment to complete (typically a few seconds):
+
+```
+aws sso-admin describe-account-assignment-creation-status \
+  --instance-arn <instance-arn> \
+  --account-assignment-creation-request-id <request-id-from-above> \
+  --region eu-central-1
+```
+
+### 8.7 Add SSO profile for the new account
+
+Append to `~/.aws/config`:
+
+```ini
+[profile aegis-shared-admin]
+sso_session = aegis
+sso_account_id = <new-account-id>
+sso_role_name = PlatformAdmin
+region = eu-central-1
+output = json
+```
+
+After adding the profile, refresh the SSO session to pick up the new account assignment:
+
+```
+aws sso login --sso-session aegis
+```
+
+Then verify access:
+
+```
+export AWS_PROFILE=aegis-shared-admin
+aws sts get-caller-identity
+```
+
+The output should show the new account ID and the `AWSReservedSSO_PlatformAdmin_*` role.
+
+### 8.8 Why this is the only manual account
+
+This step exists because of a bootstrap cycle: the Terraform state bucket lives in aegis-shared, but AFT (which automates account creation) requires the state bucket to already exist. Creating aegis-shared manually breaks the cycle at the minimum viable point. Every account after this — aegis-staging, aegis-prod, and any future accounts — is provisioned via AFT with full automation. See ADR-010 for the complete decision record.
+
+---
+
+## Cross-References
+
+- ADR-001: Landing Zone Scope Boundary — the "SSO only for humans" principle.
+- ADR-002: Region and Availability Zone Strategy — the `eu-central-1` home region decision.
+- ADR-004: Deployment Configuration Contract — how account IDs collected in this runbook are consumed by Terraform.
+- ADR-006: Account Taxonomy and OU Structure — the target account layout after AFT provisioning in Phase 1.
+- ADR-008: Landing Zone Tooling — the Control Tower + Terraform Hybrid decision that makes Part 4 the correct path.
+- ADR-009: Lifecycle and Teardown Strategy — what to do with all of this when the project reaches end of life.
+- ADR-010: Shared Account Bootstrap Sequence — why aegis-shared is the only manually created account.
+
 ## What's Next
 
 With this runbook complete, you have:
@@ -796,5 +958,6 @@ With this runbook complete, you have:
 - Control Tower landing zone provisioned with Security OU baseline.
 - IAM Identity Center with a user and `PlatformAdmin` permission set.
 - Local SSO configuration enabling Terraform without long-lived credentials.
+- `aegis-shared` account provisioned in the Infrastructure OU.
 
-Phase 1 proper begins with writing the `config/landing-zone.yaml` template and the first Terraform environment: `terraform/environments/shared/bootstrap/` to create the Terraform state bucket and AFT installation.
+Next step is deploying `terraform/environments/shared/bootstrap/` to create the Terraform state bucket, then migrating from local state to S3 with native locking per ADR-003.
