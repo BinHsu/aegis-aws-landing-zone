@@ -43,7 +43,22 @@ See [ADR-006](docs/decisions/006-account-taxonomy-and-ou-structure.md) for the f
 
 All deployment-specific values (account IDs, emails, regions, CIDRs) live in `config/landing-zone.yaml` (gitignored). A committed template at [`config/landing-zone.example.yaml`](config/landing-zone.example.yaml) shows the expected structure. JSON Schema validation at [`config/schema.json`](config/schema.json) enforces the contract. See [ADR-004](docs/decisions/004-deployment-configuration-contract.md).
 
-**Fork-and-deploy is a config-only operation.** Copy the example, fill in your values, and every Terraform module reads from it.
+**Fork-and-deploy is a config-only operation:**
+
+```bash
+# 1. Copy the template and fill in your values
+cp config/landing-zone.example.yaml config/landing-zone.yaml
+# Edit config/landing-zone.yaml with your account IDs, domain, regions, etc.
+
+# 2. Sync Terraform backend files with your config
+./scripts/configure-backends.sh
+
+# 3. Initialize and deploy
+cd terraform/environments/shared/bootstrap
+terraform init && terraform plan
+```
+
+The script reads your `config/landing-zone.yaml` and updates all `backend.tf` files with the correct S3 bucket name and region. This is necessary because Terraform's backend block [does not support variables](docs/decisions/003-terraform-backend-bootstrap.md) — the only hardcoded values in the repository.
 
 ## Phases
 
