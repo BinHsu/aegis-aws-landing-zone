@@ -1,0 +1,42 @@
+# =============================================================================
+# Pre-commit hooks — local quality gates before commit
+# =============================================================================
+# Install:
+#   brew install pre-commit
+#   pre-commit install
+#
+# Run manually on all files:
+#   pre-commit run --all-files
+# =============================================================================
+
+repos:
+  # General-purpose hygiene
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        exclude: ^\.github/workflows/  # GitHub Actions YAML allows syntax check-yaml misreads
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ['--maxkb=500']
+
+  # Terraform formatting + validation
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.96.2
+    hooks:
+      - id: terraform_fmt
+      - id: terraform_validate
+        exclude: ^terraform/environments/shared/aft/  # Requires AWS provider v6, skip in local validate
+
+  # JSON Schema validation for config/landing-zone.yaml
+  - repo: local
+    hooks:
+      - id: validate-landing-zone-config
+        name: Validate config/landing-zone.yaml against schema
+        entry: python3 scripts/validate-config.py
+        language: system
+        files: ^config/landing-zone\.yaml$
+        pass_filenames: false
