@@ -107,7 +107,7 @@ resource "aws_s3_bucket_policy" "terraform_state" {
 }
 
 resource "aws_iam_account_alias" "this" {
-  account_alias = "aegis-shared"
+  account_alias = "binhsu-aegis-shared"
 }
 
 data "aws_caller_identity" "current" {}

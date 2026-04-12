@@ -15,7 +15,7 @@
 # -----------------------------------------------------------------------------
 
 resource "aws_iam_account_alias" "this" {
-  account_alias = "aegis-management"
+  account_alias = "binhsu-aegis-management"
 }
 
 # Data source to verify we are operating in the correct account
