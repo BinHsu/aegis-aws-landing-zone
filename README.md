@@ -74,6 +74,7 @@ All deployment-specific values (account IDs, emails, regions, CIDRs) live in `co
 | [008](docs/decisions/008-landing-zone-tooling-control-tower-hybrid.md) | Landing zone tooling — Control Tower + Terraform hybrid |
 | [009](docs/decisions/009-lifecycle-and-teardown-strategy.md) | Lifecycle and teardown strategy |
 | [010](docs/decisions/010-shared-account-bootstrap-sequence.md) | Shared account bootstrap sequence |
+| [011](docs/decisions/011-account-provisioning-two-path-strategy.md) | Account provisioning — two-path strategy |
 
 ## Companion Application Repository
 

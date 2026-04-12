@@ -934,9 +934,95 @@ aws sts get-caller-identity
 
 The output should show the new account ID and the `AWSReservedSSO_PlatformAdmin_*` role.
 
-### 8.8 Why this is the only manual account
+### 8.8 Why aegis-shared is created manually
 
-This step exists because of a bootstrap cycle: the Terraform state bucket lives in aegis-shared, but AFT (which automates account creation) requires the state bucket to already exist. Creating aegis-shared manually breaks the cycle at the minimum viable point. Every account after this — aegis-staging, aegis-prod, and any future accounts — is provisioned via AFT with full automation. See ADR-010 for the complete decision record.
+This step exists because of a bootstrap cycle: the Terraform state bucket lives in aegis-shared, but AFT (which automates account creation) requires the state bucket to already exist. Creating aegis-shared manually breaks the cycle at the minimum viable point. See ADR-010 for the complete decision record.
+
+---
+
+## Part 9: Provision Remaining Accounts (staging + prod)
+
+Two provisioning paths are available. Choose based on your situation. See ADR-011 for the full decision rationale.
+
+| Your Situation | Recommended Path |
+|---------------|-----------------|
+| Fewer than 15 accounts, single operator, budget under $20/month baseline | **Path A — Manual Account Factory** |
+| Multiple operators, compliance audit trail needed, 15+ accounts projected | **Path B — Account Factory for Terraform (AFT)** |
+
+### Path A — Manual Account Factory (default)
+
+Repeat the Part 8 procedure for each remaining account. The steps are identical — only the field values change.
+
+**For aegis-staging:**
+
+| Field | Value |
+|-------|-------|
+| Account email | `aws-aegis-staging@your-domain.org` |
+| Display name | `aegis-staging` |
+| SSO user email | Your personal email |
+| Organizational unit | `Workloads` |
+
+**For aegis-prod:**
+
+| Field | Value |
+|-------|-------|
+| Account email | `aws-aegis-prod@your-domain.org` |
+| Display name | `aegis-prod` |
+| SSO user email | Your personal email |
+| Organizational unit | `Workloads` |
+
+After each account is created:
+
+1. Record the account ID in `config/landing-zone.yaml` (`accounts.staging.id` / `accounts.prod.id`).
+2. Assign `PlatformAdmin` permission set (Section 8.6).
+3. Add SSO profile to `~/.aws/config` (Section 8.7).
+4. Refresh SSO session: `aws sso login --sso-session aegis`.
+5. Verify: `AWS_PROFILE=aegis-staging-admin aws sts get-caller-identity`.
+6. Run `terraform apply` against the account's bootstrap layer.
+
+### Path B — Account Factory for Terraform (AFT)
+
+> **Cost warning**: AFT runs a persistent infrastructure stack (CodePipeline, CodeBuild, Lambda, DynamoDB, S3) at approximately $10-15/month. Evaluate whether this ongoing cost is justified for your account count and operator model.
+
+1. Deploy AFT from `terraform/environments/shared/aft/`:
+   ```
+   cd terraform/environments/shared/aft
+   export AWS_PROFILE=aegis-shared-admin
+   terraform init
+   terraform plan    # Review the ~50 resources AFT creates
+   terraform apply
+   ```
+   This takes approximately 20-30 minutes.
+
+2. AFT creates four CodeCommit repositories in aegis-shared. To create an account, commit a Terraform file to the `aft-account-request` repository:
+   ```hcl
+   module "aegis_staging" {
+     source = "./modules/aft-account-request"
+
+     control_tower_parameters = {
+       AccountEmail              = "aws-aegis-staging@your-domain.org"
+       AccountName               = "aegis-staging"
+       ManagedOrganizationalUnit = "Workloads"
+       SSOUserEmail              = "your-personal-email"
+       SSOUserFirstName          = "Your"
+       SSOUserLastName           = "Name"
+     }
+
+     account_tags = {
+       Project     = "landing-zone-lab"
+       Environment = "staging"
+       ManagedBy   = "aft"
+     }
+   }
+   ```
+
+3. Push the commit. AFT's CodePipeline triggers and provisions the account through Control Tower Account Factory automatically.
+
+4. After provisioning completes, retrieve the account ID and update `config/landing-zone.yaml`.
+
+5. Run `terraform apply` against the account's bootstrap layer (same as Path A step 6).
+
+> **Note**: The AFT Terraform code at `terraform/environments/shared/aft/` has been validated via `terraform validate` but has not been applied in this project's deployment (Path A was chosen). If activating Path B, expect to verify module compatibility with the current AWS provider version and debug any first-run issues that `terraform validate` does not surface.
 
 ---
 
@@ -949,6 +1035,7 @@ This step exists because of a bootstrap cycle: the Terraform state bucket lives 
 - ADR-008: Landing Zone Tooling — the Control Tower + Terraform Hybrid decision that makes Part 4 the correct path.
 - ADR-009: Lifecycle and Teardown Strategy — what to do with all of this when the project reaches end of life.
 - ADR-010: Shared Account Bootstrap Sequence — why aegis-shared is the only manually created account.
+- ADR-011: Account Provisioning Strategy — two-path design (manual vs AFT).
 
 ## What's Next
 
@@ -959,6 +1046,7 @@ With this runbook complete, you have:
 - Control Tower landing zone provisioned with Security OU baseline.
 - IAM Identity Center with a user and `PlatformAdmin` permission set.
 - Local SSO configuration enabling Terraform without long-lived credentials.
-- `aegis-shared` account provisioned in the Infrastructure OU.
+- `aegis-shared` account provisioned in the Infrastructure OU with Terraform state bucket.
+- Remaining accounts (`aegis-staging`, `aegis-prod`) provisioned via your chosen path.
 
-Next step is deploying `terraform/environments/shared/bootstrap/` to create the Terraform state bucket, then migrating from local state to S3 with native locking per ADR-003.
+Next step is running `terraform apply` against each account's bootstrap layer (`terraform/environments/<account>/bootstrap/`) to establish the account baseline.
