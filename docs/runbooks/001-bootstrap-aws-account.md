@@ -1027,6 +1027,98 @@ After each account is created:
 
 ---
 
+## Part 10: GitHub Repository Configuration
+
+### 10.1 Make the repository public
+
+The repository must be public for the portfolio use case (interviewers review the code) and for free GitHub branch protection rules.
+
+> **Security note**: AWS account IDs, Organization IDs, IAM role ARNs, and SSO URLs are metadata, not secrets. You cannot exploit them without credentials. This project has zero static credentials by design — SSO for humans, OIDC for GitHub, IRSA for K8s. Real secrets (access keys, passwords) never exist in this project. See the Security section in CLAUDE.md for the full classification.
+
+```
+gh repo edit <owner>/<repo> --visibility public --accept-visibility-change-consequences
+```
+
+Verify:
+
+```
+gh repo view <owner>/<repo> --json visibility --jq '.visibility'
+# Should output: PUBLIC
+```
+
+### 10.2 Set branch protection on main
+
+Branch protection prevents direct pushes to main, requires pull requests, and blocks force pushes. These rules are prerequisites for the Phase 2 CI/CD workflows (plan on PR, apply on merge).
+
+```
+gh api repos/<owner>/<repo>/branches/main/protection \
+  --method PUT \
+  --input - <<'EOF'
+{
+  "required_pull_request_reviews": {
+    "required_approving_review_count": 0,
+    "dismiss_stale_reviews": true
+  },
+  "enforce_admins": false,
+  "required_status_checks": null,
+  "restrictions": null,
+  "allow_force_pushes": false,
+  "allow_deletions": false
+}
+EOF
+```
+
+**Field explanations:**
+
+| Field | Value | Rationale |
+|-------|-------|-----------|
+| `required_approving_review_count` | `0` | Single operator — no second reviewer available. Increase to 1+ for team use. |
+| `dismiss_stale_reviews` | `true` | If code changes after approval, the approval is invalidated. |
+| `enforce_admins` | `false` | Owner can bypass rules. Required for single-operator workflow. Set to `true` for team use. |
+| `required_status_checks` | `null` | No CI checks yet. Phase 2 adds `terraform-plan` as a required check. |
+| `allow_force_pushes` | `false` | Prevents history rewriting on main. |
+| `allow_deletions` | `false` | Prevents branch deletion. |
+
+Verify:
+
+```
+gh api repos/<owner>/<repo>/branches/main/protection --jq '{
+  pr_reviews: .required_pull_request_reviews.required_approving_review_count,
+  dismiss_stale: .required_pull_request_reviews.dismiss_stale_reviews,
+  enforce_admins: .enforce_admins.enabled,
+  force_push: .allow_force_pushes.enabled
+}'
+```
+
+### 10.3 Phase 2 tightening
+
+When GitHub Actions CI is in place (Phase 2), update branch protection to require status checks:
+
+```
+gh api repos/<owner>/<repo>/branches/main/protection \
+  --method PUT \
+  --input - <<'EOF'
+{
+  "required_pull_request_reviews": {
+    "required_approving_review_count": 0,
+    "dismiss_stale_reviews": true
+  },
+  "enforce_admins": false,
+  "required_status_checks": {
+    "strict": true,
+    "contexts": ["terraform-plan"]
+  },
+  "restrictions": null,
+  "allow_force_pushes": false,
+  "allow_deletions": false
+}
+EOF
+```
+
+This ensures `terraform plan` must pass before a PR can be merged.
+
+---
+
 ## Cross-References
 
 - ADR-001: Landing Zone Scope Boundary — the "SSO only for humans" principle.
@@ -1049,5 +1141,8 @@ With this runbook complete, you have:
 - Local SSO configuration enabling Terraform without long-lived credentials.
 - `aegis-shared` account provisioned in the Infrastructure OU with Terraform state bucket.
 - Remaining accounts (`aegis-staging`, `aegis-prod`) provisioned via your chosen path.
+- GitHub OIDC federation for zero-credential CI/CD.
+- Organization-wide SCPs (root user, IAM user, leave org).
+- Repository set to public with branch protection on main.
 
-Next step is running `terraform apply` against each account's bootstrap layer (`terraform/environments/<account>/bootstrap/`) to establish the account baseline.
+Phase 2 begins with GitHub Actions workflows: `terraform-plan.yml` (on PR) and `terraform-apply.yml` (on merge to main).

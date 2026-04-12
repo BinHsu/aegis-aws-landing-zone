@@ -65,6 +65,9 @@ This is a hands-on portfolio project by **Bin Hsu**, a Senior Software Architect
 - **SCPs before resources**: Define organizational guardrails before creating any workload
 - **CloudTrail from day one**: Organizational trail in management account → S3 in security account
 - **Encryption default**: S3 SSE-KMS, EBS encryption, RDS encryption — all enabled by default
+- **What is NOT a secret** (safe to commit): AWS account IDs, Organization IDs, OU IDs, IAM role ARNs, SSO start URLs, KMS key ARNs, S3 bucket names. These are metadata — you cannot exploit them without credentials. They appear in `backend.tf` (Terraform language limitation) and commit messages.
+- **What IS a secret** (never commit): IAM access keys, secret keys, session tokens, passwords, private keys, OIDC client secrets. This project has zero static credentials by design (SSO for humans, OIDC for GitHub, IRSA for K8s).
+- **Deployment-specific values** (gitignored): Account IDs, emails, domain, CIDRs live in `config/landing-zone.yaml` (gitignored). They may also appear in `backend.tf` due to Terraform limitations — use `scripts/configure-backends.sh` to sync from config.
 
 ### Architecture Decision Records (ADRs)
 - **Location**: `docs/decisions/NNN-title.md`
