@@ -53,3 +53,14 @@ The JSON Schema must be kept in sync with Terraform code as the contract evolves
 IPAM introduces a small ongoing cost (approximately one to five dollars per month) and a destroy-ordering complexity: VPC allocations must be freed before IPAM pools can be deleted. The `soft-teardown-workload.sh` script in ADR-009 handles this ordering explicitly.
 
 Scheme P1 root-scoped emails mean a future migration to subdomain scheme would require AWS root-email-change operations on each account, which are supported but require verification through the old email. This is documented as a known trade-off.
+
+### Design gap discovered during implementation (Incident 7)
+
+The original decision text described IPAM in `aegis-shared` with RAM cross-account sharing, but did not enumerate the full set of prerequisites needed to make cross-account CIDR allocation work. Two independent org-level mechanisms are required, not one:
+
+1. **RAM sharing enablement** (`aws_ram_sharing_with_organization`) — lets member accounts *see and consume* the IPAM pool.
+2. **IPAM trusted service access + delegated administrator** — lets the IPAM service *monitor* member accounts so `AllocateIpamPoolCidr` API calls from member accounts succeed.
+
+The mental model we used at ADR time ("bucket-policy-plus-PrincipalOrgID is how cross-account works in AWS") did not extend to IPAM, which has its own service-level integration model. RAM visibility ≠ IPAM allocation permission. Discovered the hard way at [Incident 7](../incidents.md#incident-7--ipam-delegated-admin-not-configured-for-cross-account-vpc-allocation).
+
+The lesson generalizes: every AWS multi-account service has its own "org integration" pattern (enable trusted service access, delegate admin, configure service-linked roles). RAM, IPAM, GuardDuty, Security Hub, Config, Macie all have this pattern, and each has subtle differences. Future ADRs that span accounts should explicitly enumerate the org-level prerequisites, not assume them.

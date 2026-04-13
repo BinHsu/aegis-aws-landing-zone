@@ -34,6 +34,26 @@ resource "aws_ram_sharing_with_organization" "main" {}
 #   "Account <id> is not monitored by IPAM ipam-<id>."
 # -----------------------------------------------------------------------------
 
+# Delegates IPAM admin to the shared account, which is required because
+# shared hosts the IPAM instance (per ADR-004 Mode B) rather than the
+# management account.
+#
+# PREREQUISITE: The AWS Organizations service access for `ipam.amazonaws.com`
+# must be enabled before this resource applies. The AWS Terraform provider
+# does not expose a standalone resource for enabling service access (the
+# `aws_organizations_organization` main resource has the field, but taking
+# ownership of that resource would conflict with Control Tower's management
+# of the organization). This prerequisite is therefore enabled manually
+# via CLI once per organization, documented in the runbook troubleshooting
+# section (search "not monitored by IPAM"):
+#
+#   aws organizations enable-aws-service-access \
+#     --service-principal ipam.amazonaws.com
+#
+# This is idempotent (no-op if already enabled) and a one-time setup per
+# organization. Without it, the delegation below fails with
+# `ConstraintViolationException: You must enable service access before you
+# delegate an administrator for this service`.
 resource "aws_organizations_delegated_administrator" "ipam" {
   account_id        = local.config.accounts.shared.id
   service_principal = "ipam.amazonaws.com"
