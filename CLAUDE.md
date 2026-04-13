@@ -147,8 +147,14 @@ aws-landing-zone-lab/
 - **NEVER leave EKS, NAT Gateway, or ALB running overnight.** Always run the soft teardown at session end.
 - **Budget alerts**: daily $10, monthly $30, enforced via AWS Budgets in the management account. See memory.
 - **Phase 0-2 should cost <$5 total.** If Phase 0-2 costs exceed this, something is wrong — investigate before continuing.
-- **Phase 3+: budget ~$5-10 per 4-hour session.** Session is defined as "from `terraform apply` on a workload layer until `./scripts/teardown/soft-teardown-workload.sh <env>` runs."
-- **Rule: AI must remind the user to run the soft teardown at the end of any session that applied workload layers** (network, platform, workloads). The exact command is `./scripts/teardown/soft-teardown-workload.sh <env>`. This is not optional — a session that applies a workload layer and ends without a teardown reminder is a cost incident waiting to happen.
+- **Phase 3+: budget ~$5-10 per 4-hour session.** A session is framed as "from `gh workflow run terraform-apply-workload.yml` until `gh workflow run terraform-teardown-workload.yml`." Both are approval-gated via GitHub Environments.
+- **Rule: AI must remind the user to run the workload teardown at the end of any session that applied workload layers.** Preferred path (portfolio-visible audit trail):
+  ```
+  gh workflow run terraform-teardown-workload.yml -f env=<env>
+  gh run watch   # then approve when GitHub prompts
+  ```
+  Fallback if CI unavailable: `./scripts/teardown/soft-teardown-workload.sh <env>` (same effect locally). Not optional — a session that applied workload layers and ends without a teardown reminder is a cost incident waiting to happen.
+- **Rule: Workload layers are NOT auto-applied on merge to main.** Baseline layers (bootstrap, scps, ipam) apply automatically via `terraform-apply-baseline.yml`. Cost-incurring layers (network, platform, workloads) require explicit `gh workflow run terraform-apply-workload.yml -f env=<env>` with human approval. Changing this without an ADR is a design regression.
 - **Rule: AI must check whether a cost-incurring resource is about to be created** (NAT Gateway, EKS cluster, EC2, ALB, RDS, etc.) and explicitly note the hourly/monthly cost before proceeding to `terraform apply`. "Cost-incurring" means anything that bills while idle; storage and request-based pricing are lower-priority reminders.
 
 ## Workflow with AI

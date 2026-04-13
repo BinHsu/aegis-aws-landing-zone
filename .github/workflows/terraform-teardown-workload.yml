@@ -1,0 +1,199 @@
+name: Terraform Teardown (Workload)
+
+# workflow_dispatch-only. Destroys cost-incurring workload layers for a
+# specified environment. Gated by the `workload-teardown` GitHub Environment
+# which requires an explicit approval click by the operator.
+#
+# End-of-session command:
+#   gh workflow run terraform-teardown-workload.yml -f env=staging
+#   gh run watch   # approve when prompted in UI
+#
+# Destruction order (reverse of apply):
+#   workloads → platform → network
+#
+# Preserves bootstrap layer, shared services, all other accounts.
+# Equivalent in scope to scripts/teardown/soft-teardown-workload.sh.
+
+on:
+  workflow_dispatch:
+    inputs:
+      env:
+        description: "Workload environment to destroy"
+        required: true
+        type: choice
+        options:
+          - staging
+          - prod
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  TF_VERSION: "1.14.8"
+  AWS_REGION: "eu-central-1"
+
+jobs:
+  destroy-workloads:
+    name: Destroy ${{ inputs.env }}/workloads
+    runs-on: ubuntu-latest
+    environment: workload-teardown
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write config
+        run: |
+          mkdir -p config
+          cat <<'EOFCONFIG' > config/landing-zone.yaml
+          ${{ secrets.LANDING_ZONE_CONFIG }}
+          EOFCONFIG
+
+      - name: Resolve target account ID
+        id: acct
+        run: |
+          ACCOUNT_ID=$(python3 -c "
+          import yaml
+          c = yaml.safe_load(open('config/landing-zone.yaml'))
+          print(c['accounts']['${{ inputs.env }}']['id'])
+          ")
+          echo "account_id=${ACCOUNT_ID}" >> "$GITHUB_OUTPUT"
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ steps.acct.outputs.account_id }}:role/github-actions-terraform
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Check layer exists
+        id: exists
+        run: |
+          if [[ -d "terraform/environments/${{ inputs.env }}/workloads" ]]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::workloads layer does not exist for ${{ inputs.env }} — skipping"
+          fi
+
+      - name: Terraform Init
+        if: steps.exists.outputs.exists == 'true'
+        working-directory: terraform/environments/${{ inputs.env }}/workloads
+        run: terraform init -input=false
+
+      - name: Terraform Destroy
+        if: steps.exists.outputs.exists == 'true'
+        working-directory: terraform/environments/${{ inputs.env }}/workloads
+        run: terraform destroy -auto-approve -input=false -no-color
+
+  destroy-platform:
+    name: Destroy ${{ inputs.env }}/platform
+    needs: destroy-workloads
+    runs-on: ubuntu-latest
+    environment: workload-teardown
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write config
+        run: |
+          mkdir -p config
+          cat <<'EOFCONFIG' > config/landing-zone.yaml
+          ${{ secrets.LANDING_ZONE_CONFIG }}
+          EOFCONFIG
+
+      - name: Resolve target account ID
+        id: acct
+        run: |
+          ACCOUNT_ID=$(python3 -c "
+          import yaml
+          c = yaml.safe_load(open('config/landing-zone.yaml'))
+          print(c['accounts']['${{ inputs.env }}']['id'])
+          ")
+          echo "account_id=${ACCOUNT_ID}" >> "$GITHUB_OUTPUT"
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ steps.acct.outputs.account_id }}:role/github-actions-terraform
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Check layer exists
+        id: exists
+        run: |
+          if [[ -d "terraform/environments/${{ inputs.env }}/platform" ]]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::platform layer does not exist for ${{ inputs.env }} — skipping"
+          fi
+
+      - name: Terraform Init
+        if: steps.exists.outputs.exists == 'true'
+        working-directory: terraform/environments/${{ inputs.env }}/platform
+        run: terraform init -input=false
+
+      - name: Terraform Destroy
+        if: steps.exists.outputs.exists == 'true'
+        working-directory: terraform/environments/${{ inputs.env }}/platform
+        run: terraform destroy -auto-approve -input=false -no-color
+
+  destroy-network:
+    name: Destroy ${{ inputs.env }}/network
+    needs: destroy-platform
+    runs-on: ubuntu-latest
+    environment: workload-teardown
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write config
+        run: |
+          mkdir -p config
+          cat <<'EOFCONFIG' > config/landing-zone.yaml
+          ${{ secrets.LANDING_ZONE_CONFIG }}
+          EOFCONFIG
+
+      - name: Resolve target account ID
+        id: acct
+        run: |
+          ACCOUNT_ID=$(python3 -c "
+          import yaml
+          c = yaml.safe_load(open('config/landing-zone.yaml'))
+          print(c['accounts']['${{ inputs.env }}']['id'])
+          ")
+          echo "account_id=${ACCOUNT_ID}" >> "$GITHUB_OUTPUT"
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ steps.acct.outputs.account_id }}:role/github-actions-terraform
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Check layer exists
+        id: exists
+        run: |
+          if [[ -d "terraform/environments/${{ inputs.env }}/network" ]]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::network layer does not exist for ${{ inputs.env }} — skipping"
+          fi
+
+      - name: Terraform Init
+        if: steps.exists.outputs.exists == 'true'
+        working-directory: terraform/environments/${{ inputs.env }}/network
+        run: terraform init -input=false
+
+      - name: Terraform Destroy
+        if: steps.exists.outputs.exists == 'true'
+        working-directory: terraform/environments/${{ inputs.env }}/network
+        run: terraform destroy -auto-approve -input=false -no-color
