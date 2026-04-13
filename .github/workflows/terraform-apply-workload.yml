@@ -93,11 +93,13 @@ jobs:
   # Platform layer runs after network. Creates EKS cluster, Karpenter on
   # Fargate, ArgoCD, AWS Load Balancer Controller, etc. Phase 3c and beyond.
   # Currently this layer does not exist — job will skip gracefully.
+  # No `environment:` — approval was granted at apply-network. Subsequent
+  # layers run automatically once the first layer's gate opens. This trades
+  # per-layer approval for a single session-level intent confirmation.
   apply-platform:
     name: Apply ${{ inputs.env }}/platform
     needs: apply-network
     runs-on: ubuntu-latest
-    environment: workload-apply
 
     steps:
       - uses: actions/checkout@v4
@@ -149,11 +151,11 @@ jobs:
         run: terraform apply -auto-approve -input=false -no-color
 
   # Workloads layer — application-specific resources. Phase 3c+.
+  # No `environment:` — see apply-platform rationale.
   apply-workloads:
     name: Apply ${{ inputs.env }}/workloads
     needs: apply-platform
     runs-on: ubuntu-latest
-    environment: workload-apply
 
     steps:
       - uses: actions/checkout@v4

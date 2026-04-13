@@ -88,11 +88,12 @@ jobs:
         working-directory: terraform/environments/${{ inputs.env }}/workloads
         run: terraform destroy -auto-approve -input=false -no-color
 
+  # No `environment:` — approval was granted at destroy-workloads. Subsequent
+  # layers run automatically once the session-level gate opens.
   destroy-platform:
     name: Destroy ${{ inputs.env }}/platform
     needs: destroy-workloads
     runs-on: ubuntu-latest
-    environment: workload-teardown
 
     steps:
       - uses: actions/checkout@v4
@@ -143,11 +144,11 @@ jobs:
         working-directory: terraform/environments/${{ inputs.env }}/platform
         run: terraform destroy -auto-approve -input=false -no-color
 
+  # No `environment:` — see destroy-platform rationale.
   destroy-network:
     name: Destroy ${{ inputs.env }}/network
     needs: destroy-platform
     runs-on: ubuntu-latest
-    environment: workload-teardown
 
     steps:
       - uses: actions/checkout@v4
