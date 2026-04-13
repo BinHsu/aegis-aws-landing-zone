@@ -136,10 +136,12 @@ aws-landing-zone-lab/
 
 ## Cost Guardrails
 
-- **NEVER leave EKS, NAT Gateway, or ALB running overnight.** Always `terraform destroy` after practice.
-- **Set AWS Budget alert at $10/day** before creating any resources.
-- **Phase 1-2 should cost <$5 total.** If costs exceed this, something is wrong — investigate.
-- **Phase 3-4: budget ~$5-10 per practice session** (4 hours). Destroy everything after.
+- **NEVER leave EKS, NAT Gateway, or ALB running overnight.** Always run the soft teardown at session end.
+- **Budget alerts**: daily $10, monthly $30, enforced via AWS Budgets in the management account. See memory.
+- **Phase 0-2 should cost <$5 total.** If Phase 0-2 costs exceed this, something is wrong — investigate before continuing.
+- **Phase 3+: budget ~$5-10 per 4-hour session.** Session is defined as "from `terraform apply` on a workload layer until `./scripts/teardown/soft-teardown-workload.sh <env>` runs."
+- **Rule: AI must remind the user to run the soft teardown at the end of any session that applied workload layers** (network, platform, workloads). The exact command is `./scripts/teardown/soft-teardown-workload.sh <env>`. This is not optional — a session that applies a workload layer and ends without a teardown reminder is a cost incident waiting to happen.
+- **Rule: AI must check whether a cost-incurring resource is about to be created** (NAT Gateway, EKS cluster, EC2, ALB, RDS, etc.) and explicitly note the hourly/monthly cost before proceeding to `terraform apply`. "Cost-incurring" means anything that bills while idle; storage and request-based pricing are lower-priority reminders.
 
 ## Workflow with AI
 
