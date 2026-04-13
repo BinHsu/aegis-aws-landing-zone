@@ -152,7 +152,7 @@ This repository is the **Pointer** — it defines VPCs, EKS clusters, OIDC, and 
 
 - Phases 0–2 are ~free (Organizations, SSO, SCPs, S3, public-repo GitHub Actions)
 - Phase 3a (IPAM): ~$0 idle, ~$0.003/IP/hr when VPCs allocate — rounds to pennies per session
-- Phase 3b+ (VPC + EKS): ~$3–5 per 4-hour session with [teardown discipline](docs/decisions/009-lifecycle-and-teardown-strategy.md)
+- Phase 3b+ (VPC + EKS): ~$3–5 per 4-hour session with [teardown discipline](docs/decisions/009-lifecycle-and-teardown-strategy.md) — end each session with [`./scripts/teardown/soft-teardown-workload.sh <env>`](scripts/teardown/README.md)
 - Budget alerts: daily $10, monthly $30 (enforced via AWS Budgets in the management account)
 - NAT Gateway is the hidden cost killer ($0.045/hr = $32/month if left running)
 - Persistent baseline: ~$5/month (Control Tower + Config recorder + CloudTrail)
