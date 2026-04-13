@@ -1,10 +1,24 @@
-name: Terraform Apply
+name: Terraform Apply (Baseline)
+
+# Auto-applies "baseline" Terraservices layers on push to main.
+# Baseline layers are the ones whose always-on cost is negligible
+# (< $10/mo total): account-level bootstrap, SCPs, state bucket, IPAM.
+#
+# Workload layers (network with NAT, platform with EKS, workloads) are
+# deliberately NOT in this workflow. They require explicit operator intent
+# via terraform-apply-workload.yml (workflow_dispatch, approval-gated).
+#
+# See ADR-009 (lifecycle + teardown) and the "workflow split by cost profile"
+# pattern documented there.
 
 on:
   push:
     branches: [main]
     paths:
-      - 'terraform/**'
+      - 'terraform/environments/management/**'
+      - 'terraform/environments/shared/**'
+      - 'terraform/environments/staging/bootstrap/**'
+      - 'terraform/environments/prod/bootstrap/**'
       - 'config/**'
 
 permissions:
@@ -24,14 +38,7 @@ jobs:
       max-parallel: 1
       matrix:
         include:
-          # Order matters — dependencies between layers:
-          #   1. management/bootstrap enables aws_ram_sharing_with_organization,
-          #      which shared/ipam depends on for RAM share.
-          #   2. shared/bootstrap creates the state bucket (other layers' state).
-          #   3. shared/ipam shares pools to org (needs RAM enablement above).
-          #   4. workload bootstraps (staging) provide OIDC roles.
-          #   5. management/scps last because SCPs could lock down operations
-          #      mid-apply.
+          # Order documented inline — foundation first, SCPs last
           - env: management/bootstrap
             account_id: "186052668286"
           - env: shared/bootstrap
@@ -39,8 +46,6 @@ jobs:
           - env: shared/ipam
             account_id: "345895787808"
           - env: staging/bootstrap
-            account_id: "251774439261"
-          - env: staging/network
             account_id: "251774439261"
           - env: management/scps
             account_id: "186052668286"

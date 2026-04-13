@@ -1,0 +1,205 @@
+name: Terraform Apply (Workload)
+
+# workflow_dispatch-only. Applies cost-incurring workload layers for a
+# specified environment. Each job is gated by the `workload-apply` GitHub
+# Environment which requires an explicit approval click by the operator.
+#
+# Start-of-session command:
+#   gh workflow run terraform-apply-workload.yml -f env=staging
+#   gh run watch   # approve when prompted in UI
+#
+# See ADR-009 and scripts/teardown/README.md for the full lifecycle model.
+
+on:
+  workflow_dispatch:
+    inputs:
+      env:
+        description: "Workload environment to apply"
+        required: true
+        type: choice
+        options:
+          - staging
+          - prod
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  TF_VERSION: "1.14.8"
+  AWS_REGION: "eu-central-1"
+
+jobs:
+  # Network layer runs first. Creates VPC, NAT Gateway, subnets, Gateway
+  # endpoints. Cost starts as soon as NAT Gateway exists (~$0.045/hr).
+  apply-network:
+    name: Apply ${{ inputs.env }}/network
+    runs-on: ubuntu-latest
+    environment: workload-apply
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write config
+        run: |
+          mkdir -p config
+          cat <<'EOFCONFIG' > config/landing-zone.yaml
+          ${{ secrets.LANDING_ZONE_CONFIG }}
+          EOFCONFIG
+
+      - name: Resolve target account ID
+        id: acct
+        run: |
+          ACCOUNT_ID=$(python3 -c "
+          import yaml
+          c = yaml.safe_load(open('config/landing-zone.yaml'))
+          print(c['accounts']['${{ inputs.env }}']['id'])
+          ")
+          if [[ -z "${ACCOUNT_ID}" ]]; then
+            echo "::error::accounts.${{ inputs.env }}.id is empty in config"
+            exit 1
+          fi
+          echo "account_id=${ACCOUNT_ID}" >> "$GITHUB_OUTPUT"
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ steps.acct.outputs.account_id }}:role/github-actions-terraform
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Check layer exists
+        id: exists
+        run: |
+          if [[ -d "terraform/environments/${{ inputs.env }}/network" ]]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::network layer does not exist for ${{ inputs.env }} — nothing to apply"
+          fi
+
+      - name: Terraform Init
+        if: steps.exists.outputs.exists == 'true'
+        working-directory: terraform/environments/${{ inputs.env }}/network
+        run: terraform init -input=false
+
+      - name: Terraform Apply
+        if: steps.exists.outputs.exists == 'true'
+        working-directory: terraform/environments/${{ inputs.env }}/network
+        run: terraform apply -auto-approve -input=false -no-color
+
+  # Platform layer runs after network. Creates EKS cluster, Karpenter on
+  # Fargate, ArgoCD, AWS Load Balancer Controller, etc. Phase 3c and beyond.
+  # Currently this layer does not exist — job will skip gracefully.
+  apply-platform:
+    name: Apply ${{ inputs.env }}/platform
+    needs: apply-network
+    runs-on: ubuntu-latest
+    environment: workload-apply
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write config
+        run: |
+          mkdir -p config
+          cat <<'EOFCONFIG' > config/landing-zone.yaml
+          ${{ secrets.LANDING_ZONE_CONFIG }}
+          EOFCONFIG
+
+      - name: Resolve target account ID
+        id: acct
+        run: |
+          ACCOUNT_ID=$(python3 -c "
+          import yaml
+          c = yaml.safe_load(open('config/landing-zone.yaml'))
+          print(c['accounts']['${{ inputs.env }}']['id'])
+          ")
+          echo "account_id=${ACCOUNT_ID}" >> "$GITHUB_OUTPUT"
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ steps.acct.outputs.account_id }}:role/github-actions-terraform
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Check layer exists
+        id: exists
+        run: |
+          if [[ -d "terraform/environments/${{ inputs.env }}/platform" ]]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::platform layer does not exist for ${{ inputs.env }} — nothing to apply"
+          fi
+
+      - name: Terraform Init
+        if: steps.exists.outputs.exists == 'true'
+        working-directory: terraform/environments/${{ inputs.env }}/platform
+        run: terraform init -input=false
+
+      - name: Terraform Apply
+        if: steps.exists.outputs.exists == 'true'
+        working-directory: terraform/environments/${{ inputs.env }}/platform
+        run: terraform apply -auto-approve -input=false -no-color
+
+  # Workloads layer — application-specific resources. Phase 3c+.
+  apply-workloads:
+    name: Apply ${{ inputs.env }}/workloads
+    needs: apply-platform
+    runs-on: ubuntu-latest
+    environment: workload-apply
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write config
+        run: |
+          mkdir -p config
+          cat <<'EOFCONFIG' > config/landing-zone.yaml
+          ${{ secrets.LANDING_ZONE_CONFIG }}
+          EOFCONFIG
+
+      - name: Resolve target account ID
+        id: acct
+        run: |
+          ACCOUNT_ID=$(python3 -c "
+          import yaml
+          c = yaml.safe_load(open('config/landing-zone.yaml'))
+          print(c['accounts']['${{ inputs.env }}']['id'])
+          ")
+          echo "account_id=${ACCOUNT_ID}" >> "$GITHUB_OUTPUT"
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ steps.acct.outputs.account_id }}:role/github-actions-terraform
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Check layer exists
+        id: exists
+        run: |
+          if [[ -d "terraform/environments/${{ inputs.env }}/workloads" ]]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::workloads layer does not exist for ${{ inputs.env }} — nothing to apply"
+          fi
+
+      - name: Terraform Init
+        if: steps.exists.outputs.exists == 'true'
+        working-directory: terraform/environments/${{ inputs.env }}/workloads
+        run: terraform init -input=false
+
+      - name: Terraform Apply
+        if: steps.exists.outputs.exists == 'true'
+        working-directory: terraform/environments/${{ inputs.env }}/workloads
+        run: terraform apply -auto-approve -input=false -no-color
