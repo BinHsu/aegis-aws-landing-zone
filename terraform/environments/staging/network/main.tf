@@ -182,6 +182,25 @@ resource "aws_vpc_endpoint" "dynamodb" {
   }
 }
 
+# -----------------------------------------------------------------------------
+# Default security group — deny all traffic (CKV2_AWS_12)
+# -----------------------------------------------------------------------------
+# AWS creates a default security group when the VPC is created. By default
+# it allows all traffic within the group, which is an implicit "anything in
+# this VPC can talk to anything else in this SG." Best practice is to
+# explicitly empty the default SG so nothing uses it accidentally — every
+# resource must attach to a named security group with explicit rules.
+# -----------------------------------------------------------------------------
+
+resource "aws_default_security_group" "main" {
+  vpc_id = aws_vpc.main.id
+
+  # No ingress, no egress — deny all
+  tags = {
+    Name = "staging-default-sg-denyall"
+  }
+}
+
 check "ipam_pool_available" {
   assert {
     condition     = data.terraform_remote_state.shared_ipam.outputs.primary_pool_id != ""
