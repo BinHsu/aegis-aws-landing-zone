@@ -1,0 +1,36 @@
+name: Feature request
+description: Propose a new capability or an improvement aligned with project scope
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Before opening:** this project targets single-operator and small-team deployments. Enterprise-scale features (e.g., multi-tenant SaaS controls, custom Config rules for GDPR-B2B audit) are intentionally out of scope — see [`CONTRIBUTING.md`](../CONTRIBUTING.md) for scope boundaries and [AWS Landing Zone Accelerator](https://github.com/awslabs/landing-zone-accelerator-on-aws) for the enterprise path.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What use case are you hitting that the current design does not serve?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What would you add or change? Sketch the code shape if you can.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What did you try or think about before proposing this?
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope impact
+      description: Would this change the scope boundaries in ADR-001? Require a new ADR? Break any design principle in the README?

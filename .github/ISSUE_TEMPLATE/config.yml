@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/BinHsu/aegis-aws-landing-zone/security/advisories/new
+    about: Please use Private Vulnerability Reporting for security issues. Do NOT open a public issue.
+  - name: Question or discussion
+    url: https://github.com/BinHsu/aegis-aws-landing-zone/discussions
+    about: For questions, design discussions, or usage help, please open a Discussion.

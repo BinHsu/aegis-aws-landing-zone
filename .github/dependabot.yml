@@ -1,0 +1,91 @@
+# =============================================================================
+# Dependabot configuration
+# https://docs.github.com/en/code-security/dependabot/dependabot-version-updates
+# =============================================================================
+# Why this file exists:
+#   - GitHub Actions versions age quickly (Node.js 20 deprecation warnings
+#     are already visible in CI). Weekly updates keep the runtime current.
+#   - Terraform providers release security fixes between major versions.
+#     Dependabot opens PRs; CI validates them; reviewer decides.
+#
+# Update cadence: weekly. Aggressive enough to catch security fixes,
+# conservative enough to batch cosmetic changes.
+# =============================================================================
+
+version: 2
+updates:
+  # GitHub Actions used in .github/workflows/
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    open-pull-requests-limit: 5
+
+  # Terraform providers and modules per environment (each has its own lock file)
+  - package-ecosystem: "terraform"
+    directory: "/terraform/environments/management/bootstrap"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "terraform"
+
+  - package-ecosystem: "terraform"
+    directory: "/terraform/environments/management/scps"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "terraform"
+
+  - package-ecosystem: "terraform"
+    directory: "/terraform/environments/shared/bootstrap"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "terraform"
+
+  - package-ecosystem: "terraform"
+    directory: "/terraform/environments/shared/ipam"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "terraform"
+
+  - package-ecosystem: "terraform"
+    directory: "/terraform/environments/shared/aft"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "terraform"
+      - "aft"
+
+  - package-ecosystem: "terraform"
+    directory: "/terraform/environments/staging/bootstrap"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "terraform"
+
+  - package-ecosystem: "terraform"
+    directory: "/terraform/environments/prod/bootstrap"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "terraform"
