@@ -50,7 +50,22 @@ Fork-and-deploy becomes a config-only operation. A hiring manager reviewing the 
 
 The JSON Schema must be kept in sync with Terraform code as the contract evolves. Schema drift is caught by the pre-commit hook before a commit can land.
 
-IPAM introduces a small ongoing cost (approximately one to five dollars per month) and a destroy-ordering complexity: VPC allocations must be freed before IPAM pools can be deleted. The `soft-teardown-workload.sh` script in ADR-009 handles this ordering explicitly.
+IPAM introduces a small ongoing cost (approximately one to five dollars per month) and two destroy-time costs:
+
+- **Ordering complexity** — VPC allocations must be freed before IPAM pools can be deleted. The `soft-teardown-workload.sh` script and the `terraform-teardown-workload.yml` workflow in ADR-009 handle this ordering explicitly.
+- **Release lag** — `terraform destroy` of an IPAM-managed VPC typically takes 10–20 minutes (vs. 30–60 seconds for a non-IPAM VPC). The bulk of that time is spent waiting for IPAM's asynchronous detection that the VPC is gone so it can release the CIDR allocation. AWS does not publish an SLA for this detection; observed in practice is 10–20 minutes per VPC.
+
+### Design implications of the release lag
+
+The release lag is a **hard design constraint** on everything that destroys IPAM-managed VPCs, not an observation to note-and-forget. Teardown tooling must accommodate it:
+
+- **Workflow/job timeouts** must be at least 25 minutes per VPC destroy (GitHub Actions default of 6 hours is fine; any custom `timeout-minutes` setting must stay above 25).
+- **Scripted teardown** (`soft-teardown-workload.sh`, `hard-teardown-landing-zone.sh`) must not abort on a stuck-looking `terraform destroy` — the destroy is not stuck, it is waiting for IPAM release. "Stuck" vs "waiting" is indistinguishable from the script's POV; just let it run.
+- **Hard teardown at scale.** When multiple workload environments exist (staging + prod + future), destroying them sequentially stacks the lag: 3 VPCs × 20 min = 1 hour. Sequential destroy is the default in our `hard-teardown-landing-zone.sh`. If wall-time becomes a concern, destroying environments in parallel via matrix is possible because each environment's VPC is independent.
+- **Monitoring/alerting** tied to "how long should a destroy take" must calibrate against this floor. A 5-minute alert threshold on destroy duration would false-positive every run.
+- **Do not reduce the KMS key deletion window to speed this up** — different mechanism, different concern. IPAM release lag is per-VPC and has no operator-configurable knob.
+
+Both costs (ordering and lag) are properties of the Mode B choice, not defects. They are the price of having a centralized, non-overlap-enforced CIDR planner. An operator who prefers faster destroys at the cost of manual CIDR non-overlap management would choose Mode A instead.
 
 Scheme P1 root-scoped emails mean a future migration to subdomain scheme would require AWS root-email-change operations on each account, which are supported but require verification through the old email. This is documented as a known trade-off.
 
