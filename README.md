@@ -23,6 +23,7 @@
 
 | If you want to | Start here |
 |---|---|
+| Read the story behind the project | [`docs/design-narrative.md`](docs/design-narrative.md) — 2-minute pitch, key decisions, war stories |
 | See the architecture | [`docs/architecture.md`](docs/architecture.md) — 5 Mermaid diagrams |
 | Understand the design choices | [13 ADRs](docs/decisions/) — Context / Decision / Alternatives / Consequences |
 | Reproduce this from zero | [`docs/runbooks/001-bootstrap-aws-account.md`](docs/runbooks/001-bootstrap-aws-account.md) |
