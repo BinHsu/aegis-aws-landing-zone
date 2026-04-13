@@ -63,31 +63,16 @@ Every multi-account AWS landing zone faces this exact cycle. Some projects ignor
 
 ## War stories
 
-### The KMS key policy that wasn't enough
+Real incidents from this project's deployment are kept in [`docs/incidents.md`](incidents.md) as postmortem-style entries (Symptom → Root cause → Detection → Resolution → Prevention → Lessons). Highlights:
 
-Control Tower's landing zone deployment failed mid-apply with a cryptic S3/KMS permissions error. The wizard-generated default KMS key policy — which the UI offered as a "just click Enable" option — was missing the `cloudtrail.amazonaws.com` and `config.amazonaws.com` service principals. CloudTrail and Config could not write to their log destinations. CloudFormation rolled back. The rollback itself failed because CloudWatch Log Groups created by the failing stack could not be cleaned up by CloudFormation's own permissions.
+- **KMS key policy wasn't enough at Control Tower launch** — the wizard's default key policy was missing CloudTrail and Config service principals. Rollback itself failed because a CloudWatch Log Group couldn't be cleaned up. See [Incident 1](incidents.md#incident-1--kms-key-policy-insufficient-at-control-tower-launch).
+- **IAM alias collided with another AWS customer worldwide** — aliases are globally unique, not org-scoped. `list-account-aliases` returning empty is not proof the alias is available. Fixed by `binhsu-` prefix. See [Incident 2](incidents.md#incident-2--iam-account-alias-globally-unique-collision).
+- **RAM cross-org sharing required two PRs** — one to enable it, one to fix the apply matrix order. See [Incident 3](incidents.md#incident-3--ram-cross-org-sharing-requires-explicit-enablement-and-correct-apply-order).
+- **Control Tower UI showed stale state** — API reported IN_SYNC, UI still showed drift. Hard-refresh fixed it. See [Incident 4](incidents.md#incident-4--control-tower-ui-stale-after-landing-zone-update).
+- **Cross-account `kms:Decrypt` denied with the default AWS-managed key** — forced migration to a customer-managed KMS key with `aws:PrincipalOrgID` key policy. See [Incident 5](incidents.md#incident-5--cross-account-kmsdecrypt-denied-with-the-awss3-default-key).
+- **State bucket CMK scheduled for deletion by CI apply** — local apply from an unmerged branch created state drift that CI later "corrected" by destroying the CMK. Recovered in ~15 minutes within the KMS grace window. See [Incident 6](incidents.md#incident-6--state-bucket-cmk-scheduled-for-deletion-by-ci-apply).
 
-The fix required manually crafting a v2 KMS policy with the missing service principals plus cross-account Decrypt for logarchive and security accounts, applying it to the existing key, manually deleting the stuck CloudFormation stack and the orphaned log group, and then pressing "Retry" in Control Tower.
-
-That is all documented in runbook 001 Part 4.4.3 with the full v2 policy JSON. The lesson: **the AWS console's "default" options assume the simplest case, which is rarely the right case for a landing zone.** If a decision was exposed in the UI, it deserved to be made consciously.
-
-### The IAM alias that was already taken
-
-`aws iam create-account-alias --account-alias aegis-prod` failed with `EntityAlreadyExists`. `aws iam list-account-aliases` in the same account returned empty. The conflict was not in this organization's accounts — it was somewhere else in the world. **IAM account aliases are globally unique across all AWS customers, not just within an organization.** This fact is documented exactly once in the AWS docs, in a sentence that is easy to miss.
-
-The fix was adding a `binhsu-` prefix to make the alias uniqueness collision-resistant. The runbook documents it. Every account in this project is now `binhsu-aegis-*`.
-
-### The RAM sharing that silently refused
-
-Cross-account IPAM pool sharing requires enabling RAM integration with AWS Organizations — a one-time, org-level opt-in that defaults to off. Terraform's `aws_ram_resource_share` resource will happily create a share pointing at the organization, but the underlying API call fails with `OperationNotPermittedException: ... or that onboarding process is still in progress.` if the opt-in is not enabled.
-
-The fix was adding `aws_ram_sharing_with_organization` to `management/bootstrap`. This in turn required reordering the apply matrix — `management/bootstrap` must run before `shared/ipam` — which was done in a follow-up PR after the order was discovered to be wrong by a second failed apply.
-
-Two PRs to fix one gotcha. Both are in the main branch's history as a teaching trail.
-
-### The Control Tower UI that didn't refresh
-
-After running "Update landing zone" to clear post-launch drift, the "Create Account" page in the Control Tower console continued to show a drift error for minutes afterward. The fix was navigating back, reloading the browser, and re-entering the flow. Not an AWS bug exactly — an AWS UX failure. It cost time and was documented in the runbook as a gotcha.
+The lesson that threads through all six: **the value of this project is not that it's perfect — it's that the path from imperfect to working is visible and audit-able in git history, in runbook updates, and in the incidents log.**
 
 ## Trade-offs consciously made
 
