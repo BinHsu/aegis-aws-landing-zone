@@ -89,7 +89,15 @@ This is a hands-on portfolio project by **Bin Hsu**, a Senior Software Architect
   ```
 - **Rule: AI agents must check `docs/decisions/` before proposing architecture.** If a decision has already been made and recorded, follow it. If you believe it should change, discuss with the user first — do not silently override.
 - **Rule: When a significant design discussion happens in conversation, the AI must remind the user to capture it as an ADR.** Don't let decisions disappear into chat history.
-- **Rule: AI agents must append new incidents to `docs/incidents.md`.** When a deployment failure, state-recovery episode, or non-trivial gotcha occurs, write a postmortem entry using the format at the bottom of that file: Symptom → Root cause → Detection → Resolution → Prevention → Lessons. Runbook troubleshooting entries are *in addition to*, not instead of, the postmortem. Undocumented incidents are technical debt.
+
+### Incident Postmortems
+
+- **Location**: `docs/incidents.md` (append-only)
+- **Format**: Symptom / Root cause / Detection / Resolution / Prevention / Lessons. Each entry is a standalone postmortem, scannable independently.
+- **Rule: AI agents must append a new incident entry to `docs/incidents.md` whenever a deployment failure, state-recovery episode, cross-account permission mistake, or other non-trivial gotcha occurs during the session.** The entry is written after the fact, with the benefit of hindsight, in the existing format.
+- **Rule: Runbook troubleshooting entries are in addition to, not instead of, the postmortem.** The runbook tells future operators "if you see X, do Y"; the incident log tells them "here's the full story of why X happens and how we found it." Both matter.
+- **Rule: AI must remind the user to record the incident before closing out a debugging session.** Untracked incidents are technical debt — the next operator (including future Claude) will repeat the mistake if it is not written down.
+- **Rule: Never edit an existing incident to soften the story after the fact.** Correct factual errors only. The historical record matters more than retroactive polish.
 
 ## Directory Structure
 
