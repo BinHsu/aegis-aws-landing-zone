@@ -834,7 +834,7 @@ If Control Tower's **Create account** page shows _"potential drift in your landi
 4. **Important**: The Control Tower UI does not auto-refresh after the update completes. You must navigate back to the previous page and reload the browser before retrying. If you stay on the same page, the stale drift error will persist even though the drift has been cleared.
 5. Retry **Create account** after refreshing.
 
-**Fallback — Service Catalog direct method**: If the CT UI still blocks after re-baseline and refresh, go to **Service Catalog** → **Products** → **AWS Control Tower Account Factory** → **Launch product**. Fill in the same field values from 8.3. This bypasses the CT UI drift check while still applying all CT baseline guardrails — the underlying provisioning product is identical.
+**Fallback — Service Catalog direct method**: If the Control Tower UI still blocks after re-baseline and refresh, go to **Service Catalog** → **Products** → **AWS Control Tower Account Factory** → **Launch product**. Fill in the same field values from 8.3. This bypasses the Control Tower UI drift check while still applying all Control Tower baseline guardrails — the underlying provisioning product is identical.
 
 ### 8.2 Navigate to Account Factory
 

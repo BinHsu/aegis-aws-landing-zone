@@ -12,11 +12,11 @@ AWS Organizations structure with the six accounts, three OUs, and SCP attachment
 
 ```mermaid
 flowchart TB
-  Org["AWS Organization<br/>o-f5xi4j1hrx<br/>CT home: eu-central-1"]
+  Org["AWS Organization<br/>o-f5xi4j1hrx<br/>Control Tower home: eu-central-1"]
 
   Mgmt["aegis-management<br/><br/>Organizations<br/>SCPs<br/>Identity Center<br/>Billing<br/>RAM org-sharing"]
 
-  subgraph Security["OU: Security (CT-managed)"]
+  subgraph Security["OU: Security (Control Tower-managed)"]
     Sec["aegis-security<br/><br/>GuardDuty<br/>Security Hub<br/>Config admin"]
     Log["aegis-logarchive<br/><br/>CloudTrail archive<br/>Config archive<br/>VPC Flow Logs"]
   end

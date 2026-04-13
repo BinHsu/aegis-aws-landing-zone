@@ -33,7 +33,7 @@ flowchart TB
     direction TB
     Mgmt["aegis-management<br/>SCPs · SSO · Billing"]
 
-    subgraph Sec["OU: Security (CT-managed)"]
+    subgraph Sec["OU: Security (Control Tower-managed)"]
       Audit["aegis-security"]
       Log["aegis-logarchive"]
     end
