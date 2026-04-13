@@ -33,6 +33,8 @@ aws sso login --sso-session aegis
 
 **When to use:** At the end of every session where you stood up EKS / NAT / workloads. Returns monthly cost from session-spike levels back to the ~$5 baseline.
 
+**Expected duration:** 10–25 minutes per environment. The NAT Gateway destroys in under a minute, but the VPC itself (IPAM-managed) waits for IPAM's asynchronous CIDR-release detection, which is typically 10–20 minutes. See ADR-004 Consequences for rationale.
+
 ## `hard-teardown-landing-zone.sh` — project end
 
 **Destroys:** All workload layers in all environments, management SCPs, shared IPAM, all bootstrap layers, Control Tower landing zone. **Calls CloseAccount on all member accounts** — they enter AWS's 90-day suspension period.

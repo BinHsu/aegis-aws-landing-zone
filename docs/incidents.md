@@ -424,7 +424,9 @@ github_oidc_subjects = [
 ]
 ```
 
-Baseline apply auto-updated the trust policy on merge to main. The teardown workflow was re-triggered and succeeded on the retry.
+Baseline apply auto-updated the trust policy on merge to main. The teardown workflow was re-triggered.
+
+**Secondary gotcha — IAM propagation lag.** The first re-trigger of the teardown workflow (~2 minutes after the baseline apply reported success) still failed with the same `NotAuthorized` error. `aws iam get-role` confirmed the trust policy was in fact updated. A second re-trigger ~1-2 minutes later succeeded. IAM changes are usually fast but not instant — a ~4 minute propagation window between "apply reports success" and "OIDC `AssumeRoleWithWebIdentity` sees the new trust policy" is real. Not documented in AWS SLAs but observed in practice. If you see `NotAuthorized` after a fresh trust-policy apply, wait a few minutes and retry before debugging further.
 
 ### Prevention
 
