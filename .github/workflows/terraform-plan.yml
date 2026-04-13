@@ -31,6 +31,8 @@ jobs:
             account_id: "345895787808"
           - env: staging/bootstrap
             account_id: "251774439261"
+          - env: staging/network
+            account_id: "251774439261"
 
     steps:
       - uses: actions/checkout@v4
