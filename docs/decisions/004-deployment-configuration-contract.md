@@ -56,11 +56,15 @@ Scheme P1 root-scoped emails mean a future migration to subdomain scheme would r
 
 ### Design gap discovered during implementation (Incident 7)
 
-The original decision text described IPAM in `aegis-shared` with RAM cross-account sharing, but did not enumerate the full set of prerequisites needed to make cross-account CIDR allocation work. Two independent org-level mechanisms are required, not one:
+The original decision text described IPAM in `aegis-shared` with RAM cross-account sharing, but did not enumerate the full set of prerequisites needed to make cross-account CIDR allocation work. The final working setup requires **four** independent mechanisms, not one:
 
-1. **RAM sharing enablement** (`aws_ram_sharing_with_organization`) — lets member accounts *see and consume* the IPAM pool.
-2. **IPAM trusted service access + delegated administrator** — lets the IPAM service *monitor* member accounts so `AllocateIpamPoolCidr` API calls from member accounts succeed.
+1. **RAM sharing enablement** — `aws_ram_sharing_with_organization` in `management/bootstrap`. Lets member accounts *see and consume* the IPAM pool via describe APIs.
+2. **Organizations trusted service access for IPAM** — `aws organizations enable-aws-service-access --service-principal ipam.amazonaws.com` (manual CLI — no standalone Terraform resource exists).
+3. **Organizations delegated administrator for IPAM** — `aws_organizations_delegated_administrator` for `ipam.amazonaws.com`, pointing at shared. Terraform in `management/bootstrap`.
+4. **IPAM-specific org admin enablement** — `aws ec2 enable-ipam-organization-admin-account --delegated-admin-account-id <shared>`. A SEPARATE API from #3, also manual CLI. This is what actually triggers IPAM's auto-discovery of org member accounts.
 
-The mental model we used at ADR time ("bucket-policy-plus-PrincipalOrgID is how cross-account works in AWS") did not extend to IPAM, which has its own service-level integration model. RAM visibility ≠ IPAM allocation permission. Discovered the hard way at [Incident 7](../incidents.md#incident-7--ipam-delegated-admin-not-configured-for-cross-account-vpc-allocation).
+Additionally, IPAM's monitoring scope is **fixed at creation time**: an IPAM created before steps 2-4 are complete has single-account scope and must be destroyed and recreated after the org integration is in place. There is no in-place update API.
 
-The lesson generalizes: every AWS multi-account service has its own "org integration" pattern (enable trusted service access, delegate admin, configure service-linked roles). RAM, IPAM, GuardDuty, Security Hub, Config, Macie all have this pattern, and each has subtle differences. Future ADRs that span accounts should explicitly enumerate the org-level prerequisites, not assume them.
+The mental model we used at ADR time ("bucket-policy-plus-PrincipalOrgID is how cross-account works in AWS") did not extend to IPAM at all, which has its own service-level integration model. RAM visibility ≠ IPAM allocation permission. Generic org delegation ≠ IPAM-specific org enablement. Discovered the hard way through three fix PRs and a destroy-recreate cycle, documented at [Incident 7](../incidents.md#incident-7--ipam-delegated-admin-not-configured-for-cross-account-vpc-allocation).
+
+The lesson generalizes: every AWS multi-account service has its own "org integration" pattern. RAM, IPAM, GuardDuty, Security Hub, Config, Macie, CloudTrail Organization, AWS SSO, ECR pull-through cache — all have subtly different enablement requirements. Future ADRs that span accounts should explicitly enumerate the org-level prerequisites, treat generic org delegation as a *starting point* rather than a complete solution, and verify end-to-end with an actual mutation call (not a describe).
