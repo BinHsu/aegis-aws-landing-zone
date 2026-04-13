@@ -310,9 +310,9 @@ Runbook now documents the full recovery sequence.
 
 ## Incident 7 — IPAM delegated admin not configured for cross-account VPC allocation
 
-**Date**: 2026-04-13 (Phase 3b, PR #25 merge)
-**Severity**: S3 (staging/network apply blocked after NAT cost had started)
-**Duration**: ~10 min detect + fix
+**Date**: 2026-04-13 (Phase 3b, PR #25 through PR #33)
+**Severity**: S3 (staging/network apply blocked; fix required three separate PRs and a destroy-recreate of IPAM)
+**Duration**: ~90 min total across multiple failed apply cycles
 
 ### Symptom
 
@@ -341,35 +341,40 @@ Without delegation, IPAM only monitors the account it lives in. RAM-shared pools
 
 Error message named the specific IPAM ID and the specific monitored-account gap. One of the more self-explanatory AWS errors.
 
-### Resolution
+### Resolution (three layers, in order)
 
-Added `aws_organizations_delegated_administrator` in `management/bootstrap/organization-features.tf`:
+This incident was not a single fix — the problem had three independent causes, each surfaced only after the previous one was resolved. The final working setup requires all four of the following:
 
-```hcl
-resource "aws_organizations_delegated_administrator" "ipam" {
-  account_id        = local.config.accounts.shared.id
-  service_principal = "ipam.amazonaws.com"
-}
-```
+1. **RAM sharing with org enabled** (already in place from earlier work) — `aws_ram_sharing_with_organization.main` in `management/bootstrap`. Lets pools be RAM-shareable.
+2. **Organizations trusted service access for IPAM** — `aws organizations enable-aws-service-access --service-principal ipam.amazonaws.com`. One-time CLI, idempotent. The AWS Terraform provider does not expose this as a standalone resource; managing it via `aws_organizations_organization` would conflict with Control Tower's ownership.
+3. **Delegated administrator for IPAM** — `aws_organizations_delegated_administrator` resource for `ipam.amazonaws.com` pointing at shared. Requires step 2 as prerequisite, otherwise fails with `ConstraintViolationException: You must enable service access before you delegate an administrator`.
+4. **IPAM org admin enablement (IPAM-specific API)** — `aws ec2 enable-ipam-organization-admin-account --delegated-admin-account-id <shared>`. This is a DIFFERENT API from step 3. Generic org delegation does not automatically enable IPAM's org integration — IPAM has its own service-specific enablement that auto-creates resource discoveries across org accounts.
 
-Applied from management account. IPAM immediately recognized all org accounts as monitored. `staging/network` apply then succeeded on retry.
+Additionally, **the IPAM had to be destroyed and recreated** after steps 2-4 were in place. An IPAM created before org integration is enabled retains its original (single-account) monitoring scope even after org integration is later enabled. Re-creating the IPAM after all org integration is in place lets it pick up the auto-discovery of member accounts.
+
+The full sequence of fix PRs: #32 (Terraform delegated admin) → #33 (CLI service access + design gap in ADR-004) → manual destroy+recreate of IPAM → manual `enable-ipam-organization-admin-account` → staging/network apply succeeded.
 
 ### Prevention
 
-When setting up IPAM in a non-management account, the delegation is mandatory, not optional. Document both prerequisites up front:
+For any future IPAM in a delegated admin pattern, the order of operations matters:
 
-1. `aws_ram_sharing_with_organization` — for pools to be RAM-shareable
-2. `aws_organizations_delegated_administrator` for `ipam.amazonaws.com` — for IPAM to monitor org accounts
+1. Enable RAM sharing with org
+2. Enable IPAM Organizations service access (`enable-aws-service-access`)
+3. Delegate IPAM admin to the IPAM-hosting account
+4. Enable IPAM-specific org admin (`enable-ipam-organization-admin-account`)
+5. **Only then** create the IPAM itself
 
-Both go in `management/bootstrap`. Both must apply before any cross-account IPAM consumption.
+Creating the IPAM before steps 1-4 produces an IPAM whose monitoring scope is stuck at single-account. Destroy and recreate is the only fix — there is no API to retroactively update an IPAM's monitoring scope.
 
-Runbook troubleshooting now documents this.
+Runbook troubleshooting and ADR-004 Consequences both document this.
 
 ### Lessons
 
-- AWS cross-account features often have multiple independent prerequisites. RAM enablement and IPAM delegation looked redundant on the surface; they are not.
-- "The pool is visible" ≠ "the pool is usable." Describe APIs and mutation APIs can disagree on cross-account state.
-- When a multi-account AWS service has both a "trusted service access" setting and a "delegated admin" setting, both likely need attention. Enabling one without the other is a common gap.
+- **AWS cross-account features often have multiple independent prerequisites.** RAM enablement, generic org delegation, and IPAM-specific enablement all looked redundant on paper. They are not.
+- **"The pool is visible" ≠ "the pool is usable."** Describe APIs and mutation APIs can disagree on cross-account state. Always test end-to-end, not just describe.
+- **Some AWS services have a service-specific enablement API distinct from the generic `aws organizations` delegation.** IPAM, GuardDuty, Security Hub, Config all have this pattern. Each variant needs its own enablement call.
+- **IPAM monitoring scope is sticky at creation time.** Not documented prominently, but consequential: enabling org integration later does not retroactively update IPAMs created earlier.
+- **The design-at-ADR-time model was incomplete.** The original mental model ("RAM share + OrgID condition is how cross-account works") did not cover IPAM, because IPAM monitoring is a service-level concept, not a resource-policy concept. ADR-004 updated with a 'Design gap' note acknowledging this.
 
 ---
 
