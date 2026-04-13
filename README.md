@@ -90,6 +90,8 @@ The script reads your `config/landing-zone.yaml` and updates all `backend.tf` fi
 | [009](docs/decisions/009-lifecycle-and-teardown-strategy.md) | Lifecycle and teardown strategy |
 | [010](docs/decisions/010-shared-account-bootstrap-sequence.md) | Shared account bootstrap sequence |
 | [011](docs/decisions/011-account-provisioning-two-path-strategy.md) | Account provisioning — two-path strategy |
+| [012](docs/decisions/012-vpc-topology-and-egress-strategy.md) | VPC topology and egress strategy |
+| [013](docs/decisions/013-eks-architecture.md) | EKS architecture |
 
 ## Companion Application Repository
 
