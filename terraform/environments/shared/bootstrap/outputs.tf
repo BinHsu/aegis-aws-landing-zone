@@ -8,6 +8,16 @@ output "state_bucket_arn" {
   value       = aws_s3_bucket.terraform_state.arn
 }
 
+output "state_bucket_kms_key_arn" {
+  description = "Customer-managed KMS key ARN for state bucket encryption (cross-account)"
+  value       = aws_kms_key.terraform_state.arn
+}
+
+output "state_bucket_kms_key_alias" {
+  description = "KMS key alias"
+  value       = aws_kms_alias.terraform_state.name
+}
+
 output "account_id" {
   description = "Shared account ID"
   value       = data.aws_caller_identity.current.account_id
