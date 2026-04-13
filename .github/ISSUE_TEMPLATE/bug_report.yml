@@ -1,0 +1,56 @@
+name: Bug report
+description: Something in this repository does not work as described
+labels: ["bug"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One or two sentences describing the problem.
+      placeholder: When I run `./scripts/configure-backends.sh`, it fails with...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Minimum steps that let someone else see the bug.
+      placeholder: |
+        1. Clone the repo
+        2. cp config/landing-zone.example.yaml config/landing-zone.yaml
+        3. Run ...
+        4. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Paste error messages, relevant log lines, or screenshots.
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: |
+        - OS: macOS 15.x / Ubuntu 22.04 / ...
+        - Terraform: 1.14.8
+        - AWS CLI: 2.x
+        - gh CLI: 2.x
+
+  - type: textarea
+    id: relates
+    attributes:
+      label: Related ADRs or docs
+      description: If this bug contradicts a documented behavior, link the ADR.

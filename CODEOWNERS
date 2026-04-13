@@ -1,0 +1,14 @@
+# CODEOWNERS
+# https://docs.github.com/en/repositories/managing-your-repositories-settings-and-features/customizing-your-repository/about-code-owners
+#
+# Currently a single-operator repository. The `*` pattern assigns every file
+# to @BinHsu. When the project grows to multiple maintainers, split by path:
+#
+#   /terraform/environments/management/  @platform-admins
+#   /terraform/environments/shared/      @platform-admins
+#   /docs/decisions/                     @architects
+#   /.github/workflows/                  @ci-maintainers
+#
+# ADR-001 (scope boundary) informs who should own what at scale.
+
+* @BinHsu
