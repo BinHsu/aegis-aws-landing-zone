@@ -11,9 +11,18 @@ locals {
   github_infra_repo = local.config.github.infra_repo
   github_oidc_url   = "https://token.actions.githubusercontent.com"
 
+  # Subject claims the role trust policy accepts. Each trigger type in GitHub
+  # Actions produces a different `sub` claim in the OIDC token:
+  #   - push to main                      → ref:refs/heads/main
+  #   - pull_request                      → pull_request
+  #   - workflow_dispatch + environment:X → environment:X
+  # Baseline apply uses main; plan uses pull_request; workload apply + teardown
+  # use environment-scoped claims (ADR-009 workflow split).
   github_oidc_subjects = [
     "repo:${local.github_org}/${local.github_infra_repo}:ref:refs/heads/main",
     "repo:${local.github_org}/${local.github_infra_repo}:pull_request",
+    "repo:${local.github_org}/${local.github_infra_repo}:environment:workload-apply",
+    "repo:${local.github_org}/${local.github_infra_repo}:environment:workload-teardown",
   ]
 }
 
