@@ -81,3 +81,11 @@ IPAM allocation couples the staging VPC to the shared/ipam Terraservices layer. 
 Future workload accounts (`aegis-prod`, future sandboxes) follow the same topology — three-AZ public/private, single NAT, Gateway endpoints, IPAM-allocated CIDR. A Terraform module at `terraform/modules/vpc/` extracts the pattern once there are two or more consumers (DRY triggered by actual reuse, not anticipation).
 
 The absence of Interface endpoints means every non-S3, non-DynamoDB AWS API call traverses NAT. For services like STS (IRSA token exchange, every pod every hour) and CloudWatch Logs (every log line), this is a measurable data volume. At lab scale the total is well under a dollar per session. At production scale, this is the trigger to add Interface endpoints — but only for the specific high-traffic services, not a blanket deployment.
+
+### Phase 3b scope: VPC Flow Logs deferred
+
+The Phase 3b apply delivers the VPC, subnets, NAT, IGW, and Gateway endpoints as specified above, but **not** VPC Flow Logs. Flow Logs require an S3 destination bucket in `aegis-logarchive`, which in turn requires a `logarchive/bootstrap` Terraservices layer to provision the bucket, OIDC provider, and CI role. None of that exists yet.
+
+Flow Logs are therefore deferred to Phase 4 (Observability + Security), at which point `logarchive/bootstrap` lands first and the central Flow Logs bucket becomes available. The VPC resource will gain an `aws_flow_log` resource pointing at that bucket in the same PR that creates it. Until then, the VPC runs without Flow Logs — an ISO 27001 A.8.15 gap that is explicitly documented here and will be closed in Phase 4.
+
+The pragmatic alternative (create a staging-local Flow Logs bucket) was rejected because it violates ADR-006's centralization principle and creates a bucket that must be migrated later. Better to close the gap in one clean pass than ship a half-fix.
