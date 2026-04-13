@@ -6,38 +6,55 @@
 
 Demonstrate end-to-end ability to design and build enterprise AWS infrastructure from zero:
 
-- Multi-account AWS Organizations with OUs and SCPs
+- Multi-account AWS Organizations with OUs and custom SCPs
 - AWS Control Tower as managed foundation + Terraform for extensions ([ADR-008](docs/decisions/008-landing-zone-tooling-control-tower-hybrid.md))
-- AWS Identity Center (SSO) — no IAM users, no static credentials
-- GitHub OIDC federation for CI/CD
-- Terraform IaC with S3 backend + native locking ([ADR-003](docs/decisions/003-terraform-backend-bootstrap.md))
-- GitHub Actions CI/CD (plan on PR, apply on merge)
-- EKS cluster with ArgoCD GitOps + Karpenter
-- Observability (Prometheus + Grafana)
-- Security baseline (CloudTrail, Config, GuardDuty)
-- ISO 27001:2022 Annex A as compliance north star ([ADR-005](docs/decisions/005-compliance-framework-iso-27001.md))
+- AWS Identity Center (SSO) — no IAM users, no static credentials ([ADR-001](docs/decisions/001-landing-zone-scope-boundary.md))
+- GitHub OIDC federation for CI/CD — signed commits, branch protection, required status checks
+- Terraform IaC with S3 native state locking ([ADR-003](docs/decisions/003-terraform-backend-bootstrap.md))
+- GitHub Actions pipeline — `terraform plan` on PR, `terraform apply` on merge
+- Checkov IaC security scanning with triaged skip list
+- Centralized IPAM with RAM sharing to member accounts
+- ISO 27001:2022 Annex A alignment ([ADR-005](docs/decisions/005-compliance-framework-iso-27001.md))
+
+**Planned (Phase 3+)**: EKS + Karpenter + ArgoCD, observability stack, service mesh. See Phase table below for current status.
 
 ## Architecture
 
-```
-AWS Organizations (aegis-management)
-│
-├── OU: Security
-│   ├── aegis-security     ← GuardDuty, Security Hub, Config admin
-│   └── aegis-logarchive   ← CloudTrail/Config/Flow Log archive (write-only)
-│
-├── OU: Infrastructure
-│   └── aegis-shared       ← Terraform state, AFT, GitHub OIDC, ECR
-│
-└── OU: Workloads
-    ├── aegis-staging      ← Non-production workloads
-    └── aegis-prod         ← Production workloads
+High-level view. Detailed diagrams (account topology, CI/CD flow, identity, IPAM, deployment order) are in [`docs/architecture.md`](docs/architecture.md).
 
-Regions: eu-central-1 (primary), eu-west-1 (DR)
-SCP denies all other regions.
+```mermaid
+flowchart TB
+  subgraph GH["GitHub (this repository)"]
+    Code["Terraform code<br/>13 ADRs<br/>Runbook"]
+    CI["GitHub Actions<br/>plan + apply + Checkov"]
+  end
+
+  subgraph Org["AWS Organization (o-f5xi4j1hrx)"]
+    direction TB
+    Mgmt["aegis-management<br/>SCPs · SSO · Billing"]
+
+    subgraph Sec["OU: Security (CT-managed)"]
+      Audit["aegis-security"]
+      Log["aegis-logarchive"]
+    end
+
+    subgraph Inf["OU: Infrastructure"]
+      Shared["aegis-shared<br/>Terraform state · IPAM"]
+    end
+
+    subgraph Wrk["OU: Workloads"]
+      Stg["aegis-staging"]
+      Prd["aegis-prod"]
+    end
+  end
+
+  CI -. OIDC federation<br/>(no static creds) .-> Org
+  Mgmt -. SCPs .-> Sec
+  Mgmt -. SCPs .-> Inf
+  Mgmt -. SCPs .-> Wrk
 ```
 
-See [ADR-006](docs/decisions/006-account-taxonomy-and-ou-structure.md) for the full account taxonomy rationale.
+Regions: `eu-central-1` (primary) and `eu-west-1` (DR). Control Tower region-deny SCP blocks all others.
 
 ## Configuration Contract
 
@@ -48,32 +65,34 @@ All deployment-specific values (account IDs, emails, regions, CIDRs) live in `co
 ```bash
 # 1. Copy the template and fill in your values
 cp config/landing-zone.example.yaml config/landing-zone.yaml
-# Edit config/landing-zone.yaml with your account IDs, domain, regions, etc.
 
 # 2. Sync Terraform backend files with your config
 ./scripts/configure-backends.sh
 
-# 3. Initialize and deploy
+# 3. Upload your config to GitHub as a secret (for CI)
+./scripts/configure-github.sh
+
+# 4. Initialize and deploy (manual path — CI can also do this)
 cd terraform/environments/shared/bootstrap
 terraform init && terraform plan
 ```
 
-The script reads your `config/landing-zone.yaml` and updates all `backend.tf` files with the correct S3 bucket name and region. This is necessary because Terraform's backend block [does not support variables](docs/decisions/003-terraform-backend-bootstrap.md) — the only hardcoded values in the repository.
+The `configure-backends.sh` script replaces hardcoded values in `backend.tf` files with values from your `config/landing-zone.yaml`. This step exists because Terraform's backend block [does not support variables](docs/decisions/003-terraform-backend-bootstrap.md) — the only hardcoded values in the repository.
 
 ## Phases
 
+Status is tracked by what actually exists in the main branch, not what is aspirational. Each "Done" phase links to the PR(s) that delivered it.
+
 | Phase | Scope | Cost | Status |
 |-------|-------|------|--------|
-| 0. Bootstrap | AWS account, domain, Control Tower, Identity Center, budget alerts | ~Free | **Done** |
-| 1. Foundation | Config contract, Terraform backend, AFT, SCPs, GitHub OIDC | ~Free | **In progress** |
-| 2. GitOps Pipeline | GitHub Actions workflows, plan/apply automation, Checkov scanning | ~Free | Not started |
-| 3. EKS + ArgoCD + Karpenter | EKS cluster, ArgoCD, Karpenter, cert-manager, Kyverno | ~$5-10/session | Not started |
-| 4. Observability + Security | Prometheus, Grafana, CloudTrail, Config, GuardDuty | ~$5-10/session | Not started |
-| 5. Enterprise Service Mesh & Auth | Istio (mTLS), EKS Pod Identity, External Secrets, Cognito | ~$1-5/session | Not started |
-
-## Runbooks
-
-- [001 — Bootstrap AWS Account](docs/runbooks/001-bootstrap-aws-account.md): Step-by-step from zero to SSO-authenticated CLI, including Control Tower setup, KMS key policy, Identity Center, and all gotchas encountered.
+| 0. Bootstrap | AWS account, domain, Control Tower, Identity Center, budget alerts, KMS key | ~Free | **Done** (pre-PR, via [runbook](docs/runbooks/001-bootstrap-aws-account.md)) |
+| 1. Foundation | Config contract, state bucket, SCPs, OIDC, account provisioning | ~Free | **Done** ([#1](https://github.com/BinHsu/aegis-aws-landing-zone/pull/1)..[#7](https://github.com/BinHsu/aegis-aws-landing-zone/pull/7)) |
+| 2. GitOps Pipeline | plan/apply workflows, Checkov, pre-commit, signed commits | ~Free | **Done** ([#1](https://github.com/BinHsu/aegis-aws-landing-zone/pull/1), [#3](https://github.com/BinHsu/aegis-aws-landing-zone/pull/3), [#4](https://github.com/BinHsu/aegis-aws-landing-zone/pull/4), [#5](https://github.com/BinHsu/aegis-aws-landing-zone/pull/5)) |
+| 3a. Network Foundation | IPAM + RAM sharing, ADR-012 + ADR-013 | ~$0 idle / $0.003/IP/hr allocated | **Done** ([#6](https://github.com/BinHsu/aegis-aws-landing-zone/pull/6), [#7](https://github.com/BinHsu/aegis-aws-landing-zone/pull/7), [#8](https://github.com/BinHsu/aegis-aws-landing-zone/pull/8), [#9](https://github.com/BinHsu/aegis-aws-landing-zone/pull/9)) |
+| 3b. VPC | Staging VPC (3 AZ, 1 NAT, Gateway endpoints, Flow Logs) | ~$0.05/hr NAT | Not started |
+| 3c. EKS Platform | EKS 1.32 + Karpenter on Fargate + ArgoCD + ALB Controller + ACM | ~$0.15/hr | Not started |
+| 4. Observability + Security | Prometheus, Grafana, CloudTrail data events, GuardDuty, Security Hub | TBD | Not started |
+| 5. Enterprise Service Mesh & Auth | Istio (mTLS), cert-manager, EKS Pod Identity, External Secrets, Cognito | TBD | Not started |
 
 ## Architecture Decision Records
 
@@ -93,26 +112,32 @@ The script reads your `config/landing-zone.yaml` and updates all `backend.tf` fi
 | [012](docs/decisions/012-vpc-topology-and-egress-strategy.md) | VPC topology and egress strategy |
 | [013](docs/decisions/013-eks-architecture.md) | EKS architecture |
 
+## Runbooks
+
+- [001 — Bootstrap AWS Account](docs/runbooks/001-bootstrap-aws-account.md): Step-by-step from zero to SSO-authenticated CLI, including Control Tower setup, KMS key policy, Identity Center, Account Factory for staging/prod, GitHub repo configuration, signed commits, and all gotchas encountered.
+
 ## Companion Application Repository
 
-This infrastructure repo is the **Pointer** — it defines VPCs, EKS clusters, OIDC, and hoists ArgoCD. The application workload lives in **[aegis-core](https://github.com/BinHsu/aegis-core)** (the **Payload**). ArgoCD watches `aegis-core` and deploys changes via pull-based GitOps. See [ADR-007](docs/decisions/007-infra-app-repository-split.md).
+This infrastructure repo is the **Pointer** — it defines VPCs, EKS clusters, OIDC, and (Phase 3+) hoists ArgoCD. The application workload lives in **[aegis-core](https://github.com/BinHsu/aegis-core)** (the **Payload**, planned). ArgoCD watches `aegis-core` and deploys changes via pull-based GitOps. See [ADR-007](docs/decisions/007-infra-app-repository-split.md).
 
 ## Cost Management
 
-- **Phase 0-2 are essentially free** (Organizations, SSO, SCPs, S3, GitHub Actions free tier)
-- **Phase 3+ costs money** — spin up only when practicing, destroy after every session via [`soft-teardown-workload.sh`](docs/decisions/009-lifecycle-and-teardown-strategy.md)
-- **Budget alerts**: daily $10, monthly $30
+- **Phases 0-2 are ~free** (Organizations, SSO, SCPs, S3, public-repo GitHub Actions)
+- **Phase 3a (IPAM)**: ~$0 idle, ~$0.003/IP/hr when VPCs allocate — rounds to pennies per session
+- **Phase 3b+ (VPC + EKS)**: ~$3-5 per 4-hour session with [teardown discipline](docs/decisions/009-lifecycle-and-teardown-strategy.md)
+- **Budget alerts**: daily $10, monthly $30 (enforced via AWS Budgets in management account)
 - **NAT Gateway is the hidden cost killer** ($0.045/hr = $32/month if left running)
 - **Persistent baseline**: ~$5/month (Control Tower + Config recorder + CloudTrail)
-- **Per-session ephemeral**: ~$1-2/session (EKS, NAT, compute)
 
 ## Prerequisites
 
 - AWS account (management account) with billing access
-- Domain registered with email routing (see [runbook](docs/runbooks/001-bootstrap-aws-account.md))
-- Terraform CLI >= 1.10.0 (`brew install terraform`)
+- Domain registered with email routing
 - AWS CLI v2 (`brew install awscli`)
-- kubectl (`brew install kubectl`)
+- Terraform CLI >= 1.10 (`brew tap hashicorp/tap && brew install hashicorp/tap/terraform` — default Homebrew is stuck at 1.5.7)
+- `gh` CLI (`brew install gh`)
+- Python 3 with `pyyaml` and `jsonschema` (for pre-commit hook)
+- Signed-commits SSH key (see [Runbook Part 10.4](docs/runbooks/001-bootstrap-aws-account.md))
 
 ## Directory Structure
 
@@ -124,19 +149,33 @@ aegis-aws-landing-zone/
 │   └── schema.json                # JSON Schema validation
 ├── terraform/
 │   └── environments/
-│       ├── management/bootstrap/  # Management account baseline
-│       ├── shared/bootstrap/      # State bucket, IPAM (future)
-│       ├── staging/               # Staging layers (future)
-│       └── prod/                  # Production layers (future)
+│       ├── management/
+│       │   ├── bootstrap/         # Account alias, OIDC, org features
+│       │   └── scps/              # 3 custom SCPs
+│       ├── shared/
+│       │   ├── bootstrap/         # State bucket, OIDC
+│       │   ├── ipam/              # IPAM pools + RAM share
+│       │   └── aft/               # AFT code (not deployed — ADR-011 Path A)
+│       ├── staging/bootstrap/     # Alias + OIDC
+│       └── prod/bootstrap/        # Alias only
+├── scripts/
+│   ├── configure-backends.sh      # Sync backend.tf from config
+│   ├── configure-github.sh        # Upload config to GitHub secret
+│   └── validate-config.py         # JSON Schema validator (pre-commit)
 ├── docs/
-│   ├── decisions/                 # Architecture Decision Records
+│   ├── architecture.md            # Detailed Mermaid diagrams
+│   ├── decisions/                 # Architecture Decision Records (ADRs)
 │   └── runbooks/                  # Operational runbooks
-├── .github/workflows/             # GitHub Actions (future)
-├── k8s-manifests/                 # ArgoCD app-of-apps (future)
+├── .github/workflows/             # plan + apply + checkov
+├── .pre-commit-config.yaml        # Local quality gates
 ├── CLAUDE.md                      # AI operational rules
 └── .terraform-version             # Pinned Terraform version
 ```
 
 ## Author
 
-**Bin Hsu** — Senior Software Architect, 15 years experience (10 years C++ embedded systems, 5 years AWS platform engineering). Building this to prove that system design + hands-on implementation = the same person.
+**Bin Hsu** — Senior Software Architect, 15 years experience (10 years C++ embedded systems at VIVOTEK, 5 years AWS platform engineering at E2 Nova). Building this to prove that system design + hands-on implementation = the same person.
+
+---
+
+**Documentation drift policy**: This README reflects the state of `main` at the commit referenced in the Phase table above. If you find content that does not match reality (missing directories, features that do not work, stale PR links), open a PR titled `docs: fix README drift — <area>`. See the same policy in [`docs/architecture.md`](docs/architecture.md).
