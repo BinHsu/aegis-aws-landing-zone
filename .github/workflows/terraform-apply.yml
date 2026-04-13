@@ -24,17 +24,24 @@ jobs:
       max-parallel: 1
       matrix:
         include:
-          # Order matters: bootstrap before scps (dependencies)
+          # Order matters — dependencies between layers:
+          #   1. management/bootstrap enables aws_ram_sharing_with_organization,
+          #      which shared/ipam depends on for RAM share.
+          #   2. shared/bootstrap creates the state bucket (other layers' state).
+          #   3. shared/ipam shares pools to org (needs RAM enablement above).
+          #   4. workload bootstraps (staging) provide OIDC roles.
+          #   5. management/scps last because SCPs could lock down operations
+          #      mid-apply.
+          - env: management/bootstrap
+            account_id: "186052668286"
           - env: shared/bootstrap
             account_id: "345895787808"
           - env: shared/ipam
             account_id: "345895787808"
-          - env: management/bootstrap
-            account_id: "186052668286"
-          - env: management/scps
-            account_id: "186052668286"
           - env: staging/bootstrap
             account_id: "251774439261"
+          - env: management/scps
+            account_id: "186052668286"
 
     steps:
       - uses: actions/checkout@v4
