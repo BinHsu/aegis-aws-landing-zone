@@ -89,6 +89,7 @@ This is a hands-on portfolio project by **Bin Hsu**, a Senior Software Architect
   ```
 - **Rule: AI agents must check `docs/decisions/` before proposing architecture.** If a decision has already been made and recorded, follow it. If you believe it should change, discuss with the user first — do not silently override.
 - **Rule: When a significant design discussion happens in conversation, the AI must remind the user to capture it as an ADR.** Don't let decisions disappear into chat history.
+- **Rule: AI agents must append new incidents to `docs/incidents.md`.** When a deployment failure, state-recovery episode, or non-trivial gotcha occurs, write a postmortem entry using the format at the bottom of that file: Symptom → Root cause → Detection → Resolution → Prevention → Lessons. Runbook troubleshooting entries are *in addition to*, not instead of, the postmortem. Undocumented incidents are technical debt.
 
 ## Directory Structure
 
