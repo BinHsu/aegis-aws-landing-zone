@@ -8,7 +8,7 @@
 #   - Region deny (ADR-002: only eu-central-1 + eu-west-1)
 #   - CloudTrail protection (disallow changes/deletion)
 #   - AWS Config protection (disallow changes/deletion)
-#   - CT-managed IAM role protection
+#   - Control Tower-managed IAM role protection
 #
 # SCPs do NOT apply to the management account — only member accounts.
 # Management account root user is protected by MFA + cold storage (Runbook Part 3).
