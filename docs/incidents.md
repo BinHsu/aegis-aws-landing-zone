@@ -308,6 +308,71 @@ Runbook now documents the full recovery sequence.
 
 ---
 
+## Incident 7 — IPAM delegated admin not configured for cross-account VPC allocation
+
+**Date**: 2026-04-13 (Phase 3b, PR #25 merge)
+**Severity**: S3 (staging/network apply blocked after NAT cost had started)
+**Duration**: ~10 min detect + fix
+
+### Symptom
+
+After PR #25 merged and the apply workflow ran, `staging/network` failed at VPC creation:
+
+```
+Error: creating EC2 VPC: UnsupportedOperation: The operation
+AllocateIpamPoolCidr is not supported. Account 251774439261 is not
+monitored by IPAM ipam-02b647bff9b858621.
+```
+
+`shared/ipam` had already been applied, the RAM share with the organization was in place, and `staging` could see the pool via `aws ec2 describe-ipam-pools`. The VPC allocation call was still refused.
+
+### Root cause
+
+RAM sharing and IPAM monitoring are **independent concepts**, despite both being cross-account features:
+
+- **RAM sharing** (`aws_ram_resource_share`): lets member accounts *see and consume* the IPAM pool in Terraform plans and describe-ipam-pools calls.
+- **IPAM monitoring**: a separate service-level relationship between the IPAM instance and the accounts whose VPC allocations it tracks. Required for `AllocateIpamPoolCidr` to succeed.
+
+When the IPAM instance is hosted in a member account (this project: `aegis-shared` per ADR-004 Mode B), IPAM monitoring requires **AWS Organizations integration**, which means delegating IPAM admin from the management account to the IPAM-hosting account.
+
+Without delegation, IPAM only monitors the account it lives in. RAM-shared pools look usable via describe APIs but fail on actual allocation.
+
+### Detection
+
+Error message named the specific IPAM ID and the specific monitored-account gap. One of the more self-explanatory AWS errors.
+
+### Resolution
+
+Added `aws_organizations_delegated_administrator` in `management/bootstrap/organization-features.tf`:
+
+```hcl
+resource "aws_organizations_delegated_administrator" "ipam" {
+  account_id        = local.config.accounts.shared.id
+  service_principal = "ipam.amazonaws.com"
+}
+```
+
+Applied from management account. IPAM immediately recognized all org accounts as monitored. `staging/network` apply then succeeded on retry.
+
+### Prevention
+
+When setting up IPAM in a non-management account, the delegation is mandatory, not optional. Document both prerequisites up front:
+
+1. `aws_ram_sharing_with_organization` — for pools to be RAM-shareable
+2. `aws_organizations_delegated_administrator` for `ipam.amazonaws.com` — for IPAM to monitor org accounts
+
+Both go in `management/bootstrap`. Both must apply before any cross-account IPAM consumption.
+
+Runbook troubleshooting now documents this.
+
+### Lessons
+
+- AWS cross-account features often have multiple independent prerequisites. RAM enablement and IPAM delegation looked redundant on the surface; they are not.
+- "The pool is visible" ≠ "the pool is usable." Describe APIs and mutation APIs can disagree on cross-account state.
+- When a multi-account AWS service has both a "trusted service access" setting and a "delegated admin" setting, both likely need attention. Enabling one without the other is a common gap.
+
+---
+
 ## Adding a new incident
 
 Append new sections at the bottom, before this footer, using the format:
