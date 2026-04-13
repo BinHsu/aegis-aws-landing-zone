@@ -27,6 +27,10 @@ jobs:
             account_id: "186052668286"
           - env: shared/bootstrap
             account_id: "345895787808"
+          - env: shared/ipam
+            account_id: "345895787808"
+          - env: staging/bootstrap
+            account_id: "251774439261"
 
     steps:
       - uses: actions/checkout@v4
