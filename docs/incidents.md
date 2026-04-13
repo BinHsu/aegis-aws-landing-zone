@@ -378,6 +378,68 @@ Runbook troubleshooting and ADR-004 Consequences both document this.
 
 ---
 
+## Incident 8 — OIDC trust policy missing `environment:` subject claim for workflow_dispatch
+
+**Date**: 2026-04-13 (Phase 3b, PR #35 workflow split)
+**Severity**: S4 (operator inconvenience; teardown path blocked until fix)
+**Duration**: ~5 min
+
+### Symptom
+
+After splitting `terraform-apply.yml` into baseline/workload/teardown workflows (PR #35), the first manual trigger of `terraform-teardown-workload.yml` immediately failed at the OIDC auth step:
+
+```
+Error: Could not assume role with OIDC:
+Not authorized to perform sts:AssumeRoleWithWebIdentity
+```
+
+Baseline apply (on push to main) still worked. Plan (on PR) still worked. Only workload-dispatch failed.
+
+### Root cause
+
+GitHub Actions produces different `sub` (subject) claims in the OIDC token depending on the trigger and whether the job uses a GitHub Environment:
+
+| Trigger | `sub` value |
+|---------|-------------|
+| push to main | `repo:<org>/<repo>:ref:refs/heads/main` |
+| pull_request | `repo:<org>/<repo>:pull_request` |
+| workflow_dispatch + `environment: X` | `repo:<org>/<repo>:environment:X` |
+
+The original OIDC role trust policy (written in Phase 2) only allowed the first two. The newly introduced workload workflows use GitHub Environments (`workload-apply` and `workload-teardown`) for approval gates, which produced a third subject pattern the role refused to trust.
+
+### Detection
+
+AWS STS returned `NotAuthorized` on `AssumeRoleWithWebIdentity`. The error message was generic, but the pattern (baseline works, workload doesn't) localized the problem quickly to the role trust policy plus the new environment-scoped workflows.
+
+### Resolution
+
+Added two new subject patterns to the staging OIDC role's trust policy:
+
+```hcl
+github_oidc_subjects = [
+  "repo:${org}/${repo}:ref:refs/heads/main",
+  "repo:${org}/${repo}:pull_request",
+  "repo:${org}/${repo}:environment:workload-apply",      # new
+  "repo:${org}/${repo}:environment:workload-teardown",   # new
+]
+```
+
+Baseline apply auto-updated the trust policy on merge to main. The teardown workflow was re-triggered and succeeded on the retry.
+
+### Prevention
+
+When adding a GitHub Actions workflow that uses a new `environment:` value, update the corresponding role's OIDC trust policy in the same PR. Inline comment in `staging/bootstrap/oidc-github.tf` now explains which subject pattern each trigger produces so future environments are added consistently.
+
+Generalized rule for this repo: **any change to the workflow surface area that introduces a new OIDC subject claim must include the matching role trust-policy update**. This should ideally be codified as a pre-merge check but is documented-and-trusted for now.
+
+### Lessons
+
+- OIDC `sub` claims carry more context than operators often realize. `environment:` is only one example — `job_workflow_ref`, `ref_type`, `actor` all affect the claim and can all be used in trust policies for tighter scoping.
+- Different GitHub Actions triggers produce materially different tokens. A trust policy tested against one trigger type is not guaranteed to work for another.
+- Fast-moving debug path: check CloudTrail for the STS AssumeRoleWithWebIdentity failure, read the full `token` claim set the request presented, compare with the trust policy's allowed subjects.
+
+---
+
 ## Adding a new incident
 
 Append new sections at the bottom, before this footer, using the format:
