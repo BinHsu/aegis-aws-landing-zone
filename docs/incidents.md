@@ -842,6 +842,361 @@ Generalization: **admission webhooks are a real validation surface distinct from
 
 ---
 
+## Incident 15 — EC2 Spot Service-Linked Role missing on a fresh AWS account
+
+**Date**: 2026-04-14 (Phase 3c, third cold apply after PR #48)
+**Severity**: S3 (blocked Karpenter EC2 provisioning; cascade-timeout on LB Controller + ArgoCD)
+**Duration**: ~15 min to diagnose (initial misdirection) + 30 sec to fix
+
+### Symptom
+
+Karpenter installed successfully (post-Incidents 13, 14), detected pending pods, and created a NodeClaim. EC2 launch then failed:
+
+```
+launching nodeclaim, creating instance, with fleet error(s),
+AuthFailure.ServiceLinkedRoleCreationNotPermitted: The provided credentials
+do not have permission to create the service-linked role for EC2 Spot Instances.
+```
+
+Karpenter retried with exponential backoff for several minutes; each retry failed identically. LB Controller + ArgoCD Helm installs timed out waiting for EC2 capacity that never arrived.
+
+### Root cause
+
+AWS requires a service-linked role named `AWSServiceRoleForEC2Spot` in each account before any Spot EC2 instance can be launched. The role is **auto-created on the first Spot request** — but only if the requesting principal has `iam:CreateServiceLinkedRole` on `spot.amazonaws.com`. The Karpenter controller's IRSA policy (per ADR-013) deliberately does NOT include this permission, on the reasoning that:
+
+1. SLR creation is a one-time per-account operation (the role persists forever once created)
+2. Granting `iam:CreateServiceLinkedRole` on every reconcile cycle is gratuitous scope — it gives Karpenter IAM-creation capability for a task it needs exactly once
+3. The right owner of the SLR is the account bootstrap layer, not a workload controller
+
+So the SLR is a **cross-account-bootstrap prerequisite** of using Karpenter with Spot. In a fresh AWS account, it does not exist. The lab's staging account was itself never provisioned with the SLR (Phase 2 bootstrap didn't include it because Phase 2 didn't use Spot).
+
+### Detection
+
+The error message `AuthFailure.ServiceLinkedRoleCreationNotPermitted` was explicit. Brief time was lost checking Karpenter's IAM policy for the missing action (and correctly concluding it should NOT be there). The fix was to create the SLR out-of-band.
+
+### Resolution
+
+**One-time manual creation** (unblock current session):
+
+```bash
+export AWS_PROFILE=aegis-staging-admin
+aws iam create-service-linked-role --aws-service-name spot.amazonaws.com
+# Then force Karpenter to retry immediately:
+kubectl delete nodeclaim <stuck-name>
+# Karpenter creates a fresh NodeClaim which launches Spot without the backoff lag.
+```
+
+**Codified in Terraform** (so forkers never hit this):
+
+```hcl
+# terraform/environments/staging/bootstrap/spot-service-linked-role.tf
+resource "aws_iam_service_linked_role" "spot" {
+  aws_service_name = "spot.amazonaws.com"
+  description      = "Service-linked role for EC2 Spot Instances (used by Karpenter)"
+}
+```
+
+For the existing staging account (where the SLR was manually created during this incident), a one-time `terraform import` brought the resource under Terraform management:
+
+```bash
+cd terraform/environments/staging/bootstrap
+terraform import aws_iam_service_linked_role.spot \
+  "arn:aws:iam::251774439261:role/aws-service-role/spot.amazonaws.com/AWSServiceRoleForEC2Spot"
+```
+
+After import, `terraform plan` showed only a tag-alignment change (the manually-created SLR had no project tags).
+
+### Prevention
+
+Any workload controller that uses an AWS service requiring an SLR should assume the SLR exists rather than provision it. The SLR belongs in a bootstrap layer:
+
+| Service | SLR name | Required before |
+|---------|----------|-----------------|
+| EC2 Spot | `AWSServiceRoleForEC2Spot` | Karpenter / any Spot launch |
+| ELB | `AWSServiceRoleForElasticLoadBalancing` | AWS LB Controller |
+| Organizations | `AWSServiceRoleForOrganizations` | Org-level resources (usually auto-created by Control Tower) |
+| EKS | `AWSServiceRoleForAmazonEKS` | EKS cluster (auto-created on first cluster) |
+
+For this project, EC2 Spot is the only one requiring explicit Terraform management; the others are either auto-created earlier in the stack or by Control Tower.
+
+### Lessons
+
+- **Service-linked roles are a hidden "account-level prerequisite" class of resource.** They don't appear in any Karpenter doc, ADR, or tutorial because they're usually created transparently on first use by a console click. Terraform-first workflows that never click the console therefore hit this on cold accounts.
+- **"Least privilege" sometimes means REFUSING to grant a permission even when it would unblock the immediate failure.** Karpenter should not be granted `iam:CreateServiceLinkedRole`. The right thing is to move the SLR creation upstream, not to expand Karpenter's IAM.
+- **Bootstrap layer composition: think in "what-must-exist-before" layers, not just "what-to-create."** The staging/bootstrap layer should enumerate all per-account prerequisites for the platform layer, not just the account alias and OIDC provider.
+
+---
+
+## Incident 16 — CoreDNS stuck Pending because it booted before the Fargate profile existed
+
+**Date**: 2026-04-14 (Phase 3c, third cold apply; discovered during Karpenter crash investigation)
+**Severity**: S2 (full cluster DNS down → cluster effectively unusable; cascade-crash of Karpenter and all workload installs)
+**Duration**: ~20 min of misdirection before the root cause emerged
+
+### Symptom
+
+Karpenter controller in CrashLoopBackOff (12 restarts). Logs showed:
+
+```
+ERROR "ec2 api connectivity check failed"
+  error: "WebIdentityErr: failed to retrieve credentials
+    caused by: RequestError: send request failed
+    caused by: Post https://sts.eu-central-1.amazonaws.com/:
+      dial tcp: lookup sts.eu-central-1.amazonaws.com on 172.20.0.10:53:
+      read udp 10.0.8.130:39174->172.20.0.10:53: i/o timeout"
+```
+
+`172.20.0.10` is the Kubernetes DNS service ClusterIP (CoreDNS). DNS was unreachable, which killed every AWS SDK call from every pod.
+
+`kubectl get pods -n kube-system` confirmed CoreDNS × 2 both `Pending` for 136 minutes since cluster creation.
+
+### Root cause
+
+EKS-managed CoreDNS is installed as an EKS addon at cluster creation time, with the default `computeType: ec2`. The pods are born as regular Deployment pods needing EC2 capacity.
+
+The Fargate profile for `kube-system` (with selector `k8s-app=kube-dns`) is created by Terraform *in the same apply* as the cluster, but:
+
+- Fargate's mutating admission webhook injects the Fargate toleration and ServiceAccount annotation into pods **as they are created**. Pods created *before* a matching Fargate profile exists do NOT get retroactively mutated.
+- Because EKS-managed CoreDNS pods come up during cluster creation, by the time the Fargate profile lands in the subsequent Terraform step, the CoreDNS pods already exist without the mutation.
+- The Fargate node, once it exists, has a taint `eks.amazonaws.com/compute-type=fargate` that the unmutated CoreDNS pods cannot tolerate. So the pods stay Pending.
+- No DNS means Karpenter (on its own Fargate pod that DID get mutated) can't resolve STS endpoints. Karpenter crashes before it can provision any EC2.
+- No EC2 means no alternative landing site for the pending CoreDNS pods. Full cascade stall.
+
+The mental-model error was assuming "Fargate profile with label selector = CoreDNS will just schedule on Fargate." Correct statement: "Fargate profile with label selector + pod created AFTER the profile exists = schedule on Fargate." Pods created before the profile are frozen.
+
+### Detection
+
+Three clues lined up:
+
+1. Karpenter log → "DNS i/o timeout to 172.20.0.10"
+2. `kubectl get pods -n kube-system` → CoreDNS Pending for 136 min
+3. `kubectl describe pod coredns-*` → event log showed "1 node(s) had untolerated taint `eks.amazonaws.com/compute-type: fargate`"
+
+The untolerated-taint event was the smoking gun. Once seen, the fix was obvious.
+
+### Resolution
+
+**Immediate unblock** (rollout the CoreDNS Deployment; new pods go through the Fargate webhook):
+
+```bash
+kubectl -n kube-system rollout restart deployment coredns
+```
+
+Within ~60 seconds, new pods were created, mutated by the Fargate webhook, scheduled on Fargate nodes, and Running.
+
+**Codified in Terraform** (so forkers never hit this) — take ownership of the CoreDNS addon and declare `computeType: Fargate` explicitly:
+
+```hcl
+# terraform/environments/staging/platform/coredns-addon.tf
+resource "aws_eks_addon" "coredns" {
+  cluster_name = aws_eks_cluster.main.name
+  addon_name   = "coredns"
+
+  resolve_conflicts_on_create = "OVERWRITE"
+  resolve_conflicts_on_update = "OVERWRITE"
+
+  configuration_values = jsonencode({
+    computeType = "Fargate"
+    resources = {
+      limits   = { cpu = "0.25", memory = "512Mi" }
+      requests = { cpu = "0.25", memory = "512Mi" }
+    }
+  })
+
+  depends_on = [aws_eks_fargate_profile.kube_system]
+}
+```
+
+`resolve_conflicts_on_create = "OVERWRITE"` tells EKS: the addon might already exist (EKS auto-installed it); take over and apply this configuration. With `computeType = Fargate`, EKS rewrites the CoreDNS Deployment's pod template to be Fargate-compatible before the race window opens.
+
+### Prevention
+
+**Any EKS addon that should schedule on Fargate must be declared via `aws_eks_addon` with `computeType: Fargate` in `configuration_values`.** This is documented in AWS docs as the canonical fix. Do not rely on "Fargate profile selector will just work" for auto-installed addons — auto-installed addons come up before the profile.
+
+Addons this applies to (in this project):
+- CoreDNS (always, since it's mandatory and lands on Fargate by design)
+- kube-proxy — runs as DaemonSet on EC2, no Fargate interaction; default addon config is correct
+
+If future addons (CNI, etc.) need Fargate, repeat the pattern.
+
+### Lessons
+
+- **Admission webhooks are not retroactive.** A mutating webhook rewrites pod specs at creation time; it does NOT re-run on existing pods when a matching webhook config appears later. This is documented in Kubernetes architecture but easy to forget.
+- **EKS auto-installed addons behave differently from Terraform-installed Helm charts.** The auto-install happens at cluster-creation time, typically BEFORE Terraform's Fargate profile resource lands. Terraform's natural dependency graph doesn't capture this ordering because the auto-install isn't a Terraform resource.
+- **A single cluster-wide dependency failing (DNS) cascades to everything.** This is the second cascade-failure incident from this phase (Incidents 13, 14 were the earlier two). The pattern continues to transfer: when N unrelated things break simultaneously, suspect a shared dependency. For this cluster, DNS is N=1.
+- **Read `kubectl describe pod` events for the actual scheduler decision.** The event log's `untolerated taint` message was the direct clue to the fix; without it, the debug would have taken longer.
+
+---
+
+## Incident 17 — AWS Load Balancer Controller webhook endpoint not ready when ArgoCD installs
+
+**Date**: 2026-04-14 (Phase 3c, fifth apply after post-CoreDNS recovery)
+**Severity**: S3 (blocked ArgoCD install; LB Controller itself was fine)
+**Duration**: ~5 min to diagnose + single-line Terraform dependency fix
+
+### Symptom
+
+After CoreDNS + Karpenter + LB Controller all installed cleanly (previous incidents fixed), ArgoCD's Helm install failed:
+
+```
+Error: 4 errors occurred:
+  * Internal error occurred: failed calling webhook "mservice.elbv2.k8s.aws":
+    failed to call webhook: Post "https://aws-load-balancer-webhook-service.kube-system.svc:443/
+    mutate-v1-service?timeout=10s": no endpoints available for service
+    "aws-load-balancer-webhook-service"
+  ... (three more identical, one per ArgoCD Service resource)
+```
+
+`helm_release.argocd` in Terraform failed on `context deadline exceeded`. ArgoCD CRDs existed (created by the chart's pre-install hook) but none of the ArgoCD pods (argocd-server, repo-server, redis, etc.) came up.
+
+### Root cause
+
+AWS Load Balancer Controller installs a `MutatingWebhookConfiguration` named `aws-load-balancer-webhook` that intercepts the creation of **every** `Service` resource across the cluster (not just `type=LoadBalancer`). The webhook is backed by the controller's own pods via the `aws-load-balancer-webhook-service` ClusterIP Service.
+
+The ArgoCD Helm chart creates ~6 Services (argocd-server, argocd-repo-server, argocd-redis, argocd-applicationset-controller, etc.) early in the install as part of creating the Deployment objects. Each Service creation triggers the webhook call. If the LB Controller's pods are NOT yet Ready (or their Service has no Endpoints), the webhook call fails with `no endpoints available`, and the Service creation aborts.
+
+In this apply, `helm_release.aws_lb_controller` and `helm_release.argocd` ran in parallel (Terraform's dependency graph did not serialize them). LB Controller pods were still coming up on their freshly-provisioned EC2 node (Karpenter-launched seconds earlier) when ArgoCD started creating Services.
+
+### Detection
+
+The error text explicitly named the missing Service (`aws-load-balancer-webhook-service`) and the operation (`mutate-v1-service`). The cause was unambiguous: the webhook target wasn't ready at the time of admission.
+
+### Resolution
+
+Single-line dependency in `terraform/environments/staging/platform/argocd.tf`:
+
+```hcl
+resource "helm_release" "argocd" {
+  # ...
+  depends_on = [
+    helm_release.karpenter,             # (existing) need EC2 capacity
+    helm_release.aws_lb_controller,     # (new) wait for webhook endpoints
+  ]
+}
+```
+
+Serializes: Terraform waits for LB Controller's Helm release to be considered "deployed" (which, with Helm's default `wait = true`, means pods are Ready and their Service has Endpoints) before starting the ArgoCD install. Adds ~30-60s to first apply; reliability is worth the cost.
+
+Also `helm uninstall argocd -n argocd` to clean the failed Helm release state from the cluster so Terraform's next install is fresh rather than an upgrade-from-failed.
+
+### Prevention
+
+**If a Helm chart installs a cluster-wide admission webhook (mutating or validating), every subsequent Helm chart that creates resources the webhook intercepts must `depends_on` the webhook's chart.** This is not Terraform's implicit dependency graph — Terraform sees two unrelated Helm releases, does not know one's pods admit-on-behalf-of the other's workload.
+
+Admission webhooks to watch for in this project:
+- AWS Load Balancer Controller → admits Service creations (cluster-wide)
+- cert-manager (future Phase 5) → admits Certificate and Issuer creations
+- Istio (future Phase 5+) → admits Pod + Service creations
+
+For any new chart that creates these resource types, explicit `depends_on` the admission-owning chart.
+
+### Lessons
+
+- **Admission webhooks are a real serialization concern across independent Terraform resources.** Terraform's dependency graph considers resource attribute references; it does not consider "this cluster-wide webhook will intercept the other resource's Kubernetes objects." Humans must encode that dependency via `depends_on`.
+- **Parallel Helm installs look faster but are often slower in failure cases.** The apparent parallelism saves 30-60s in the happy path; it costs 5-10 minutes of timeout + debug + uninstall + re-apply when a webhook race hits. Serialize with `depends_on` by default; optimize parallelism only when measured.
+- **`MutatingWebhookConfiguration` affects scope broader than it looks.** `mservice.elbv2.k8s.aws` sounds like it's about ELB-related Services, but the admission rule matches `Service` resources of any type. Cluster-wide blast radius from every controller that installs a webhook. Review `kubectl get mutatingwebhookconfiguration` after any new controller install.
+
+---
+
+## Incident 18 — AmazonEKSClusterAdminPolicy allows CRD create but denies CRD delete
+
+**Date**: 2026-04-14 (Phase 3c, first teardown after successful apply)
+**Severity**: S3 (teardown blocked; Access Entries already destroyed by the time error surfaced, locking the operator out of cluster-admin to fix it)
+**Duration**: ~15 min from failure to codified fix
+
+### Symptom
+
+The workload teardown workflow (`terraform-teardown-workload.yml`) failed mid-destroy:
+
+```
+Error: argocd/root failed to delete kubernetes resource:
+  applications.argoproj.io "root" is forbidden:
+  User "arn:aws:sts::251774439261:assumed-role/github-actions-terraform/GitHubActions"
+  cannot delete resource "applications" in API group "argoproj.io" in the namespace "argocd"
+
+Error: default failed to delete kubernetes resource:
+  nodepools.karpenter.sh "default" is forbidden:
+  User "..." cannot delete resource "nodepools" in API group "karpenter.sh"
+  at the cluster scope
+```
+
+Fargate profiles, SQS queue policy, and some Helm releases had already been destroyed successfully in parallel before these errors surfaced. Two `kubectl_manifest` deletes failed on RBAC denial.
+
+The cascading problem: by the time I tried to manually delete the stuck CRD instances using my PlatformAdmin SSO (which HAS genuine cluster-admin), my **Access Entry had already been destroyed** by the earlier teardown steps. I was locked out of the cluster while the cluster was still ACTIVE in AWS. `kubectl` returned `Unauthorized`.
+
+### Root cause
+
+**Primary: `AmazonEKSClusterAdminPolicy` does not grant symmetric create/delete on arbitrary CRDs.** The policy's name suggests "cluster-admin equivalent", and for most resource types (including the ones it was tested against at creation time), it behaves that way. But for certain CRD API groups — specifically `argoproj.io` and `karpenter.sh` in our observation — it allows CREATE but denies DELETE. This is inconsistent and asymmetric; Terraform's lifecycle model assumes symmetric permissions.
+
+The gap is not documented prominently in AWS docs. Searching turns up a handful of GitHub issues across AWS / EKS and third-party CRDs reporting similar CREATE-worked-DELETE-denied behavior on cluster-admin Access Policies. AWS's position (per release notes for the Access Policy feature) is that `AmazonEKSClusterAdminPolicy` grants "similar permissions" to cluster-admin, not "equivalent." The "similar" qualifier is load-bearing.
+
+**Secondary: teardown destroyed the Access Entries in parallel with the CRD resources, so the human workaround (go in via SSO, delete manually) became impossible while the cluster was still up.** The dependency graph allowed Access Entries and kubectl_manifest resources to destroy in parallel; Access Entries finished while CRDs failed. The only remaining path was Terraform state surgery.
+
+### Detection
+
+The RBAC denial error explicitly named the resource and API group. Direct. The second issue (Access Entry gone) was noticed when the manual `kubectl delete` attempt returned `Unauthorized` despite a valid SSO session — a `aws eks list-access-entries` showed only the Fargate pod role and EKS service role; both human+CI Access Entries were destroyed.
+
+### Resolution
+
+**Immediate unblock** — Terraform state surgery to remove the stuck resources, then re-dispatch teardown:
+
+```bash
+cd terraform/environments/staging/platform
+export AWS_PROFILE=aegis-staging-admin
+terraform init -input=false
+terraform state rm \
+  kubectl_manifest.argocd_root_app \
+  kubectl_manifest.karpenter_default_ec2nodeclass \
+  kubectl_manifest.karpenter_default_nodepool \
+  helm_release.argocd \
+  helm_release.aws_lb_controller \
+  helm_release.karpenter
+
+# Re-dispatch teardown; Terraform now destroys AWS resources only.
+# CRD instances + Helm releases die with the cluster itself.
+gh workflow run terraform-teardown-workload.yml -f env=staging
+```
+
+This works because the CRD resources and Helm releases exist only inside the cluster; when `aws_eks_cluster` is destroyed, everything inside is gone.
+
+**Codified in Terraform** (so forkers never hit this) — add `kubernetes_groups = ["system:masters"]` to both Access Entries:
+
+```hcl
+resource "aws_eks_access_entry" "ci" {
+  cluster_name      = aws_eks_cluster.main.name
+  principal_arn     = local.ci_role_arn
+  type              = "STANDARD"
+  kubernetes_groups = ["system:masters"]  # ← was []
+}
+
+resource "aws_eks_access_entry" "operator" {
+  # ... (count-guarded for conditional creation)
+  kubernetes_groups = ["system:masters"]  # ← was []
+}
+```
+
+`system:masters` is the built-in Kubernetes group that the default `cluster-admin` ClusterRoleBinding binds to. Assigning this group via Access Entry gives the principal genuine cluster-admin via the core Kubernetes RBAC machinery, bypassing the AWS Access Policy layer entirely. The `AmazonEKSClusterAdminPolicy` association can remain as a belt-and-suspenders, but the group mapping is the load-bearing mechanism.
+
+### Prevention
+
+**For any IAM principal that needs symmetric Terraform-managed lifecycle on arbitrary CRDs, use `kubernetes_groups = ["system:masters"]` via Access Entry.** Do not rely on `AmazonEKSClusterAdminPolicy` alone.
+
+This matters because:
+- Terraform's destroy semantics assume that whoever can create can delete
+- CRDs proliferate in a platform (Karpenter, ArgoCD, cert-manager, Istio, Prometheus Operator, ...) and each new CRD may or may not be covered by AmazonEKSClusterAdminPolicy's opaque-to-us permission set
+- The failure mode is invisible at apply time (create works), only surfaces at teardown
+
+Recommendation: for break-glass / Terraform CI / operator-SSO Access Entries where the principal is trusted to have cluster-admin, always use `system:masters` group. For narrower principals (namespace-scoped developers, read-only viewers), use the appropriate narrower Access Policy without `system:masters`.
+
+### Lessons
+
+- **"Cluster-admin equivalent" from a cloud provider is not the same as `cluster-admin` from Kubernetes.** When AWS docs say "similar", read "similar" not "equivalent". The difference emerges on CRDs and admission webhooks — surfaces the provider's own policy template can't statically enumerate.
+- **Destroy-order parallelism can create unrecoverable-by-operator states.** Teardown destroyed Access Entries in parallel with the resources that needed them; by the time I noticed the RBAC error, my remedy path (SSO-based manual delete) was already gone. Explicit `depends_on` in the resources that need the operator's access to exist could have kept the window open longer — but this is ultimately a design limitation of "parallel destroy of interdependent things".
+- **Terraform state surgery (`terraform state rm`) is a legitimate recovery tool, not a hack.** When a resource's dependencies have already been destroyed out from under it, state removal + re-apply-without-it is the correct path. It is documented in Terraform's own recovery guides; treat it as an intentional tool.
+- **The K8s `system:masters` group is the escape hatch from cloud-provider Access Policy gaps.** Future AWS EKS products and competitors will likely converge on similar gaps; `system:masters` mapped via native Kubernetes RBAC is the portable solution.
+
+---
+
 ## Adding a new incident
 
 Append new sections at the bottom, before this footer, using the format:
