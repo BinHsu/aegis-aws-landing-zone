@@ -43,10 +43,20 @@ locals {
 }
 
 resource "aws_eks_access_entry" "ci" {
-  cluster_name      = aws_eks_cluster.main.name
-  principal_arn     = local.ci_role_arn
-  type              = "STANDARD"
-  kubernetes_groups = []
+  cluster_name  = aws_eks_cluster.main.name
+  principal_arn = local.ci_role_arn
+  type          = "STANDARD"
+
+  # system:masters grants Kubernetes true cluster-admin via the built-in
+  # system:masters -> cluster-admin ClusterRoleBinding. This covers
+  # arbitrary CRDs (Karpenter NodePool, ArgoCD Application, etc.) for
+  # both CREATE and DELETE, which AmazonEKSClusterAdminPolicy alone does
+  # NOT cover uniformly — we hit teardown failure on Incident 18 because
+  # that policy allowed create but denied delete on CRD types. For a
+  # Terraform-managed lifecycle that needs symmetric create/destroy,
+  # system:masters is the canonical solution.
+  # See docs/incidents.md Incident 18.
+  kubernetes_groups = ["system:masters"]
 }
 
 resource "aws_eks_access_policy_association" "ci_cluster_admin" {
@@ -94,10 +104,20 @@ check "sso_platform_admin_role_exists" {
 resource "aws_eks_access_entry" "operator" {
   count = local.platform_admin_role_arn == null ? 0 : 1
 
-  cluster_name      = aws_eks_cluster.main.name
-  principal_arn     = local.platform_admin_role_arn
-  type              = "STANDARD"
-  kubernetes_groups = []
+  cluster_name  = aws_eks_cluster.main.name
+  principal_arn = local.platform_admin_role_arn
+  type          = "STANDARD"
+
+  # system:masters grants Kubernetes true cluster-admin via the built-in
+  # system:masters -> cluster-admin ClusterRoleBinding. This covers
+  # arbitrary CRDs (Karpenter NodePool, ArgoCD Application, etc.) for
+  # both CREATE and DELETE, which AmazonEKSClusterAdminPolicy alone does
+  # NOT cover uniformly — we hit teardown failure on Incident 18 because
+  # that policy allowed create but denied delete on CRD types. For a
+  # Terraform-managed lifecycle that needs symmetric create/destroy,
+  # system:masters is the canonical solution.
+  # See docs/incidents.md Incident 18.
+  kubernetes_groups = ["system:masters"]
 }
 
 resource "aws_eks_access_policy_association" "operator_cluster_admin" {
