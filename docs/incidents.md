@@ -1197,6 +1197,139 @@ Recommendation: for break-glass / Terraform CI / operator-SSO Access Entries whe
 
 ---
 
+## Incident 19 — Karpenter destroy order leaves orphan EC2 blocking VPC teardown
+
+**Date**: 2026-04-14 (Phase 3c, first clean teardown after successful apply)
+**Severity**: S3 (teardown stuck; manual EC2 termination needed; $0.01/hr continues on orphan until noticed)
+**Duration**: ~10 min from teardown failure to diagnosis + manual fix
+
+### Symptom
+
+Teardown workflow failed at `Destroy staging/network` with:
+
+```
+Error: deleting EC2 Subnet (subnet-0db08821a19a43869): operation error EC2:
+  DeleteSubnet, https response error StatusCode: 400,
+  api error DependencyViolation: The subnet 'subnet-...' has dependencies
+  and cannot be deleted.
+```
+
+VPC was still `available` in AWS. `aws ec2 describe-network-interfaces` showed 3 ENIs attached to subnets in the VPC, two of them tagged `aws-K8S-i-0ec1f06025554bd8f` — Kubernetes-attached ENIs tied to an EC2 instance. `aws ec2 describe-instances` confirmed instance `i-0ec1f06025554bd8f` was still running, tagged `karpenter.sh/nodepool=default`.
+
+The cluster itself was gone (`aws eks describe-cluster` returned `ResourceNotFoundException`). But the Karpenter-provisioned EC2 that it used to host was still alive, blocking subnet deletion.
+
+### Root cause
+
+Karpenter-provisioned EC2 instances are managed via Karpenter's `NodeClaim` CRD, not via AWS Auto Scaling Groups. The expected teardown order is:
+
+1. `kubectl delete nodepool default` → Karpenter drains + deprovisions NodeClaims → EC2 instances terminate, ENIs release
+2. `helm uninstall karpenter` → remove the controller (once nothing needs it)
+3. `terraform destroy` → destroy AWS resources (IAM, Fargate profiles, cluster, VPC)
+
+In this session's teardown, the ordering was broken in two ways, compounding into an orphan:
+
+**Primary: `terraform state rm` skipped the Karpenter deprovision step.** During Incident 18 recovery, I ran `terraform state rm helm_release.karpenter kubectl_manifest.karpenter_default_nodepool ...` to unblock teardown (CI role couldn't delete CRDs due to Incident 18's policy gap). Removing these from state meant Terraform no longer even attempted the deprovision sequence; it went straight to destroying the cluster. Karpenter controller was torn down with the cluster before its NodeClaim had a chance to drain the EC2.
+
+**Secondary: even without state-rm, Terraform's default destroy order is racy.** `kubectl_manifest.karpenter_default_nodepool` destroy submits a delete API call to the Kubernetes API (asynchronous). Terraform does NOT wait for Karpenter to actually finish deprovisioning the EC2; it just waits for the Kubernetes API to accept the delete. By the time `helm_release.karpenter` destroys (seconds later), the controller is gone and any in-flight EC2 termination is abandoned.
+
+This is a known class of issue with controllers that manage external resources — the CRD represents *intent*, not the *actual resource*. Terraform managing the CRD sees the intent gone; it does not see the external resource linger.
+
+### Detection
+
+AWS error `DependencyViolation` on subnet delete was the signal. `aws ec2 describe-network-interfaces --filters "Name=vpc-id,Values=$VPC_ID"` showed the stuck ENIs. `aws ec2 describe-instances` (with the ENI's attached instance ID) showed the orphan.
+
+### Resolution
+
+**Immediate unblock** — manually terminate the EC2 instance:
+
+```bash
+export AWS_PROFILE=aegis-staging-admin
+aws ec2 terminate-instances --region eu-central-1 --instance-ids i-0ec1f06025554bd8f
+# Wait ~60s for termination + ENI release
+aws ec2 describe-network-interfaces --region eu-central-1 \
+  --filters "Name=vpc-id,Values=$VPC_ID"
+# Expected: empty. Re-dispatch the teardown workflow.
+```
+
+Teardown then completed normally.
+
+**Codified in Terraform + workflow** (so forkers never hit this):
+
+Two mechanisms together:
+
+**A. `kubectl_manifest.karpenter_default_nodepool` waits for EC2 termination on destroy.**
+Use `provisioner "local-exec" when = "destroy"` to invoke `kubectl wait --for=delete nodeclaim --all --timeout=10m` AFTER the NodePool delete is submitted. Terraform won't proceed to destroying helm_release.karpenter until Karpenter has finished draining its NodeClaims (and thus the EC2s).
+
+```hcl
+# terraform/environments/staging/platform/karpenter-nodepool.tf
+resource "kubectl_manifest" "karpenter_default_nodepool" {
+  yaml_body = yamlencode({ ... })
+
+  depends_on = [kubectl_manifest.karpenter_default_ec2nodeclass]
+
+  # On destroy, wait for Karpenter to actually deprovision EC2 before
+  # letting downstream resources (helm_release.karpenter) destroy.
+  # Without this, the NodePool delete submits asynchronously and the
+  # controller is gone before EC2 termination finishes — the EC2s
+  # become orphans blocking subnet destroy. See Incident 19.
+  provisioner "local-exec" {
+    when    = destroy
+    command = "kubectl wait --for=delete nodeclaim --all --timeout=10m || true"
+  }
+}
+```
+
+Notes on this approach:
+- `|| true` — if the wait times out or kubectl itself errors (cluster already gone), we continue rather than wedge the destroy
+- The `kubectl` binary must be available on the runner/operator machine (GitHub Actions runners have it; local operator has it per runbook 002/003)
+- Auth comes from the same exec-plugin chain as the kubectl / helm providers
+
+**B. Teardown workflow sweeps orphan EC2 before Terraform destroy.**
+Add a pre-step to `terraform-teardown-workload.yml` that brute-force terminates any EC2 tagged by Karpenter before Terraform runs. This is the safety net for cases where state has drifted (like this session's `terraform state rm` recovery).
+
+```yaml
+# .github/workflows/terraform-teardown-workload.yml
+jobs:
+  destroy-platform:
+    steps:
+      - name: Sweep orphan Karpenter-provisioned EC2 instances
+        if: inputs.env == 'staging' || inputs.env == 'prod'
+        run: |
+          IDS=$(aws ec2 describe-instances \
+            --filters "Name=tag-key,Values=karpenter.sh/nodepool" \
+                      "Name=instance-state-name,Values=running,pending,stopping,stopped" \
+            --query 'Reservations[].Instances[].InstanceId' \
+            --output text)
+          if [ -n "$IDS" ]; then
+            echo "Terminating orphan Karpenter instances: $IDS"
+            aws ec2 terminate-instances --instance-ids $IDS
+            aws ec2 wait instance-terminated --instance-ids $IDS
+          else
+            echo "No orphan Karpenter-tagged EC2 instances found."
+          fi
+```
+
+A (Terraform-level) is the happy-path fix. B (workflow-level) is the safety net for broken-state recovery like this session. Both are needed: A alone doesn't protect against `terraform state rm` scenarios; B alone doesn't protect against the base race.
+
+### Prevention
+
+**Any Terraform resource that represents an *intent* for a controller to manage an external resource needs an explicit wait-for-actualization on destroy.** Karpenter's NodePool → EC2 is the obvious case; the same pattern applies to:
+
+- ArgoCD Applications → in-cluster resources (handled via `finalizers: [resources-finalizer.argocd.argoproj.io]` in the Application spec — which this project already has on the root App)
+- cert-manager Certificate → ACM / secret (when Phase 5 lands)
+- External DNS → Route53 records
+
+The general rule: **if a CRD is the Terraform-managed stand-in for an external resource, its destroy must wait for the controller to finish reconciling the deletion.** Either via built-in finalizers (ArgoCD), or via `kubectl wait` provisioners (Karpenter NodeClaim), or via a workflow-level sweep.
+
+### Lessons
+
+- **CRD deletion is asynchronous; Terraform's plan doesn't model the async tail.** Terraform sees "Kubernetes API accepted the delete" and moves on. Controllers process deletes over seconds-to-minutes; anything that depends on the external resource being truly gone (like subnet deletion) races with that tail.
+- **`terraform state rm` is a legitimate recovery tool but has sharp consequences downstream.** In this session, removing the Karpenter resources from state to unblock Incident 18's teardown meant skipping the (already-racy) deprovision step entirely — the safety net that would have caught this was itself removed. The mitigation is the workflow-level sweep (B): a check that does not depend on Terraform state at all.
+- **Belt-and-suspenders is the right architecture for teardown.** Single-point-of-failure in the destroy path is worse than a redundant extra check. The workflow-level sweep is cheap (one `describe-instances` call) and catches a class of errors Terraform cannot see.
+- **Orphan EC2 = ongoing cost.** This EC2 ran for an extra ~15 min before discovery (~$0.0025 of Spot). Not a lot, but the PRINCIPLE matters: any "teardown finished" claim should be verifiable by cloud-provider APIs, not just by Terraform's exit code. Future teardown tooling should include a post-destroy sanity check that queries AWS for resources tagged to the cluster and errors if anything remains.
+
+---
+
 ## Adding a new incident
 
 Append new sections at the bottom, before this footer, using the format:

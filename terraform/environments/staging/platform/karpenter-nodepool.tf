@@ -167,4 +167,21 @@ resource "kubectl_manifest" "karpenter_default_nodepool" {
   depends_on = [
     kubectl_manifest.karpenter_default_ec2nodeclass,
   ]
+
+  # On destroy: wait for Karpenter to actually deprovision the EC2 instances
+  # it created in response to this NodePool's delete before letting
+  # downstream resources (helm_release.karpenter) get destroyed. Without
+  # this, the NodePool delete submits asynchronously, Terraform immediately
+  # destroys the Karpenter controller, and any in-flight EC2 termination is
+  # abandoned — the EC2s become orphans that block subnet deletion later
+  # in teardown. See docs/incidents.md Incident 19.
+  #
+  # The `|| true` tail is deliberate: if the cluster is already gone (e.g.,
+  # destroy is recovering from a partial earlier attempt), we don't want
+  # this wait to wedge the whole teardown. The workflow-level sweep in
+  # terraform-teardown-workload.yml is the safety net for that scenario.
+  provisioner "local-exec" {
+    when    = destroy
+    command = "kubectl wait --for=delete nodeclaim --all --timeout=10m || true"
+  }
 }
