@@ -95,6 +95,8 @@ resource "helm_release" "argocd" {
     # Serialize the install so LB Controller's webhook is reachable before
     # ArgoCD's Services hit admission. See Incident 17 in docs/incidents.md.
     helm_release.aws_lb_controller,
+    # Cluster-admin binding — see cluster-role-binding.tf and Incident 21.
+    kubectl_manifest.aegis_cluster_admin_binding,
   ]
 }
 

@@ -84,5 +84,9 @@ resource "helm_release" "karpenter" {
     aws_eks_cluster.main,
     aws_eks_fargate_profile.karpenter,
     aws_iam_role_policy.karpenter_controller,
+    # Cluster-admin via group membership — needed for CRD delete at
+    # teardown (Incident 18 + 21). Destroy order reverse: this helm
+    # release destroys before the binding, with binding still live.
+    kubectl_manifest.aegis_cluster_admin_binding,
   ]
 }
