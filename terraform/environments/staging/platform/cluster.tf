@@ -23,6 +23,23 @@ resource "aws_kms_key" "cluster_secrets" {
   deletion_window_in_days = 30
   enable_key_rotation     = true
 
+  # Explicit root-only key policy. EKS acquires encrypt/decrypt access via
+  # the cluster IAM role (AmazonEKSClusterPolicy grants kms:DescribeKey,
+  # kms:GenerateDataKey, kms:Decrypt against keys the cluster is authorized
+  # to use — root giving the account full key access is the standard envelope
+  # encryption pattern). Explicit policy satisfies CKV2_AWS_64 and documents
+  # that no other principal can administer this key.
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "EnableRootAccount"
+      Effect    = "Allow"
+      Principal = { AWS = "arn:aws:iam::${local.account_id}:root" }
+      Action    = "kms:*"
+      Resource  = "*"
+    }]
+  })
+
   tags = {
     Name = "${local.cluster_name}-eks-secrets"
   }
@@ -92,7 +109,7 @@ resource "aws_kms_alias" "cluster_logs" {
 # -----------------------------------------------------------------------------
 resource "aws_cloudwatch_log_group" "cluster" {
   name              = "/aws/eks/${local.cluster_name}/cluster"
-  retention_in_days = 90 # lab-appropriate; production would be 365+
+  retention_in_days = 365 # CKV_AWS_338 requires >= 365; teardown removes the log group anyway, so the lab cost impact is bounded by the session duration, not the retention window.
   kms_key_id        = aws_kms_key.cluster_logs.arn
 
   tags = {
@@ -132,8 +149,8 @@ resource "aws_iam_role_policy_attachment" "cluster_vpc_resource_controller" {
 # -----------------------------------------------------------------------------
 # The cluster itself
 # -----------------------------------------------------------------------------
-#checkov:skip=CKV_AWS_39: Public endpoint is intentional per ADR-013 (single-operator lab, no bastion). Access is restricted to public_access_cidrs (operator IP/32) and primary auth is AWS IAM SigV4 + Kubernetes RBAC via Access Entries.
 resource "aws_eks_cluster" "main" {
+  # checkov:skip=CKV_AWS_39: Public endpoint is intentional per ADR-013 (single-operator lab, no bastion). Access is restricted to public_access_cidrs (operator IP/32) and primary auth is AWS IAM SigV4 + Kubernetes RBAC via Access Entries.
   name     = local.cluster_name
   role_arn = aws_iam_role.cluster.arn
   version  = local.eks_version
