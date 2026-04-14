@@ -106,6 +106,7 @@ Some Terraservices layers have their own operational contracts — pre-flight ch
 - **Rule: Before running operations in a layer that has its own runbook, AI must read the runbook first.** The runbook is the authoritative source for that layer's pre-flight checks and failure diagnostics. Global rules (this file) point at the runbook; they do not duplicate it. Scanning the runbook costs a few seconds; skipping it and debugging in the wrong order costs tens of minutes. Current runbooks:
   - `docs/runbooks/001-bootstrap-aws-account.md` — initial AWS / Control Tower bootstrap
   - `docs/runbooks/002-eks-access.md` — EKS operator access (MUST read before any `kubectl`, `aws eks`, or `staging/platform` apply in a session)
+  - `docs/runbooks/003-platform-first-verification.md` — end-to-end checklist after `staging/platform` applies; links to Incidents 10–17 for cold-apply gotchas (MUST follow for any fresh apply of the platform layer)
 
 - **Rule: When adding a new layer whose operations require their own diagnostic order (e.g., observability, service mesh), add a runbook under `docs/runbooks/` rather than extending this file.** Keeping CLAUDE.md small preserves its discoverability; layer-specific details belong with the layer.
 

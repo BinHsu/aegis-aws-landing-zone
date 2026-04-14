@@ -8,13 +8,12 @@ With Phase 3c PR 3 landed, this layer contains the full platform surface area th
 
 ## Before you touch this layer
 
-**Read `docs/runbooks/002-eks-access.md` first.** That runbook is the authoritative source for:
+**Two runbooks are authoritative for this layer:**
 
-- Session-start public-IP check (required for every session that touches the cluster)
-- Connectivity failure diagnostic order (IP → TLS reachability → SSO → kubeconfig → Access Entries)
-- Procedure for updating `public_access_cidrs` when the operator's ISP reassigns the public IP
+- [`docs/runbooks/002-eks-access.md`](../../../docs/runbooks/002-eks-access.md) — operator access model (the four auth layers), connectivity failure diagnostic order, and `public_access_cidrs` update procedure.
+- [`docs/runbooks/003-platform-first-verification.md`](../../../docs/runbooks/003-platform-first-verification.md) — post-apply "is the platform actually up?" checklist. Runs end-to-end after `terraform-apply-workload.yml` reports success. Sections 3–7 cover system pods, Helm releases, Karpenter CRDs, IRSA, ArgoCD UI access; diagnostic sections link to the exact incident postmortem for each known failure mode.
 
-Skipping the runbook and debugging `kubectl` failures "from the cluster outwards" is the single biggest time sink in this layer. See the runbook's section 4 for the reasoning.
+Skipping these runbooks and debugging "from the cluster outwards" is the single biggest time sink in this layer. Section 4 of runbook 002 explains the reasoning on the access side; runbook 003's diagnostic sections explain the reasoning on the post-apply side.
 
 ---
 
