@@ -124,6 +124,30 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
+      # Safety-net sweep: terminate any EC2 instance tagged as Karpenter-
+      # provisioned before Terraform runs. Normally Karpenter drains these
+      # itself when NodePool is deleted (handled by a local-exec provisioner
+      # on kubectl_manifest.karpenter_default_nodepool). But if state has
+      # drifted (e.g., a prior `terraform state rm` recovery), Terraform
+      # won't even attempt that deprovision — orphan EC2 then blocks subnet
+      # delete in the network layer. This sweep is the unconditional catch.
+      # See docs/incidents.md Incident 19.
+      - name: Sweep orphan Karpenter-provisioned EC2 instances
+        run: |
+          IDS=$(aws ec2 describe-instances \
+            --region ${{ env.AWS_REGION }} \
+            --filters "Name=tag-key,Values=karpenter.sh/nodepool" \
+                      "Name=instance-state-name,Values=running,pending,stopping,stopped" \
+            --query 'Reservations[].Instances[].InstanceId' \
+            --output text)
+          if [ -n "$IDS" ]; then
+            echo "::notice::Terminating orphan Karpenter instances: $IDS"
+            aws ec2 terminate-instances --region ${{ env.AWS_REGION }} --instance-ids $IDS
+            aws ec2 wait instance-terminated --region ${{ env.AWS_REGION }} --instance-ids $IDS
+          else
+            echo "::notice::No orphan Karpenter-tagged EC2 instances found."
+          fi
+
       - name: Check layer exists
         id: exists
         run: |
