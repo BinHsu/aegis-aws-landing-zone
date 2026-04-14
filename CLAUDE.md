@@ -99,6 +99,16 @@ This is a hands-on portfolio project by **Bin Hsu**, a Senior Software Architect
 - **Rule: AI must remind the user to record the incident before closing out a debugging session.** Untracked incidents are technical debt — the next operator (including future Claude) will repeat the mistake if it is not written down.
 - **Rule: Never edit an existing incident to soften the story after the fact.** Correct factual errors only. The historical record matters more than retroactive polish.
 
+### Layer-specific runbooks
+
+Some Terraservices layers have their own operational contracts — pre-flight checks, connectivity failure diagnostics, update procedures — that do not belong in global rules because they only apply when working in that layer. These live in `docs/runbooks/NNN-<topic>.md`.
+
+- **Rule: Before running operations in a layer that has its own runbook, AI must read the runbook first.** The runbook is the authoritative source for that layer's pre-flight checks and failure diagnostics. Global rules (this file) point at the runbook; they do not duplicate it. Scanning the runbook costs a few seconds; skipping it and debugging in the wrong order costs tens of minutes. Current runbooks:
+  - `docs/runbooks/001-bootstrap-aws-account.md` — initial AWS / Control Tower bootstrap
+  - `docs/runbooks/002-eks-access.md` — EKS operator access (MUST read before any `kubectl`, `aws eks`, or `staging/platform` apply in a session)
+
+- **Rule: When adding a new layer whose operations require their own diagnostic order (e.g., observability, service mesh), add a runbook under `docs/runbooks/` rather than extending this file.** Keeping CLAUDE.md small preserves its discoverability; layer-specific details belong with the layer.
+
 ## Directory Structure
 
 ```
