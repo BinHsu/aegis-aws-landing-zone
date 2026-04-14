@@ -51,6 +51,15 @@ data "aws_identitystore_user" "bin" {
 # Entries + Identity Center is the chosen mechanism (not aws-auth ConfigMap,
 # not long-lived IAM users).
 # -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# IMPORTANT (see docs/incidents.md Incident 9): before adding NEW assignment
+# resources to this file, run `aws sso-admin list-account-assignments` against
+# the target to confirm the assignment does not already exist from a prior
+# Console click. The SSO create API is NOT idempotent over pre-existing
+# assignments — it returns `ConflictException: already exists` and the
+# baseline apply fails. The recovery is `terraform import` with the six-part
+# assignment ID. Incident 9 has the exact ID format and recovery commands.
+# -----------------------------------------------------------------------------
 resource "aws_ssoadmin_account_assignment" "bin_staging_platform_admin" {
   instance_arn       = tolist(data.aws_ssoadmin_instances.main.arns)[0]
   permission_set_arn = data.aws_ssoadmin_permission_set.platform_admin.arn
