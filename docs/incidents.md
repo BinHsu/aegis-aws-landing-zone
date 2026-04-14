@@ -526,6 +526,176 @@ The `sso-assignments.tf` file in this repo now documents this class of hazard in
 
 ---
 
+## Incident 10 — `kubernetes_manifest` plan-time schema fetch breaks cold bootstrap
+
+**Date**: 2026-04-14 (Phase 3c, first cold apply of staging/platform; PR #43 → fix in PR #44)
+**Severity**: S3 (blocked first cluster apply; no AWS resources created)
+**Duration**: ~5 min to diagnose + patch
+
+### Symptom
+
+The first `terraform-apply-workload.yml` run with the `staging/platform` layer enabled failed at PLAN phase, before creating any cluster resources:
+
+```
+Error: Failed to construct REST client
+  cannot create REST client: no client config
+  with kubernetes_manifest.karpenter_default_ec2nodeclass
+  with kubernetes_manifest.karpenter_default_nodepool
+  with kubernetes_manifest.argocd_root_app
+```
+
+Network layer applied fine. Platform layer's EKS cluster resource would have been created successfully if plan had reached apply — but plan itself errored on three `kubernetes_manifest` resources.
+
+### Root cause
+
+`hashicorp/kubernetes`'s `kubernetes_manifest` resource fetches the target CRD's OpenAPI schema from the Kubernetes API server **at plan time** to validate the manifest shape. This is correct for day-2 operations (catches manifest typos without attempting to apply). It is fatal for day-0 bootstrap: on the first cold apply, the cluster does not exist yet, so there is no Kubernetes API server to query, so no schema, so no plan.
+
+The three `kubernetes_manifest` resources in question were the Karpenter `NodePool`, the Karpenter `EC2NodeClass`, and the ArgoCD root `Application` — all CRD instances whose CRDs are installed by upstream Helm charts elsewhere in the same Terraform configuration. Terraform's dependency graph correctly ordered `helm_release.karpenter` → `kubernetes_manifest.karpenter_default_nodepool`, but the provider's plan-time behavior ignored the graph — it tried to reach the cluster unconditionally.
+
+### Detection
+
+The error message was direct and pointed at the exact resources. Diagnosis was 30 seconds of reading. The broader pattern ("how do I bootstrap an EKS cluster + CRD instances in one Terraform apply?") is a well-known issue in the Terraform + Kubernetes community; searching for the error string leads immediately to the usual solutions.
+
+### Resolution
+
+Swap the three `kubernetes_manifest` resources for `kubectl_manifest` from the `gavinbunney/kubectl` provider. That resource applies raw YAML via `kubectl apply -f -` at apply time and does not do plan-time schema validation. Plan succeeds without a live cluster; apply waits for the cluster + CRD install + runs the manifest apply.
+
+Changes in PR #44:
+
+- `versions.tf`: add `gavinbunney/kubectl ~> 1.19`
+- `providers.tf`: configure `kubectl` provider with the same `aws eks get-token` exec-plugin auth as the `kubernetes` and `helm` providers
+- `karpenter-nodepool.tf`, `argocd.tf`: replace three `kubernetes_manifest` resources with `kubectl_manifest` using `yaml_body = yamlencode({...})`
+
+### Prevention
+
+**Use `kubectl_manifest` (gavinbunney) for CRD instances that are bootstrapped in the same Terraform apply that installs the CRDs.** Reserve `kubernetes_manifest` (hashicorp) for manifests targeting CRDs that are guaranteed to exist before plan — typically day-2 configuration changes to a steady-state cluster.
+
+The two providers are otherwise functionally similar; the plan-time behavior is the only meaningful difference. The choice is not about quality; it is about *when the cluster exists relative to when plan runs*.
+
+### Lessons
+
+- **"Apply-time validation" vs "plan-time validation" is a real axis for Kubernetes-touching Terraform resources.** Every provider in this space has a stance on it. `helm_release` validates at apply; `kubernetes_manifest` at plan; `kubectl_manifest` at apply. Pick per the lifecycle stage the resource is bootstrapping.
+- **Dependency graphs describe apply-time ordering, not plan-time ordering.** A `depends_on` that says "apply this after the Helm release" does not tell the resource to postpone its plan-time schema fetch. This is a subtlety worth noting because it's counter-intuitive.
+- **Search the error string before inventing a workaround.** "Failed to construct REST client: no client config" is a well-indexed community failure mode. The solution pattern (kubectl_manifest) is not novel.
+
+---
+
+## Incident 11 — EKS Access Policy ARN namespace is not IAM
+
+**Date**: 2026-04-14 (Phase 3c, first cold apply of staging/platform, same run as Incident 12)
+**Severity**: S3 (blocked Access Entry creation; cluster came up but no principals were mapped to cluster-admin)
+**Duration**: ~2 min to diagnose
+
+### Symptom
+
+Platform layer apply partially succeeded — EKS cluster + Fargate profiles + OIDC provider + Access Entries all created. Then two `aws_eks_access_policy_association` resources errored:
+
+```
+Error: creating EKS Access Policy Association
+  (aegis-staging#<principal>#arn:aws:iam::aws:policy/AmazonEKSClusterAdminPolicy):
+  InvalidParameterException: The policyArn parameter format is not valid
+```
+
+### Root cause
+
+EKS Access Policies live in their **own ARN namespace**, distinct from IAM Managed Policies. The correct format is:
+
+```
+arn:aws:eks::aws:cluster-access-policy/<PolicyName>
+```
+
+The Terraform code used the IAM form, `arn:aws:iam::aws:policy/<PolicyName>`. The names look parallel (`AmazonEKSClusterAdminPolicy` exists in both namespaces as conceptually the same cluster-admin role), but the ARN prefix is different and the `aws_eks_access_policy_association` API strictly validates the namespace.
+
+This is the kind of mistake that happens precisely because the two namespaces look similar — `AmazonEKSClusterAdminPolicy` feels like an IAM managed policy name, so it gets the IAM ARN prefix by reflex.
+
+### Detection
+
+The error message was unambiguous (`policyArn parameter format is not valid`), and the offending ARN was right in the error text. AWS documentation for [EKS Access Policies](https://docs.aws.amazon.com/eks/latest/userguide/access-policies.html) confirms the `arn:aws:eks::aws:cluster-access-policy/...` format.
+
+### Resolution
+
+Single-character namespace fix in `access-entries.tf`:
+
+```diff
+- policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterAdminPolicy"
++ policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+```
+
+Applied in both the CI-role and operator-SSO-role associations. Inline comment added above the resources explaining the namespace distinction so the next reader (or AI agent) doesn't re-make the mistake.
+
+### Prevention
+
+**When a new AWS service introduces its own ARN namespace for policies, read the ARN format from that service's docs, not by pattern-matching on IAM.** Services that have their own policy namespaces (non-exhaustive, as of 2026): EKS (`arn:aws:eks::aws:cluster-access-policy/...`), SES (`arn:aws:ses:<region>:<account>:email-identity-policy/...`), Organizations SCPs (`arn:aws:organizations::<account>:policy/o-.../service_control_policy/...`). Always reach for the service's own docs first.
+
+The inline comment in `access-entries.tf` points at this incident for future reference.
+
+### Lessons
+
+- **AWS resource naming looks parallel, but the ARN prefix is canonical.** A policy name alone does not tell you which service namespace it belongs to. Always carry the full ARN.
+- **"Looks like it should work" is not a validity check for AWS ARNs.** There is no way to test-before-apply other than reading the docs or trying the API. The AWS Terraform provider could offer nicer error messages for this case (flag when the wrong namespace is used for a resource type) but does not.
+- **The AI agent making this mistake is a symptom of training-data pattern-matching.** IAM policy ARNs are much more common in public code than EKS Access Policy ARNs. The safest habit when wiring a new AWS service in Terraform is to read the resource documentation and copy-paste the ARN example, not to compose the ARN from memory.
+
+---
+
+## Incident 12 — Public `public_access_cidrs` lockdown incompatible with CI-managed Helm
+
+**Date**: 2026-04-14 (Phase 3c, first cold apply of staging/platform, same run as Incident 11)
+**Severity**: S2 (full platform bootstrap blocked; cluster existed but could not be configured)
+**Duration**: ~10 min to diagnose; ~30 min to fix-and-document (this incident + ADR-013 design iteration + runbook 002 rewrite)
+
+### Symptom
+
+After the cluster created successfully, the Helm release for Karpenter failed:
+
+```
+Error: Kubernetes cluster unreachable:
+  Get "https://E2BD20D584DF52A0937C50D9FB60108D.gr7.eu-central-1.eks.amazonaws.com/version":
+  dial tcp 63.182.209.11:443: i/o timeout
+
+  with helm_release.karpenter
+```
+
+The error's `63.182.209.11` was the GitHub Actions runner's egress IP. The EKS endpoint is at `...eks.amazonaws.com`. The runner could not complete a TCP connection to that endpoint.
+
+### Root cause
+
+The cluster was provisioned with `public_access_cidrs = ["5.28.82.226/32"]` — the operator's home IP. GitHub-hosted Actions runners egress from AWS-wide IP ranges that rotate per job; there is no way to pre-whitelist a specific runner IP, and the published ranges (`https://api.github.com/meta` → `.actions`) are roughly 50 CIDRs that change periodically.
+
+The `/32` lockdown was chosen originally (ADR-013 "Control plane endpoint") as defense-in-depth on top of IAM auth. That intent was correct for operator-driven `kubectl`, but **incompatible with CI-managed Helm/kubectl**. The CI runner's AWS SDK calls (to STS, EKS, IAM) continued to work because those hit public AWS API endpoints that are not CIDR-gated; the **Kubernetes API** (a different endpoint class, gated by `public_access_cidrs`) rejected the runner's connection.
+
+The design blind spot was conflating "who can reach Kubernetes" with "who is the operator." In a single-operator lab with fully manual `kubectl`, `/32` lockdown works. In a lab where Terraform itself is the primary client of the Kubernetes API (via `helm_release` and `kubectl_manifest`), the client is the CI runner and its IP surface is wide and ephemeral.
+
+### Detection
+
+The error message was direct and pointed at the runner's public IP vs the cluster's DNS. A `whois 63.182.209.11` or a quick search confirmed the IP belongs to GitHub Actions' egress ranges. The conflict with the configured `public_access_cidrs` was immediate.
+
+### Resolution
+
+Relax `public_access_cidrs` to `["0.0.0.0/0"]` for the lab. The four auth layers (TLS, AWS IAM SigV4, EKS Access Entries, Kubernetes RBAC) remain the real gate; the CIDR lockdown was defense-in-depth above them, and the lab accepts losing that particular layer in exchange for CI-managed platform-as-code.
+
+Documented fully in:
+
+- `docs/decisions/013-eks-architecture.md` → new "Design iteration — public_access_cidrs relaxed to 0.0.0.0/0" section, which supersedes the original Decision paragraph and lays out the two corporate-fork alternatives (Option Z: GitHub Actions IP ranges; Option Y: self-hosted VPC runners).
+- `docs/runbooks/002-eks-access.md` → rewritten around the four-layer auth model; the IP drift diagnostic order is downgraded to step 5 (from step 1) because the CIDR is no longer the likely failure site.
+- `config/landing-zone.example.yaml` → the default value is now `0.0.0.0/0` with inline comments documenting Options Y and Z.
+- `config/landing-zone.yaml` (operator's local) → `0.0.0.0/0`; GitHub secret `LANDING_ZONE_CONFIG` refreshed in the same session.
+
+### Prevention
+
+**Before choosing a CIDR lockdown for any public AWS endpoint, enumerate the clients that will use it, including CI/CD.** If any client's IP is not pre-knowable, either (a) open to `0.0.0.0/0` and rely on IAM, (b) whitelist the CI provider's published ranges, or (c) move that client into the network (self-hosted runners, private endpoint + VPN). There is no fourth option.
+
+**"Defense in depth at the network layer" is an aesthetic, not a capability, when IAM already gates authentication.** This is not a universal statement — an Ingress Controller with no authentication in front of it absolutely needs a network-layer gate — but for authenticated AWS API endpoints (EKS, STS, IAM), the network gate is redundant with IAM and costs more in operational friction than it buys in reduced blast radius.
+
+The corporate-fork options (Y, Z) in ADR-013 document the path to re-add a network gate if the deployment context requires it (e.g., SOC 2, FedRAMP, or an internal audit checklist that flags `0.0.0.0/0`).
+
+### Lessons
+
+- **Design decisions that work in isolation can conflict when composed.** The ADR-013 decisions "public endpoint with CIDR lockdown" and "CI applies cluster resources via Helm/kubectl" were each sound; their composition was not. A design-review check for "does this decision imply a client, and is that client's network reachable?" would have caught it at ADR time.
+- **CI runner IPs are not whitelistable at lab budget.** A lab that depends on CI-managed cluster-API calls cannot also hold a narrow `public_access_cidrs`. Picking one of the two is a real architectural choice; forking a production-grade version that keeps both (via self-hosted runners) is a meaningful upgrade path.
+- **The IAM / RBAC auth stack is the real primary gate for any IAM-authenticated AWS service.** Network-layer gates are optional hardening. This reframes how to evaluate security-in-depth trade-offs for any AWS API: enumerate the gates, identify the primary, and only add secondary gates when they don't break a functional requirement.
+
+---
+
 ## Adding a new incident
 
 Append new sections at the bottom, before this footer, using the format:

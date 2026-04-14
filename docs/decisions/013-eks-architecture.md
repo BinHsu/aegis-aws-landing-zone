@@ -22,7 +22,7 @@ Karpenter itself is a pod and needs to run somewhere. Running it on the nodes it
 
 **Control plane endpoint — public + private.**
 
-The EKS API server is accessible via both public (for `kubectl` from the operator's laptop) and private (for in-cluster components) endpoints. Fully private endpoints would require either a bastion host, a VPN, or SSM port forwarding for operator access — all of which add complexity without security benefit in a single-operator lab. Access to the public endpoint is restricted to the operator's IP range via `public_access_cidrs`, which is read from config at deployment time.
+The EKS API server is accessible via both public (for `kubectl` from the operator's laptop) and private (for in-cluster components) endpoints. Fully private endpoints would require either a bastion host, a VPN, or SSM port forwarding for operator access — all of which add complexity without security benefit in a single-operator lab. Access to the public endpoint is restricted to the operator's IP range via `public_access_cidrs`, which is read from config at deployment time. (**Superseded by "Design iteration" below**: the lab runs with `public_access_cidrs = ["0.0.0.0/0"]` because CI-managed Helm/kubectl needs Kubernetes API reachability from GitHub-hosted runners.)
 
 **Workload IAM — IAM Roles for Service Accounts (IRSA).**
 
@@ -87,3 +87,25 @@ The Fargate-hosted Karpenter pod is a small but continuous cost (~$30/month if l
 ECR repositories are created in `aegis-staging` by the `staging/platform/` Terraform layer. When the platform layer is destroyed, ECR repositories are preserved (`prevent_destroy = true` on the repository resource) so that image history survives cluster teardown. Only the cluster itself is ephemeral; artifacts persist.
 
 The public EKS endpoint restricted to the operator's IP means the IP must be kept current in config. A mobile operator (different cafe, different VPN exit) either updates the config and re-applies the platform layer (~2 minutes) or falls back to SSM session manager through a bootstrap EC2 instance. Documented as a known operational trade-off of avoiding the bastion.
+
+## Design iteration — public_access_cidrs relaxed to `0.0.0.0/0`
+
+**Date**: 2026-04-14 (Phase 3c first cold apply)
+**Driver**: Incident 12 in `docs/incidents.md`
+
+The original design (above) scoped `public_access_cidrs` to the operator's `/32` as a defense-in-depth layer on top of IAM SigV4 auth and Kubernetes RBAC. That scope was correct for operator-only access but **incompatible with CI-managed Helm / kubectl / kubectl_manifest**: GitHub-hosted Actions runners use ephemeral IPs from AWS-wide egress ranges, so the runner cannot complete a TLS handshake to the Kubernetes API server. AWS API calls (STS, EKS, IAM) flow through public AWS endpoints that are not CIDR-gated and continued to work; only the Kubernetes API was blocked.
+
+Two paths were considered to resolve the conflict:
+
+1. **Open the endpoint** — `public_access_cidrs = ["0.0.0.0/0"]`. Rely on AWS IAM SigV4 + Access Entries + Kubernetes RBAC + 8-hour SSO session expiry as the primary auth stack. This matches the AWS EKS Blueprints reference architecture and is the documented pattern used by essentially every CI-managed EKS setup in public examples.
+
+2. **Narrow the Terraform scope** — remove `helm_release` / `kubectl_manifest` resources from the Terraform platform layer; apply them from the operator's laptop after each `terraform apply` via a `scripts/bootstrap-cluster.sh`. Preserves the `/32` lockdown but breaks the "Terraform owns the whole platform" single-apply model and adds a hands-on step to every session.
+
+**Chosen: (1).** The `public_access_cidrs` field is set to `["0.0.0.0/0"]` in `config/landing-zone.yaml`. The threat model is IAM-primary: any caller reaching the public endpoint must present a valid SigV4 signature from a principal that has an Access Entry mapped to a Kubernetes RBAC role, or they get `401 Unauthorized` at the API handler. The attack surface without a CIDR gate is essentially equivalent to the STS public endpoint — broad reachability does not translate to exploit capability without a credential.
+
+**Corporate / enterprise deployments that cannot open the endpoint** have two narrower options in order of operational cost:
+
+- **Option Z — include published GitHub Actions IP ranges.** Fetch `https://api.github.com/meta` and read the `.actions` field, which lists the CIDR blocks GitHub-hosted runners egress from. Roughly 50 CIDRs, published-and-stable but refreshed periodically. Automate the refresh via a small Lambda or CI job that diff-commits to the config.
+- **Option Y — self-hosted runners inside the VPC.** Add an EKS-backed or EC2-backed runner fleet in the cluster's VPC, restrict `public_access_cidrs` to the operator `/32` + the VPC NAT egress CIDR. Higher setup cost; closest to a production enterprise posture.
+
+The lab opts for simplicity and IAM-primary auth. Corporate forks should take Option Z or Y.
