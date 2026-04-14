@@ -10,19 +10,20 @@ A reader's guide for recruiters, hiring managers, and technical leadership revie
 
 ## 1. Who this project is by — and what that means for the scope
 
-Built solo by a senior software architect. The stance is deliberately **generic-architect, not specialist**:
+Built solo by a **hands-on architect** — someone who designs cross-cutting systems AND implements them personally. Not a whiteboard-only architect. Not a ticket-slicing IC either. The stance is deliberately this combination:
 
-- **Cross-cutting scope is the claim.** Multi-account AWS governance, CI/CD pipelines, Kubernetes platform bootstrap, security posture, cost discipline, and the documentation discipline that glues them together. These are the competencies on display.
-- **Specialist-depth scope is NOT the claim.** Algorithm-level optimization, deep IAM policy minimization, Kubernetes controller-manager internals, release-engineering of upstream open-source projects — these appear in the project because they are unavoidable, but they are handled by *following published patterns from canonical sources* with clear hand-off notes, not by original invention.
+- **Cross-cutting design, executed line-by-line.** Every Terraform module, every GitHub Actions workflow, every IAM policy, every runbook step, every ADR, every incident postmortem in this repo was written by the same person. No delegation, no copy-from-template, no "I designed it and handed it off to the IC team." Multi-account AWS governance, CI/CD pipelines, Kubernetes platform bootstrap, security posture, cost discipline — all implemented, not just specified.
+- **Specialist depth is NOT the claim.** Algorithm-level optimization, deep IAM policy minimization, Kubernetes controller-manager internals, release-engineering of upstream open-source projects — these appear in the project because they are unavoidable, but they are handled by *following published patterns from canonical sources* with clear hand-off notes, not by original invention. When a specialist joins the team, they add depth where my breadth has reached its limit.
 
-This split is explicit for a reason: pretending to be a specialist in every area I touched would break the first technical question. Stating the boundary honestly is the senior signal; hiding it is the junior attitude.
+This split is explicit for a reason: a hands-on architect's value comes from shipping the cross-cutting system AND being technically credible to operate it. Pretending to also be a deep specialist in every area I touched would break the first technical question. Stating the boundary honestly is the senior signal; hiding it would undersell the execution and over-claim the depth simultaneously.
 
-The project value is the **discipline layer**, not algorithm depth:
+The project value is execution and discipline, layered together:
 
-- 13 [Architecture Decision Records](decisions/) (including several "Design iteration" sections that document *reversed* decisions honestly)
-- 12 [incident postmortems](incidents.md) (each written after the fact in a consistent format, never softened retroactively)
+- **Execution**: the entire repo is working code — Terraform applies cleanly, CI applies to a live AWS organization, the EKS platform bootstraps end-to-end in one workflow dispatch. See the [Phase table in README](../README.md#phases) for what's actually deployed on `main`, not aspirations.
+- 13 [Architecture Decision Records](decisions/) (including several "Design iteration" sections documenting *reversed* decisions honestly)
+- 12+ [incident postmortems](incidents.md) (each written after the fact in a consistent format, never softened retroactively)
 - A 4-workflow CI/CD split shaped by cost profile (not template copy-paste)
-- Runbooks that cover both the happy path and the "here is how to debug when it breaks" diagnostic order
+- Runbooks covering both the happy path and the "here is how to debug when it breaks" diagnostic order
 - A config contract that makes the whole landing zone forkable in one YAML file
 
 ---
@@ -153,7 +154,7 @@ Positive statements of what this project demonstrates, paired with explicit stat
 - **IAM policy authoring as a specialty.** Both the Karpenter controller policy ([`karpenter-iam.tf`](../terraform/environments/staging/platform/karpenter-iam.tf)) and the AWS Load Balancer Controller policy ([`lb-controller-policy.json`](../terraform/environments/staging/platform/lb-controller-policy.json)) are adapted from canonical upstream sources (Karpenter's CloudFormation template; `kubernetes-sigs/aws-load-balancer-controller` v2.8.2's published policy). A deeper specialist would use the `terraform-aws-modules/eks/karpenter` sub-module and not own the Karpenter policy at all. The choice to inline was to keep the policy reviewable in one place for this project's scope; at enterprise scale, the sub-module is the right pivot.
 - **Kubernetes internals as a specialty.** Enough to bootstrap a cluster, reason about Access Entries vs aws-auth ConfigMap, and wire up IRSA. Not enough to answer deep questions about CRD schema evolution, controller-manager reconciliation loops, or scheduler internals.
 - **Karpenter / ArgoCD internals as a specialty.** Install + configure + diagnose connectivity; I do not claim to know what changed internally between Karpenter v0.37 → v1.0 beyond what the release notes say.
-- **Algorithm-level optimization.** When a teardown takes 20 minutes due to IPAM release lag ([ADR-004 Consequences](decisions/004-deployment-configuration-contract.md)), the answer is "live with it, document it, adjust timeouts." A specialist might investigate whether there's a faster release path; that investigation is not in scope for a generic architect.
+- **Algorithm-level optimization.** When a teardown takes 20 minutes due to IPAM release lag ([ADR-004 Consequences](decisions/004-deployment-configuration-contract.md)), the answer is "live with it, document it, adjust timeouts." A specialist might investigate whether there's a faster release path; that investigation is not in scope for a hands-on architect whose job is shipping the cross-cutting system.
 - **Network deep-dive.** VPC design (subnets, NAT, Gateway endpoints) follows public reference architectures. Deep questions about BGP, IPv6 dual-stack, Transit Gateway attachment routing, or MTU tuning are outside the scope of this project.
 - **Production observability** — reserved for Phase 4. Currently: CloudTrail (aggregated in `aegis-logarchive`), AWS Config (aggregated), CloudWatch log groups with 365-day retention on EKS control plane. Prometheus, Grafana, Datadog-style stacks are deferred.
 - **DR testing.** Control Tower governs two regions (eu-central-1 primary, eu-west-1 DR), but no DR failover has been tested end-to-end. The DR region is set up for future work.
@@ -161,7 +162,7 @@ Positive statements of what this project demonstrates, paired with explicit stat
 
 ### Positive framing for the interview
 
-> "I ship generic-architect scope cleanly, leave the hand-off notes, and know where the specialist's work begins. When a specialist joins the team, I can hand them a functional foundation with a written record of what decisions have been made, what was tried and didn't work, and what's deferred. That's the deliverable."
+> "I'm a hands-on architect — I design cross-cutting systems and build them myself, line by line. Where a specialist's depth would exceed my breadth's value, I know where the hand-off is. When a specialist joins the team, I hand them a functional foundation with a written record of what decisions have been made, what was tried and didn't work, and what's deferred. That's the deliverable: not architecture-as-slides, not code-as-tickets, but a working system with its operational contract documented."
 
 ---
 
