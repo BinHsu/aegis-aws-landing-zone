@@ -21,13 +21,19 @@
 #     `kubernetes.io/role/internal-elb = 1` — we reuse that tag here.
 #   - 30-minute node lifecycle — nodes are recycled at least every 30
 #     minutes to pick up AMI patches and security updates.
+#
+# Implementation note: these are CRD instances installed by the Karpenter
+# Helm chart. We use `kubectl_manifest` (gavinbunney/kubectl) rather than
+# hashicorp/kubernetes's `kubernetes_manifest` because the latter requires
+# the CRD schema to be reachable at PLAN time. On a cold apply the cluster
+# does not exist yet, so plan errors with "Failed to construct REST client:
+# no client config". The kubectl provider defers validation to apply time
+# (just runs `kubectl apply` with the raw YAML), which is what we need for
+# a single-pass bootstrap apply. See Incident 10 in docs/incidents.md.
 # -----------------------------------------------------------------------------
 
-# Server-side apply is required for Karpenter v1 manifests because the
-# API ships OpenAPI schema validation that `kubernetes_manifest` uses at
-# plan time. Requires a running cluster to plan.
-resource "kubernetes_manifest" "karpenter_default_ec2nodeclass" {
-  manifest = {
+resource "kubectl_manifest" "karpenter_default_ec2nodeclass" {
+  yaml_body = yamlencode({
     apiVersion = "karpenter.k8s.aws/v1"
     kind       = "EC2NodeClass"
     metadata = {
@@ -63,13 +69,13 @@ resource "kubernetes_manifest" "karpenter_default_ec2nodeclass" {
         "topology.kubernetes.io/region"                      = local.primary_region
       })
     }
-  }
+  })
 
   depends_on = [helm_release.karpenter]
 }
 
-resource "kubernetes_manifest" "karpenter_default_nodepool" {
-  manifest = {
+resource "kubectl_manifest" "karpenter_default_nodepool" {
+  yaml_body = yamlencode({
     apiVersion = "karpenter.sh/v1"
     kind       = "NodePool"
     metadata = {
@@ -147,9 +153,9 @@ resource "kubernetes_manifest" "karpenter_default_nodepool" {
         memory = "16Gi"
       }
     }
-  }
+  })
 
   depends_on = [
-    kubernetes_manifest.karpenter_default_ec2nodeclass,
+    kubectl_manifest.karpenter_default_ec2nodeclass,
   ]
 }
