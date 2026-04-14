@@ -696,6 +696,152 @@ The corporate-fork options (Y, Z) in ADR-013 document the path to re-add a netwo
 
 ---
 
+## Incident 13 — Helm does not auto-create target namespace; Fargate profile is not enough
+
+**Date**: 2026-04-14 (Phase 3c, first cold apply after PR #45)
+**Severity**: S3 (blocked Karpenter install; all downstream Helm releases also failed for the same root cause)
+**Duration**: ~3 min to diagnose + single-line fix
+
+### Symptom
+
+The `staging/platform` apply cleared the cluster-endpoint update and both Access Policy Associations (Incident 11 fix confirmed working), then errored on the Karpenter Helm release:
+
+```
+Error: create: failed to create: namespaces "karpenter" not found
+  with helm_release.karpenter
+```
+
+No Karpenter, no NodePool, no EC2 capacity, no place for downstream pods (LB Controller, ArgoCD) to schedule. A single root cause broke three resources.
+
+### Root cause
+
+Helm does not create the target namespace unless explicitly instructed via `--create-namespace` (Helm CLI) or `create_namespace = true` (Terraform `helm_release` resource). My `karpenter-helm.tf` omitted the flag.
+
+The mental-model mistake was conflating **Fargate profile** with **namespace existence**. The Fargate profile in `fargate.tf` selects on `namespace = "karpenter"`: that is *a scheduling hint*, not *a namespace constructor*. It tells EKS "when a pod appears in this namespace, schedule it on Fargate" — but something else must first create the pod in a namespace that exists. That something is the Helm install, which itself needs the namespace to exist.
+
+Fargate profile = AWS concern. Namespace = Kubernetes concern. They do not substitute for each other.
+
+Why ArgoCD's `helm_release` had `create_namespace = true` while Karpenter's did not: I copy-pasted Karpenter's release from the Karpenter upstream docs (which assume the operator creates the namespace manually before running Helm) without thinking about which half of the responsibility Terraform was taking. ArgoCD's release was written later and had the benefit of the discovery. The AWS Load Balancer Controller installs in `kube-system`, a Kubernetes-built-in namespace, so the question never arose.
+
+### Detection
+
+Error message pointed directly at the missing namespace. Cross-referencing the three Helm releases (Karpenter / LB Controller / ArgoCD) made the inconsistency obvious within two minutes.
+
+### Resolution
+
+Single-line fix in PR #46:
+
+```diff
+ resource "helm_release" "karpenter" {
+   name       = "karpenter"
+   namespace  = "karpenter"
+   repository = "oci://public.ecr.aws/karpenter"
++  create_namespace = true
+```
+
+Also added an inline comment documenting which dimensions are AWS-side vs K8s-side, and a pointer to this incident for future readers.
+
+### Prevention
+
+**Checklist for any `helm_release` in this repo** — before committing:
+
+1. Is the target namespace a Kubernetes built-in (`kube-system`, `kube-public`, `default`)? If yes, `create_namespace` not needed.
+2. Is the target namespace created elsewhere in this Terraform module (e.g., `kubernetes_namespace` resource)? If yes, `create_namespace` not needed but add `depends_on` to that resource.
+3. Otherwise → **set `create_namespace = true`**.
+
+Fargate profiles are NOT a substitute for (2) or (3). They are orthogonal — a scheduling hint for the namespace-once-it-exists.
+
+### Lessons
+
+- **Two-word mental mistake: "Fargate profile creates the namespace".** It does not. The two concepts operate in different control planes (AWS API vs Kubernetes API) and serve different purposes (scheduling vs object lifecycle). Keeping them separate in the mental model avoids this class of error.
+- **Copy-paste from upstream docs carries hidden assumptions.** Karpenter's official install instructions assume an operator-creates-namespace step before the Helm install. Terraform translation needs to account for that assumption either by adding `create_namespace = true` or by creating a `kubernetes_namespace` resource explicitly.
+- **Cascade failures from a single root cause are diagnostic signal, not noise.** Three `helm_release` errors in a row looked scary; all three traced to "Karpenter has no capacity to provision EC2 for me to land on" which traced to the missing namespace. Read the dependency graph before worrying about individual failures.
+
+---
+
+## Incident 14 — Karpenter EC2NodeClass rejects reserved tag prefixes at the admission webhook
+
+**Date**: 2026-04-14 (Phase 3c, second cold apply after PR #46)
+**Severity**: S3 (blocked NodePool registration; same cascade-to-Helm-timeouts pattern as Incident 13)
+**Duration**: ~5 min to diagnose + two-line fix
+
+### Symptom
+
+Right after Karpenter installed cleanly (Incident 13 fix confirmed), `kubectl_manifest.karpenter_default_ec2nodeclass` failed at Karpenter's admission webhook:
+
+```
+Error: EC2NodeClass.karpenter.k8s.aws "default" is invalid: spec.***
+  Invalid value: "object": tag contains a restricted tag matching
+  kubernetes.io/cluster/
+```
+
+The NodePool manifest was not even attempted (depends on the EC2NodeClass). Without a NodePool, Karpenter had zero capacity to provision on, so `helm_release.aws_lb_controller` and `helm_release.argocd` both timed out waiting for pod scheduling on EC2 nodes that were never created.
+
+### Root cause
+
+Karpenter v1's admission webhook enforces that `EC2NodeClass.spec.tags` MUST NOT contain any of three reserved prefixes, because Karpenter uses those tags itself on the EC2 instances it launches:
+
+- `kubernetes.io/cluster/*` — Karpenter auto-applies `=owned` for cluster-tag-based auto-discovery (ELB, security group, IAM scoping)
+- `karpenter.sh/*` — Karpenter-internal bookkeeping
+- `karpenter.k8s.aws/*` — Karpenter-internal bookkeeping
+
+My `karpenter-nodepool.tf` merged three reserved-prefix tags into `spec.tags`:
+
+```hcl
+tags = merge(local.tags, {
+  "karpenter.sh/discovery"                             = aws_eks_cluster.main.name
+  "kubernetes.io/cluster/${aws_eks_cluster.main.name}" = "owned"
+  "topology.kubernetes.io/region"                      = local.primary_region
+})
+```
+
+Two compounding errors:
+
+1. **Reserved-prefix tags on EC2NodeClass spec**. Karpenter's webhook rejects the whole object if any appear. The error message names only the first matched prefix; with that removed, the webhook would have rejected the next, and the next.
+
+2. **Conceptual error with `karpenter.sh/discovery`**. That tag belongs on the target **subnets** and **security groups** — it is what `EC2NodeClass.spec.subnetSelectorTerms` and `securityGroupSelectorTerms` use to discover those resources. It does NOT belong on `spec.tags` (which applies to the EC2 instances Karpenter launches). These are *two different tagging surfaces* with *two different consumer rules*, and I conflated them.
+
+### Detection
+
+The webhook error named the exact restricted prefix. A 30-second search against Karpenter v1 docs confirmed the prefix-family restrictions. The concept error on `karpenter.sh/discovery` took longer to spot because the tag name is named the same as the concept but the surface is different; reading the CRD schema carefully was what clarified it.
+
+### Resolution
+
+Reduce `EC2NodeClass.spec.tags` to `local.tags` only (project-level user tags: `Project`, `Environment`, `ManagedBy`, etc.). PR #48:
+
+```diff
+-      tags = merge(local.tags, {
+-        "karpenter.sh/discovery"                             = aws_eks_cluster.main.name
+-        "kubernetes.io/cluster/${aws_eks_cluster.main.name}" = "owned"
+-        "topology.kubernetes.io/region"                      = local.primary_region
+-      })
++      # User-level tags only. Karpenter's admission webhook REJECTS reserved
++      # prefixes (kubernetes.io/cluster/*, karpenter.sh/*, karpenter.k8s.aws/*).
++      # Karpenter auto-applies `kubernetes.io/cluster/<name>=owned` to launched
++      # instances. `karpenter.sh/discovery` belongs on subnets/SGs (for
++      # subnetSelectorTerms / securityGroupSelectorTerms), not here.
++      tags = local.tags
+```
+
+Also added an inline comment pointing at this incident.
+
+### Prevention
+
+**Two-part check for any Karpenter CRD authoring**:
+
+1. **EC2NodeClass.spec.tags** is for user-level tags that Karpenter copies onto launched EC2 instances. Anything in the reserved prefix families belongs to Karpenter itself and will be auto-applied — do not duplicate.
+2. **Discovery tags** (`karpenter.sh/discovery`) go on the AWS resources that Karpenter discovers (subnets, security groups), not on the EC2NodeClass that references them via `*SelectorTerms`.
+
+Generalization: **admission webhooks are a real validation surface distinct from Terraform plan and apply**. Terraform plan says "looks like a valid Kubernetes object"; Terraform apply hands it to the K8s API; the API calls the webhook which may reject it server-side. The error will surface only at apply time for any CRD with a webhook (Karpenter, cert-manager, ArgoCD, Istio, etc.). Expect this class of error when bootstrapping a new CRD.
+
+### Lessons
+
+- **Tagging surfaces multiply when a controller manages a resource**: the controller's IAM, the CRD spec, the EC2 instance itself, the subnet/SG used for discovery. Each has a separate tag consumer with separate rules. Conflating them is a common day-0 error.
+- **Reserved prefix families exist precisely because the controller needs to write to them**. If I tried to write a tag in that prefix, I was (inadvertently) trying to overwrite the controller's own metadata. The webhook is protecting me from a race condition at the instance-create step.
+- **Cascade failures from a single root cause, second example this week** (Incident 13 was the same pattern). Both times the cascade was "CRD validation fails → no downstream capacity → Helm releases time out on pod scheduling". This is now a recognizable diagnostic signature: "multiple Helm timeouts + one CRD validation error → fix the CRD first, the Helms will self-heal on retry."
+
+---
+
 ## Adding a new incident
 
 Append new sections at the bottom, before this footer, using the format:
