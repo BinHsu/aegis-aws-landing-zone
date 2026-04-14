@@ -1427,6 +1427,124 @@ When Phase 4+ adds new AWS-service-auto-created resources (GuardDuty detector EN
 
 ---
 
+## Incident 21 — EKS Access Entry forbids `system:` prefix in `kubernetes_groups`
+
+**Date**: 2026-04-14 (Phase 3c verification cold-apply attempt after Incident 15-20 codified)
+**Severity**: S3 (blocked verification apply; Incident 18's fix was syntactically rejected)
+**Duration**: ~5 min to diagnose + redesign
+
+### Symptom
+
+The `#3 verify Phase 3c` cold-rebuild apply (run 24402499456) failed mid-platform-apply:
+
+```
+Error: creating EKS Access Entry (aegis-***arn:aws:iam::251774439261:role/github-actions-terraform):
+  InvalidParameterException: The kubernetes group name system:masters is invalid,
+  it cannot start with system:
+
+Error: creating EKS Access Entry (aegis-***arn:aws:iam::251774439261:role/aws-reserved/sso.amazonaws.com/eu-central-1/AWSReservedSSO_PlatformAdmin_*):
+  InvalidParameterException: The kubernetes group name system:masters is invalid,
+  it cannot start with system:
+
+Error: Kubernetes cluster unreachable: the server has asked for the client to provide credentials
+```
+
+Both Access Entries rejected at create. Because the CI role's Access Entry couldn't be created, no Helm / kubectl resources downstream could authenticate either — the Helm provider errored `Kubernetes cluster unreachable`.
+
+### Root cause
+
+**Incident 18's fix was wrong.** I had changed `kubernetes_groups = []` → `kubernetes_groups = ["system:masters"]` on the assumption that binding the Access Entry to the built-in `system:masters` group would give the principal true Kubernetes cluster-admin (bypassing the `AmazonEKSClusterAdminPolicy` CRD-delete gap).
+
+EKS Access Entry's API explicitly rejects group names starting with `system:`. This is documented in the AWS EKS API reference under the `kubernetes_groups` parameter constraints — but obscure enough to miss on a first read, and the rule only surfaces at CREATE time. In the session where Incident 18 was originally written, the Access Entries already existed; the `kubernetes_groups` change would have been applied as an UPDATE which went through a different code path that (apparently) did not enforce the `system:` check at the same validation layer.
+
+On the verification cold-rebuild, the Access Entries were being created fresh — and the CREATE validator caught what the earlier UPDATE path had let through.
+
+### Detection
+
+The error message named the exact constraint (`it cannot start with system:`) and the exact value (`system:masters`). Unambiguous. A 30-second AWS docs search for "EKS Access Entry kubernetes_groups system:" confirmed the restriction.
+
+### Resolution
+
+**Redesign: custom group name + ClusterRoleBinding.** Instead of mapping principals to `system:masters` (rejected by EKS), map them to a custom group name (`aegis-cluster-admins`), then create a ClusterRoleBinding inside the cluster that binds that custom group to the built-in `cluster-admin` ClusterRole:
+
+```hcl
+# access-entries.tf (change in the ci + operator access_entry resources)
+kubernetes_groups = ["aegis-cluster-admins"]  # was ["system:masters"]
+
+# cluster-role-binding.tf (new file)
+resource "kubectl_manifest" "aegis_cluster_admin_binding" {
+  yaml_body = yamlencode({
+    apiVersion = "rbac.authorization.k8s.io/v1"
+    kind       = "ClusterRoleBinding"
+    metadata = { name = "aegis-cluster-admins" ... }
+    subjects = [{
+      kind     = "Group"
+      name     = "aegis-cluster-admins"
+      apiGroup = "rbac.authorization.k8s.io"
+    }]
+    roleRef = {
+      kind     = "ClusterRole"
+      name     = "cluster-admin"
+      apiGroup = "rbac.authorization.k8s.io"
+    }
+  })
+
+  depends_on = [
+    aws_eks_access_policy_association.ci_cluster_admin,
+  ]
+}
+```
+
+**Bootstrap chain is real.** On first apply:
+
+1. Cluster + Access Entries + Access Policy Association created (AWS API — no cluster access needed)
+2. `AmazonEKSClusterAdminPolicy` gives CI role the rights to create ClusterRoleBindings (create is in its scope; the gap was DELETE)
+3. `kubectl_manifest.aegis_cluster_admin_binding` applies via CI's policy-granted rights
+4. After the binding exists, CI's membership in `aegis-cluster-admins` confers true cluster-admin including CRD delete — closing the Incident 18 gap
+
+**Destroy ordering is also real.** If Terraform destroyed the binding BEFORE the CRD kubectl_manifest resources (Karpenter NodePool, ArgoCD root Application), those deletes would fail because CI's effective permissions would drop back to policy-only (which has the CRD delete gap). To prevent this, every `helm_release` and CRD-installing `kubectl_manifest` that eventually deletes CRDs has `depends_on = [kubectl_manifest.aegis_cluster_admin_binding]`. Destroy reverses dependencies, so:
+
+1. kubectl_manifest CRD resources destroyed (binding still alive → has cluster-admin → works)
+2. helm_release resources destroyed (binding still alive → can clean up in-cluster objects)
+3. binding destroyed
+4. access_entries + policy_associations destroyed
+5. cluster destroyed
+
+Files modified:
+
+- `access-entries.tf`: `kubernetes_groups` changed at both entries
+- `cluster-role-binding.tf`: new file with the binding
+- `karpenter-helm.tf`, `lb-controller.tf`, `argocd.tf`: added `depends_on = [kubectl_manifest.aegis_cluster_admin_binding]`
+- CRD kubectl_manifest resources (NodePool, EC2NodeClass, argocd root app) get the dependency transitively via their helm_release dependency — no direct add needed
+
+### Prevention
+
+**AWS API constraints are enforced at CREATE but not always at UPDATE; the `system:` prefix rule is an example.** Future EKS Access Entry work should validate any `kubernetes_groups` value against the rule "must not start with `system:`" at the code-review stage. A pre-commit check or Terraform variable validation would catch this statically:
+
+```hcl
+variable "cluster_admin_group" {
+  type    = string
+  default = "aegis-cluster-admins"
+  validation {
+    condition     = !startswith(var.cluster_admin_group, "system:")
+    error_message = "EKS Access Entry rejects group names starting with system:. See Incident 21."
+  }
+}
+```
+
+Not added to this project (single call site, easier to see inline), but the pattern transfers.
+
+More generally: **when AWS documentation is obscure about a constraint that will surface at CREATE but not at UPDATE, assume the constraint exists even if your test didn't trip it.** My Incident 18 work tested against an existing cluster (UPDATE path). The verification cold-rebuild (CREATE path) caught the difference. The lesson is that real verification requires CREATE, not just UPDATE — which is exactly why `#3 verify Phase 3c` was worth the cost.
+
+### Lessons
+
+- **"Looked-right-in-code" ≠ "works-at-apply-time" for API parameters.** `system:masters` is a well-known Kubernetes built-in; intuition says it's a valid `kubernetes_groups` value. EKS Access Entry's API has its own validator, independent of Kubernetes's own group-name conventions. Trust the API's rejection message over intuition.
+- **UPDATE and CREATE paths in cloud APIs sometimes enforce different rules.** This is a recurring pattern — not just EKS. Workaround: always test changes against a CREATE scenario, not just UPDATE on an existing resource. This is the single biggest argument for cold-rebuild verification as a portfolio practice.
+- **Bootstrap chains: policy-association-for-bootstrap + binding-for-steady-state is a valid pattern.** Keep the policy association even when adding a binding — the policy is what lets the binding get created in the first place. Removing it creates a chicken-and-egg.
+- **Transitive depends_on is often sufficient for destroy ordering.** I considered adding direct `depends_on = [kubectl_manifest.aegis_cluster_admin_binding]` on every CRD resource. Overkill: the CRDs already depend on their respective Helm releases which depend on the binding. The transitive chain ensures correct destroy order without duplication.
+
+---
+
 ## Adding a new incident
 
 Append new sections at the bottom, before this footer, using the format:

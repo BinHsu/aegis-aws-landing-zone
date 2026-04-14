@@ -47,16 +47,17 @@ resource "aws_eks_access_entry" "ci" {
   principal_arn = local.ci_role_arn
   type          = "STANDARD"
 
-  # system:masters grants Kubernetes true cluster-admin via the built-in
-  # system:masters -> cluster-admin ClusterRoleBinding. This covers
-  # arbitrary CRDs (Karpenter NodePool, ArgoCD Application, etc.) for
-  # both CREATE and DELETE, which AmazonEKSClusterAdminPolicy alone does
-  # NOT cover uniformly — we hit teardown failure on Incident 18 because
-  # that policy allowed create but denied delete on CRD types. For a
-  # Terraform-managed lifecycle that needs symmetric create/destroy,
-  # system:masters is the canonical solution.
-  # See docs/incidents.md Incident 18.
-  kubernetes_groups = ["system:masters"]
+  # Custom group "aegis-cluster-admins" instead of the obvious "system:masters"
+  # — EKS Access Entry rejects any kubernetes_groups value starting with the
+  # reserved "system:" prefix (InvalidParameterException at apply, see
+  # Incident 21). Cluster-admin powers for this group come from a
+  # ClusterRoleBinding defined in cluster-role-binding.tf which maps
+  # aegis-cluster-admins -> built-in cluster-admin ClusterRole. The
+  # ClusterRoleBinding needs the AmazonEKSClusterAdminPolicy association
+  # below to bootstrap — CI uses that policy's rights to create the binding
+  # on first apply; after that, the group membership provides the symmetric
+  # create/delete coverage that the policy alone lacks (Incident 18).
+  kubernetes_groups = ["aegis-cluster-admins"]
 }
 
 resource "aws_eks_access_policy_association" "ci_cluster_admin" {
@@ -108,16 +109,17 @@ resource "aws_eks_access_entry" "operator" {
   principal_arn = local.platform_admin_role_arn
   type          = "STANDARD"
 
-  # system:masters grants Kubernetes true cluster-admin via the built-in
-  # system:masters -> cluster-admin ClusterRoleBinding. This covers
-  # arbitrary CRDs (Karpenter NodePool, ArgoCD Application, etc.) for
-  # both CREATE and DELETE, which AmazonEKSClusterAdminPolicy alone does
-  # NOT cover uniformly — we hit teardown failure on Incident 18 because
-  # that policy allowed create but denied delete on CRD types. For a
-  # Terraform-managed lifecycle that needs symmetric create/destroy,
-  # system:masters is the canonical solution.
-  # See docs/incidents.md Incident 18.
-  kubernetes_groups = ["system:masters"]
+  # Custom group "aegis-cluster-admins" instead of the obvious "system:masters"
+  # — EKS Access Entry rejects any kubernetes_groups value starting with the
+  # reserved "system:" prefix (InvalidParameterException at apply, see
+  # Incident 21). Cluster-admin powers for this group come from a
+  # ClusterRoleBinding defined in cluster-role-binding.tf which maps
+  # aegis-cluster-admins -> built-in cluster-admin ClusterRole. The
+  # ClusterRoleBinding needs the AmazonEKSClusterAdminPolicy association
+  # below to bootstrap — CI uses that policy's rights to create the binding
+  # on first apply; after that, the group membership provides the symmetric
+  # create/delete coverage that the policy alone lacks (Incident 18).
+  kubernetes_groups = ["aegis-cluster-admins"]
 }
 
 resource "aws_eks_access_policy_association" "operator_cluster_admin" {

@@ -65,5 +65,7 @@ resource "helm_release" "aws_lb_controller" {
     # (If Karpenter fails, the controller pod sits Pending and the apply
     # hangs, which is actually the correct diagnostic signal.)
     helm_release.karpenter,
+    # Cluster-admin binding — see cluster-role-binding.tf and Incident 21.
+    kubectl_manifest.aegis_cluster_admin_binding,
   ]
 }
