@@ -22,10 +22,14 @@ resource "helm_release" "karpenter" {
   chart      = "karpenter"
   version    = "1.0.8"
 
-  # Ensure the namespace and Fargate profile exist before installing.
-  # The Fargate profile won't match pods until after install because Helm
-  # creates the Deployment in the same transaction — Kubernetes schedules
-  # the pods onto Fargate once the profile's namespace selector matches.
+  # The Fargate profile (fargate.tf) matches pods by namespace selector but
+  # does NOT create the namespace itself — that is a Kubernetes concern, not
+  # an AWS concern. Helm creates `karpenter` (and populates it with the
+  # controller Deployment + ServiceAccount + RBAC + CRDs) in the same
+  # transaction; Fargate then schedules the resulting pods because the
+  # namespace selector matches. See Incident 13 in docs/incidents.md for
+  # the discovery story (first cold apply of Phase 3c PR #45 hit this).
+  create_namespace = true
 
   values = [
     yamlencode({
