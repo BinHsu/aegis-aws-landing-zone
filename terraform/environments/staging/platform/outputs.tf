@@ -38,3 +38,23 @@ output "fargate_pod_execution_role_arn" {
   description = "Fargate pod execution role ARN — reused by future Fargate profiles if added"
   value       = aws_iam_role.fargate_pod_execution.arn
 }
+
+# -----------------------------------------------------------------------------
+# Karpenter outputs — consumed by downstream PRs (LB Controller discovers
+# node role tags; ArgoCD may reference the NodePool name for app placement).
+# -----------------------------------------------------------------------------
+
+output "karpenter_node_role_arn" {
+  description = "Karpenter-managed EC2 node IAM role ARN"
+  value       = aws_iam_role.karpenter_node.arn
+}
+
+output "karpenter_controller_role_arn" {
+  description = "Karpenter controller IAM role ARN (IRSA-bound to karpenter/karpenter SA)"
+  value       = aws_iam_role.karpenter_controller.arn
+}
+
+output "karpenter_interruption_queue_name" {
+  description = "SQS queue name Karpenter polls for Spot / scheduled-change events"
+  value       = aws_sqs_queue.karpenter_interruption.name
+}

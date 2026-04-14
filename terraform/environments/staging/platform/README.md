@@ -1,8 +1,8 @@
 # staging/platform
 
-The EKS platform layer for `aegis-staging`. Contains the EKS cluster, Fargate profiles for system pods (CoreDNS, Karpenter controller), the IRSA OIDC provider, and Access Entries mapping the CI role and the operator's SSO role to Kubernetes cluster-admin.
+The EKS platform layer for `aegis-staging`. Contains the EKS cluster, Fargate profiles for system pods (CoreDNS, Karpenter controller), the IRSA OIDC provider, Access Entries mapping the CI role and operator SSO role to Kubernetes cluster-admin, and **Karpenter v1** (controller on Fargate + default NodePool + EC2NodeClass).
 
-Karpenter, the AWS Load Balancer Controller, and ArgoCD are intentionally NOT in this layer — they land in follow-up PRs in Phase 3c so each can be reviewed and applied independently.
+The AWS Load Balancer Controller and ArgoCD are intentionally NOT in this layer — they land in Phase 3c PR 3 so each can be reviewed and applied independently.
 
 ---
 
@@ -37,12 +37,15 @@ Apply ordering is enforced operationally by the CI workflow split:
 
 ## Cost profile
 
-Apply triggers ~$0.28/hr ongoing while the cluster is running:
+Apply triggers ~$0.30/hr ongoing while the cluster is running:
 
 | Component | Approximate cost while running |
 |---|---|
 | EKS control plane | $0.10/hr (~$73/month always-on) |
 | Fargate (CoreDNS + Karpenter controller, ~3 pods) | ~$0.12/hr |
+| Karpenter-managed Spot EC2 (when there are workloads) | ~$0.01/hr per small instance |
+| SQS (Karpenter interruption queue) | $0 at lab message volume |
+| EventBridge rules (4x) | $0 at lab event volume |
 | CloudWatch Logs (5 log types at lab traffic) | pennies/day |
 | KMS keys (2) | $2/month (fixed, $0.03/day not teardown-able) |
 
@@ -69,16 +72,20 @@ This destroys `staging/workloads` → `staging/platform` → `staging/network` i
 
 ```
 staging/platform/
-├── backend.tf           # S3 state backend
-├── versions.tf          # Terraform + provider constraints
-├── providers.tf         # AWS provider with account ID safety
-├── config.tf            # Reads config/landing-zone.yaml + cross-layer state
-├── cluster.tf           # IAM + KMS + log group + aws_eks_cluster
-├── fargate.tf           # Fargate pod execution role + profiles
-├── oidc.tf              # IRSA OIDC provider
-├── access-entries.tf    # CI role + operator SSO role → cluster-admin
-├── outputs.tf           # Consumed by Karpenter / LB Controller / ArgoCD PRs
-└── README.md            # This file
+├── backend.tf                    # S3 state backend
+├── versions.tf                   # Terraform + provider constraints (aws, tls, helm, kubernetes)
+├── providers.tf                  # AWS + Helm + Kubernetes providers (exec plugin for EKS auth)
+├── config.tf                     # Reads config/landing-zone.yaml + cross-layer state
+├── cluster.tf                    # IAM + KMS + log group + aws_eks_cluster
+├── fargate.tf                    # Fargate pod execution role + profiles
+├── oidc.tf                       # IRSA OIDC provider
+├── access-entries.tf             # CI role + operator SSO role → cluster-admin
+├── karpenter-iam.tf              # Node role + controller IRSA role + EC2_LINUX access entry
+├── karpenter-interruption.tf     # SQS queue + EventBridge rules for Spot interruption handling
+├── karpenter-helm.tf             # Karpenter controller Helm release on Fargate
+├── karpenter-nodepool.tf         # Default NodePool + EC2NodeClass (Spot, 4 vCPU cap, Bottlerocket)
+├── outputs.tf                    # Consumed by LB Controller / ArgoCD PRs
+└── README.md                     # This file
 ```
 
 ---

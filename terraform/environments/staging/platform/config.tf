@@ -12,6 +12,10 @@ locals {
   account_id     = local.config.accounts.staging.id
   primary_region = [for r in local.config.regions : r.name if r.role == "primary"][0]
 
+  # Zones for the primary region, consumed by Karpenter NodePool topology
+  # constraints (karpenter-nodepool.tf).
+  primary_zones = [for r in local.config.regions : r.zones if r.name == local.primary_region][0]
+
   # EKS platform settings from config/landing-zone.yaml → eks.staging.
   # See ADR-013 for the design of these fields and docs/runbooks/002-eks-access.md
   # for the operational contract behind public_access_cidrs.
