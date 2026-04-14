@@ -5,6 +5,16 @@
 # per ADR-013 "Operator access". Access Entries map AWS IAM principals
 # directly to Kubernetes RBAC via AWS-managed cluster policies.
 #
+# IMPORTANT: Access Policy ARNs have their OWN namespace, separate from
+# IAM Managed Policy ARNs. The correct format is:
+#
+#   arn:aws:eks::aws:cluster-access-policy/<PolicyName>
+#
+# NOT `arn:aws:iam::aws:policy/<PolicyName>`. Passing an IAM ARN to
+# aws_eks_access_policy_association fails at apply with
+# `InvalidParameterException: The policyArn parameter format is not valid`.
+# See Incident 11 in docs/incidents.md for the discovery story.
+#
 # Two principals need cluster-admin in staging:
 #
 #   1. The GitHub Actions CI role — so that the Helm and Kubernetes
@@ -42,7 +52,7 @@ resource "aws_eks_access_entry" "ci" {
 resource "aws_eks_access_policy_association" "ci_cluster_admin" {
   cluster_name  = aws_eks_cluster.main.name
   principal_arn = local.ci_role_arn
-  policy_arn    = "arn:aws:iam::aws:policy/AmazonEKSClusterAdminPolicy"
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
 
   access_scope {
     type = "cluster"
@@ -95,7 +105,7 @@ resource "aws_eks_access_policy_association" "operator_cluster_admin" {
 
   cluster_name  = aws_eks_cluster.main.name
   principal_arn = local.platform_admin_role_arn
-  policy_arn    = "arn:aws:iam::aws:policy/AmazonEKSClusterAdminPolicy"
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
 
   access_scope {
     type = "cluster"

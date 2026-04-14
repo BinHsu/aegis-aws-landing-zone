@@ -1,24 +1,25 @@
 # Runbook 002 — EKS operator access
 
-Scope: operational procedures for reaching the `aegis-staging` EKS cluster from the operator's laptop. Covers pre-flight checks, connectivity failure diagnosis, and the procedure for updating the allow-listed public IP when the operator's ISP reassigns it.
+Scope: operational procedures for reaching the `aegis-staging` EKS cluster from the operator's laptop. Covers the authentication model, the diagnostic order for `kubectl` connectivity failures, and the per-account IAM / Access Entry wiring.
 
-This runbook is the authoritative source for the operational contract behind the `eks.<env>.public_access_cidrs` field in `config/landing-zone.yaml`. See ADR-013 for the design rationale behind a public-endpoint-restricted-by-CIDR access model.
+This runbook pairs with ADR-013 ("EKS Architecture" + "Design iteration"). If the design iteration section of that ADR is unfamiliar, read it first — the iteration history explains why the endpoint is currently at `0.0.0.0/0` + IAM-primary rather than the originally-planned operator-`/32` lockdown.
 
 ---
 
-## 1. Pre-flight check — run this at the start of every EKS-touching session
+## 1. Current auth model — IAM-primary, four layers
 
-Before the first `kubectl`, `aws eks describe-*`, or `terraform apply` against `staging/platform`, verify that the operator's current public IP still matches the allow-list in the config.
+The EKS public endpoint is open at the network layer (`public_access_cidrs = ["0.0.0.0/0"]`). **This is not the same as "unauthenticated" or "insecure".** Four auth layers gate any call to the Kubernetes API:
 
-```bash
-curl -s https://checkip.amazonaws.com
-```
+| # | Layer | What it enforces |
+|---|---|---|
+| 1 | **TLS** | API server is HTTPS-only, cluster CA is rotated by AWS. `curl http://...` is not a thing. |
+| 2 | **AWS IAM (SigV4)** | Every Kubernetes API call must be signed by an AWS principal. Anonymous or expired tokens get `401 Unauthorized` before any Kubernetes RBAC is consulted. |
+| 3 | **EKS Access Entries** | The signed principal must have an Access Entry in the cluster mapping it to one or more Kubernetes RBAC roles. No Access Entry = no access, regardless of IAM permissions. |
+| 4 | **Kubernetes RBAC** | The mapped role must permit the specific API operation against the specific resource. `kubectl` verbs are further filtered here. |
 
-Compare the returned address with the value in `config/landing-zone.yaml` under `eks.staging.public_access_cidrs`. If they match → proceed normally. If they do not match → stop and go to section 3 before any cluster operation.
+**Attack surface is equivalent to the STS public endpoint.** Broad reachability does not translate to exploit capability without a valid credential + Access Entry + RBAC permission. Defense-in-depth at the network layer was considered but would require either self-hosted runners in the VPC (corporate Option Y in ADR-013) or whitelisting ~50 GitHub Actions published CIDRs (Option Z). For this single-operator lab, IAM-primary is the chosen model; corporate forks should adopt Option Y or Z.
 
-**Why this check matters.** Home ISPs (the operator is on a residential connection in Germany) reassign public IPs silently on router reboot, lease expiry, or provider-side renumbering. A mismatch does not break immediately — the allow-list is enforced by AWS on each connection, so existing kube-apiserver calls fail with a TLS handshake timeout rather than a clean 403. Diagnosing the failure downstream costs 10–20 minutes; `curl` costs 1 second. See section 4 for the `why-IP-first` diagnostic rule.
-
-**Responsibility.** Any AI agent working on this repository MUST run the check and warn the operator if mismatched, per the rule in `CLAUDE.md`. This is not optional.
+**Operator session expiry is a real defense layer.** SSO sessions are capped at 8 hours. A compromised laptop loses cluster access automatically within that window.
 
 ---
 
@@ -28,7 +29,7 @@ Prerequisites:
 
 - An active SSO session: `aws sso login --sso-session aegis`
 - The `aegis-staging-admin` profile selected: `export AWS_PROFILE=aegis-staging-admin`
-- The operator's public IP is in `eks.staging.public_access_cidrs` and the current `staging/platform` Terraform apply has landed.
+- `staging/platform` Terraform has applied (cluster exists and your SSO reserved role has an Access Entry)
 
 Fetch the kubeconfig entry (idempotent — safe to re-run):
 
@@ -39,29 +40,64 @@ aws eks update-kubeconfig --name aegis-staging --region eu-central-1
 Verify cluster reachability:
 
 ```bash
-kubectl get nodes            # should list Karpenter-managed EC2 + Fargate
-kubectl get pods -A          # baseline: CoreDNS, Karpenter controller
+kubectl get nodes            # Fargate + Karpenter-provisioned EC2
+kubectl get pods -A          # baseline: CoreDNS (Fargate), Karpenter (Fargate), LB Controller + ArgoCD (EC2)
 ```
 
-The `kubectl` token is derived from the SSO session and expires when the session expires (8 hours). Re-running `aws sso login --sso-session aegis` refreshes it; no kubeconfig re-generation is needed.
+The `kubectl` token is derived from the SSO session and expires when the session expires. Re-running `aws sso login --sso-session aegis` refreshes it; no kubeconfig regeneration is needed.
 
 ---
 
 ## 3. Connectivity failure — diagnostic order
 
-When `kubectl`, `aws eks describe-cluster`, or a platform-layer `terraform apply` hits a network error, follow this order. The ordering is deliberate: cheapest check first, most likely cause first. Do NOT skip ahead.
+When `kubectl`, `aws eks describe-cluster`, or a platform-layer `terraform apply` hits an auth or connection error, follow this order. The ordering reflects the **IAM-primary** model — the network layer is last, not first.
 
-### Step 1 — check your public IP
+### Step 1 — verify the SSO session is valid
 
 ```bash
-curl -s https://checkip.amazonaws.com
+aws sts get-caller-identity
 ```
 
-Compare with `config/landing-zone.yaml` → `eks.staging.public_access_cidrs`. If different, the IP drifted. Go to section 5 (update procedure).
+Expected: a non-expired principal ARN pointing at `AWSReservedSSO_PlatformAdmin_*` for staging.
 
-**This accounts for the overwhelming majority of connectivity breakages in this project.** Only move to step 2 if the IP matches.
+If this returns `ExpiredToken` or similar: `aws sso login --sso-session aegis`. SSO session expiry is the most common failure on a laptop that hasn't been touched for 8+ hours.
 
-### Step 2 — verify the cluster endpoint resolves and is reachable at the TLS layer
+### Step 2 — verify kubectl is using the current session
+
+```bash
+aws eks update-kubeconfig --name aegis-staging --region eu-central-1
+kubectl config current-context
+```
+
+Expected: context references `arn:aws:eks:eu-central-1:<account>:cluster/aegis-staging`.
+
+### Step 3 — verify you authenticate as the expected principal
+
+```bash
+kubectl auth whoami
+```
+
+Expected: the SSO role ARN for `PlatformAdmin` in staging, e.g. `arn:aws:iam::251774439261:role/aws-reserved/sso.amazonaws.com/eu-central-1/AWSReservedSSO_PlatformAdmin_*`.
+
+If the output differs: `kubectl config use-context <expected>`.
+
+### Step 4 — verify the Access Entry + policy association exist
+
+```bash
+aws eks list-access-entries --cluster-name aegis-staging
+
+aws eks list-associated-access-policies \
+  --cluster-name aegis-staging \
+  --principal-arn <your-sso-role-arn>
+```
+
+Expected: an entry for your role, associated with `arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy` at scope `cluster`.
+
+If absent: either `staging/platform` never applied, or the `aws_eks_access_entry` / `aws_eks_access_policy_association` for your principal failed. Check Terraform state and re-apply.
+
+### Step 5 — network layer (last)
+
+With `public_access_cidrs = ["0.0.0.0/0"]`, the network layer is rarely the cause. But verify the endpoint resolves and accepts TLS:
 
 ```bash
 ENDPOINT=$(aws eks describe-cluster --name aegis-staging \
@@ -69,116 +105,40 @@ ENDPOINT=$(aws eks describe-cluster --name aegis-staging \
 curl -sI --max-time 10 "${ENDPOINT}/healthz"
 ```
 
-- `Could not resolve host` → DNS issue, likely local network misconfiguration, not the cluster.
-- `TLS handshake timeout` → the CIDR allow-list is likely still rejecting you despite step 1 matching (possible IPv6 vs IPv4 split, VPN exit, corporate proxy). Try `curl -4 -s https://checkip.amazonaws.com` to confirm IPv4 egress IP.
-- `HTTP/2 401` → network layer is fine, you just lack valid credentials (section 4).
+Expected: `HTTP/2 401` (the handler responded; no valid creds was passed). If `Connection refused`, `TLS handshake timeout`, or `Could not resolve host`, the issue is your local network, a corporate proxy, or (rarely) an EKS endpoint outage.
 
-### Step 3 — verify the SSO session is valid
-
-```bash
-aws sts get-caller-identity
-```
-
-If this returns a 401 / `ExpiredToken`, the SSO session has expired. Refresh:
-
-```bash
-aws sso login --sso-session aegis
-```
-
-### Step 4 — verify kubectl is using the current session
-
-```bash
-aws eks update-kubeconfig --name aegis-staging --region eu-central-1
-kubectl config current-context   # should reference aegis-staging
-```
-
-### Step 5 — IAM / Access Entry diagnostics
-
-Only reach this step after all of the above pass. A `403 forbidden from server` or `Unauthorized` response from `kubectl` at this point indicates an Access Entry or RBAC misconfiguration, not a network layer problem.
-
-```bash
-# Confirm you are authenticating as the expected principal
-kubectl auth whoami
-
-# Confirm the Access Entry exists for your SSO role
-aws eks list-access-entries --cluster-name aegis-staging
-
-# Confirm the Access Entry has cluster-admin policy attached
-aws eks list-associated-access-policies \
-  --cluster-name aegis-staging \
-  --principal-arn <your-sso-role-arn>
-```
-
-Access Entry mismatches are rare and require Terraform changes to fix (see `terraform/environments/staging/platform/access-entries.tf`). This is deliberately the last step because it is the least likely cause and the most expensive to remediate.
+**If the project later narrows `public_access_cidrs` (moving to Option Y or Z in ADR-013),** this step moves higher in the diagnostic order and `curl https://checkip.amazonaws.com` becomes the quick pre-flight check again.
 
 ---
 
-## 4. Why IP-drift is the first suspect
+## 4. Updating `public_access_cidrs`
 
-The EKS public endpoint has four defensive layers: TLS, AWS IAM SigV4 auth, Kubernetes RBAC, and the CIDR allow-list. Three of those layers (TLS, IAM, RBAC) are stable — once configured, they do not change between sessions. The CIDR allow-list is the only layer whose correctness depends on a value (the operator's public IP) that drifts outside the operator's control.
+The CIDR list lives in `config/landing-zone.yaml` under `eks.staging.public_access_cidrs`. Editing it triggers an EKS cluster update (in-place, not a recreate) on the next `staging/platform` apply. Typical reasons to edit:
 
-Empirically: the operator's IP changes roughly every few weeks on a residential ISP. All other layers change only when this repository's Terraform changes. Therefore, on a cold-start "it doesn't work" symptom, the IP is the most likely drift site by a wide margin. Debugging IAM, kubeconfig, or RBAC first is a common time sink and explicitly discouraged — both by this runbook and by `CLAUDE.md`.
+- **Corporate fork adopting Option Z** — replace `0.0.0.0/0` with the GitHub Actions published CIDRs. Recommended to maintain a small script that fetches `https://api.github.com/meta | jq '.actions'` and commits the list; the field will grow / shrink over time.
+- **Corporate fork adopting Option Y** — self-hosted runners in the VPC means the cluster can be reached from inside; narrow to the operator `/32` + the runners' egress CIDR.
+- **Temporary lockdown during incident response** — narrow to operator `/32` to cut off automation during investigation, then widen again once safe.
 
----
-
-## 5. Update procedure when the IP has drifted
-
-### Preferred path — PR-driven
+Edit sequence (PR-driven, auditable):
 
 ```bash
-# 1. Capture the current IP
-curl -s https://checkip.amazonaws.com
+# 1. Edit config/landing-zone.yaml
+# 2. Refresh the GitHub secret that CI reads
+gh secret set LANDING_ZONE_CONFIG < config/landing-zone.yaml
 
-# 2. Edit config/landing-zone.yaml (gitignored — local only)
-#    Update eks.staging.public_access_cidrs to ["<new-ip>/32"]
-
-# 3. Edit config/landing-zone.example.yaml too if the placeholder is stale
-
-# 4. Commit + push + PR
-git checkout -b ops/update-operator-ip
-# (edit config files)
-git commit -sS -m "ops: rotate operator public IP allow-list"
-git push -u origin ops/update-operator-ip
-gh pr create --fill
-
-# 5. After merge — the staging/platform layer does not apply automatically
-#    (it's a cost-incurring workload layer). Trigger manually:
+# 3. PR + merge
+# 4. Workload apply picks it up
 gh workflow run terraform-apply-workload.yml -f env=staging
-gh run watch   # approve in UI
 ```
 
-End-to-end time: ~5 minutes (PR merge + one workload apply cycle).
-
-### Emergency path — local apply, then land the code immediately
-
-If the PR-driven path is blocked (CI outage, urgent need to reach the cluster):
-
-```bash
-export AWS_PROFILE=aegis-staging-admin
-aws sso login --sso-session aegis
-
-# Edit config/landing-zone.yaml locally
-cd terraform/environments/staging/platform
-terraform apply
-
-# IMMEDIATELY commit the config change to main
-#   — per Incident 6, code that lives only on a branch gets "corrected"
-#   by the next CI apply. The local change must land on main before the
-#   next baseline or workload apply.
-```
-
-Do not leave locally-applied state un-landed overnight. A merge to main between the local apply and the code landing will reconcile Terraform state against the (stale) main branch and destroy your change.
-
-### Why there is no auto-update script (yet)
-
-An obvious convenience would be a `scripts/update-operator-ip.sh` that reads `checkip.amazonaws.com`, rewrites the config, commits, and opens a PR. This is tracked as a future improvement. For now, the manual edit is deliberate — it forces the operator to see the new CIDR before applying it, which has prevented at least one incident of committing the wrong IP (corporate VPN exit vs. home IP) during this project's early Phase 3 work.
+Emergency local apply is possible but must be followed by a PR landing the change on main immediately (per Incident 6 — never leave local-apply state un-landed).
 
 ---
 
-## 6. Related references
+## 5. Related references
 
-- ADR-013 (`docs/decisions/013-eks-architecture.md`) — why the endpoint is public-with-CIDR-restriction
-- `CLAUDE.md` — the `before-EKS-operation` rule requiring the section 1 check
-- `config/schema.json` — the schema entry that enforces the CIDR format
+- ADR-013 (`docs/decisions/013-eks-architecture.md`) — endpoint design + Design iteration section covering the 0.0.0.0/0 decision
+- `CLAUDE.md` — the generic meta-rule pointing here before any `staging/platform` operation
 - `terraform/environments/staging/platform/access-entries.tf` — IAM → RBAC mapping
-- Incident 6 in `docs/incidents.md` — the "local apply drift" incident that motivates the "land it on main immediately" rule in section 5
+- `docs/incidents.md` Incident 12 — the first-cold-apply discovery that the `/32` lockdown was incompatible with CI-managed Helm
+- `docs/incidents.md` Incident 11 — Access Policy ARN namespace gotcha (EKS ≠ IAM)

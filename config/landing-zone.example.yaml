@@ -115,9 +115,16 @@ eks:
   staging:
     version: "1.32"
     public_access_cidrs:
-      # Operator's current public IP, /32. Update when the ISP reassigns —
-      # see runbook 002 for the check + update procedure.
-      - "203.0.113.1/32"
+      # Default: 0.0.0.0/0 — open endpoint, AWS IAM SigV4 + Access Entries +
+      # SSO session expiry are the primary auth layers. This matches EKS
+      # Blueprints and the majority of CI-managed EKS reference architectures.
+      #
+      # Tighter options (documented in ADR-013 "Design iteration"):
+      #   - Option Z (corporate): include GitHub Actions published IP
+      #     ranges from https://api.github.com/meta -> .actions (~50 CIDRs)
+      #   - Option Y (strict):    self-hosted GH Actions runners inside
+      #     the VPC, then restrict to operator /32 + runner subnet CIDR
+      - "0.0.0.0/0"
   # prod:
   #   version: "1.32"
   #   public_access_cidrs:
