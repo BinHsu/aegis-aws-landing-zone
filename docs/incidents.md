@@ -442,6 +442,90 @@ Generalized rule for this repo: **any change to the workflow surface area that i
 
 ---
 
+## Incident 9 — SSO account assignment already existed outside Terraform state
+
+**Date**: 2026-04-14 (Phase 3c, PR #39 baseline apply)
+**Severity**: S3 (first post-merge baseline apply failed; staging/platform apply blocked until state recovered)
+**Duration**: ~10 min from baseline failure to green rerun
+
+### Symptom
+
+Immediately after merging PR #39 (staging EKS platform layer), the `terraform-apply-baseline.yml` workflow ran and failed on the `management/bootstrap` job:
+
+```
+Error: creating SSO Account Assignment for USER
+(f384f8b2-c051-7074-9b66-b7f5d029ba8a): already exists
+```
+
+The failing resource was the newly added `aws_ssoadmin_account_assignment.bin_staging_platform_admin`, which PR #39 introduced in `management/bootstrap/sso-assignments.tf` to ensure the `AWSReservedSSO_PlatformAdmin_*` role existed in the staging account before `staging/platform`'s access-entries lookup ran.
+
+Other baseline layers (`shared/bootstrap`, `shared/ipam`, `staging/bootstrap`, `management/scps`) succeeded as no-ops. Only the newly added SSO resource failed.
+
+### Root cause
+
+The operator had already assigned the `PlatformAdmin` permission set to user `bin` in the staging account during Phase 0 SSO setup — via the Identity Center Console, not via Terraform. That assignment has existed since Phase 0 but was never captured in Terraform state because no Terraform code referenced it.
+
+The AI's project memory read from the start of Phase 3c claimed:
+
+> Permission set: `PlatformAdmin`... Assigned to: user `bin` → account `aegis-management` (`186052668286`)
+
+which was accurate at the time of writing but became stale when additional Console-side assignments were made. The memory was never updated.
+
+When PR #39 added the `aws_ssoadmin_account_assignment` resource to Terraform expecting to create a new assignment, AWS rejected the `CreateAccountAssignment` API call with a `ConflictException` because the assignment already existed — exactly the surface we now wanted Terraform to manage, but the `create` action is not idempotent over an existing out-of-band assignment.
+
+### Detection
+
+Immediate: the baseline workflow run (ID `24380624416`) reported `failure` on `Apply management/bootstrap` under a minute after merge. The error text pointed directly at "already exists" which is the unambiguous signature of untracked pre-existing state, not a permissions or config problem.
+
+The principal ID in the error (`f384f8b2-c051-7074-9b66-b7f5d029ba8a`) matched the Identity Store user ID for user `bin`, confirming the target of the conflict.
+
+### Resolution
+
+One-time `terraform import` to bring the existing assignment into Terraform state, from the operator's laptop using `aegis-management-admin` SSO session:
+
+```bash
+export AWS_PROFILE=aegis-management-admin
+aws sso login --sso-session aegis
+
+cd terraform/environments/management/bootstrap
+terraform init
+terraform import aws_ssoadmin_account_assignment.bin_staging_platform_admin \
+  "f384f8b2-c051-7074-9b66-b7f5d029ba8a,USER,251774439261,AWS_ACCOUNT,arn:aws:sso:::permissionSet/ssoins-6987a8402843ec85/ps-57f7e67ee5853241,arn:aws:sso:::instance/ssoins-6987a8402843ec85"
+
+terraform plan   # "No changes."
+```
+
+State file updated on S3 (state lives in `aegis-shared`, CMK-encrypted). Baseline workflow re-triggered via `gh run rerun 24380624416 --failed` — now a no-op for the imported resource, green.
+
+The import ID format for `aws_ssoadmin_account_assignment` is `PRINCIPAL_ID,PRINCIPAL_TYPE,TARGET_ID,TARGET_TYPE,PERMISSION_SET_ARN,INSTANCE_ARN` — documented in the AWS provider docs but easy to mis-type (every field is a comma-separated positional argument with no field names).
+
+### Prevention
+
+**When Terraform-izing AWS resources that may have been created by hand earlier, check for existing state before adding the `create` resource block.** The quickest per-service checks:
+
+| Service | Pre-flight check |
+|---------|------------------|
+| SSO assignments | `aws sso-admin list-account-assignments --instance-arn <arn> --account-id <target> --permission-set-arn <arn>` |
+| IAM roles | `aws iam get-role --role-name <name>` |
+| KMS keys (by alias) | `aws kms describe-key --key-id alias/<name>` |
+| S3 buckets | `aws s3api head-bucket --bucket <name>` |
+| OIDC providers | `aws iam list-open-id-connect-providers` |
+
+If any of these returns a hit, the Terraform code needs to be introduced as either (a) a data source, or (b) a resource block with immediate `terraform import` in the same landing PR.
+
+**Memory claims about AWS state are not authoritative over AWS itself.** The AI's memory captured the SSO assignment state as it existed at Phase 0, but the operator made additional Console assignments during Phase 1-2 without updating the memory. Trust CloudTrail and live AWS API calls over cached summaries.
+
+The `sso-assignments.tf` file in this repo now documents this class of hazard inline: future additions to that file must be paired with a "does this assignment already exist?" check before committing.
+
+### Lessons
+
+- **"Already exists" is the signature of a Console-first-then-IaC-later lifecycle.** Any project that did manual Console work before introducing Terraform will hit this class of error at least once. The recovery path (`terraform import` with the correct ID format) is the same across services; the ID format is the hard part.
+- **`aws_ssoadmin_account_assignment.create` is not idempotent over pre-existing state**, unlike e.g. `aws_iam_role_policy_attachment` which idempotently re-applies. Check each resource type's create behavior before relying on "apply, it'll sort itself out."
+- **Identity Center assignment IDs have six comma-separated fields in a fixed order.** The format is not intuitive and is undocumented in the error message when import fails. Keep a reference copy somewhere accessible (this incident's Resolution section now serves that purpose).
+- **The check block pattern in `staging/platform/access-entries.tf` did its job.** Had the baseline failure left `management/bootstrap` state broken in a different way (e.g., the assignment not created but no AWS-side resource to import), the subsequent `staging/platform` apply would have failed loudly at the `AWSReservedSSO_PlatformAdmin_*` role lookup with a message pointing back at the SSO assignment. Pre-flight assertion in one layer that another layer applied correctly pays off.
+
+---
+
 ## Adding a new incident
 
 Append new sections at the bottom, before this footer, using the format:
