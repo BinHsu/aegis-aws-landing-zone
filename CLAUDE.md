@@ -110,6 +110,30 @@ Some Terraservices layers have their own operational contracts — pre-flight ch
 
 - **Rule: When adding a new layer whose operations require their own diagnostic order (e.g., observability, service mesh), add a runbook under `docs/runbooks/` rather than extending this file.** Keeping CLAUDE.md small preserves its discoverability; layer-specific details belong with the layer.
 
+### Cross-repo coordination (landing-zone ↔ aegis-core)
+
+This repository shares a lifecycle boundary with [aegis-core](https://github.com/BinHsu/aegis-core) — the app-side repository that ArgoCD syncs from. The two repos are maintained by independent agents and must coordinate through durable artifacts, not direct IPC.
+
+- **Rule: Cross-repo coordination lives in GitHub Issues labeled `cross-repo`.** Two standing issues (do not close; edit body to maintain):
+  - [#54 Platform surface contract (landing-zone)](https://github.com/BinHsu/aegis-aws-landing-zone/issues/54) — what aegis-core can assume
+  - [#11 Requirements from landing-zone (aegis-core)](https://github.com/BinHsu/aegis-core/issues/11) — what aegis-core needs
+
+- **Rule: At session start for any work that touches the platform contract** (CRDs, namespaces, IRSA, `staging/platform/`), AI must run both:
+  ```
+  gh issue list -l cross-repo -R BinHsu/aegis-aws-landing-zone
+  gh issue list -l cross-repo -R BinHsu/aegis-core
+  ```
+  Any issue labeled `cross-repo/blocking` on either side halts planning until acknowledged.
+
+- **Rule: When this repo changes the platform surface contract**, the PR must (a) update the #54 issue body to reflect the new state, and (b) carry label `cross-repo/blocking` if the change would break aegis-core's existing assumptions.
+
+- **Label semantics**:
+  - `cross-repo` — default coordination tag (standing issues + long-lived threads)
+  - `cross-repo/blocking` — the other side is blocked until this lands / is acknowledged
+  - `cross-repo/fyi` — informational only; no action required
+
+- **Anti-pattern**: direct agent-to-agent messaging, shared memory mounts, or any ephemeral channel. The audit trail is the point.
+
 ## Directory Structure
 
 ```
