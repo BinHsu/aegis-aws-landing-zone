@@ -86,6 +86,15 @@ resource "helm_release" "argocd" {
 
   depends_on = [
     helm_release.karpenter, # ArgoCD needs EC2 capacity to schedule on
+    # AWS LB Controller installs a MutatingWebhookConfiguration that
+    # intercepts every Service creation. If Karpenter creates the Services
+    # in the same apply pass as the LB Controller (parallel helm installs),
+    # the webhook may have no backing endpoints yet — ArgoCD's Services
+    # then fail admission with:
+    #   "no endpoints available for service aws-load-balancer-webhook-service"
+    # Serialize the install so LB Controller's webhook is reachable before
+    # ArgoCD's Services hit admission. See Incident 17 in docs/incidents.md.
+    helm_release.aws_lb_controller,
   ]
 }
 
