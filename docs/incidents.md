@@ -1330,6 +1330,103 @@ The general rule: **if a CRD is the Terraform-managed stand-in for an external r
 
 ---
 
+## Incident 20 — EKS auto-created cluster security group orphans the VPC on destroy
+
+**Date**: 2026-04-14 (Phase 3c, second teardown attempt after Incident 19 fix)
+**Severity**: S3 (teardown blocked again, different dependency this time; 30s manual SG delete + re-dispatch)
+**Duration**: ~5 min to diagnose + one-line recovery
+
+### Symptom
+
+After Incident 19 was resolved (orphan EC2 manually terminated), the re-dispatched teardown progressed through workloads and platform destroy successfully, but then failed on the VPC itself:
+
+```
+Error: deleting EC2 VPC (vpc-05b22f3d2de81531c): operation error EC2:
+  DeleteVpc, https response error StatusCode: 400,
+  api error DependencyViolation: The vpc '...' has dependencies
+  and cannot be deleted.
+```
+
+All the expected dependencies were clear: no ENIs, subnets all deleted, NAT Gateway `deleted`, no VPC endpoints, no IGW. `aws ec2 describe-security-groups --filters "Name=vpc-id,Values=..."` showed ONE non-default SG remaining: `sg-0738fa1d57f767219` named `eks-cluster-sg-aegis-staging-283648101`.
+
+### Root cause
+
+EKS auto-creates a **cluster security group** when a cluster is provisioned. This SG is used for control-plane-to-node traffic and is identified by the tag `aws:eks:cluster-name`. It is NOT managed by any Terraform resource in this project (or in most projects — it's an AWS-managed side effect of cluster creation).
+
+AWS EKS is supposed to delete this SG when the cluster is deleted. In practice, this cleanup is eventual and can fail silently if:
+
+- ENIs or Fargate tasks were still associated with the SG at cluster-delete time
+- The cluster delete races with EKS's own cleanup job
+- Some AWS-internal reconciliation window hasn't closed
+
+When it fails, the SG is left behind tagged to a cluster that no longer exists. The VPC cannot be deleted because it contains a non-default SG. No Terraform resource owns the SG, so `terraform destroy` cannot clean it up either.
+
+### Detection
+
+`aws ec2 describe-security-groups --filters "Name=vpc-id,Values=$VPC_ID"` immediately shows it — any non-default SG in a VPC that's supposed to be empty is the signal. The SG's name pattern (`eks-cluster-sg-<cluster-name>-*`) and tag `aws:eks:cluster-name` identify it as EKS-managed rather than user-defined.
+
+### Resolution
+
+**Immediate unblock** — manually delete the SG:
+
+```bash
+aws ec2 delete-security-group --region eu-central-1 \
+  --group-id sg-0738fa1d57f767219
+# Then re-dispatch teardown; VPC delete now proceeds.
+```
+
+**Codified in workflow** (so forkers never hit this):
+
+A new pre-Terraform sweep step in the `destroy-network` job of `terraform-teardown-workload.yml`:
+
+```yaml
+- name: Sweep orphan EKS security groups in target VPC
+  run: |
+    VPC_ID=$(aws ec2 describe-vpcs \
+      --filters "Name=tag:Name,Values=${{ inputs.env }}-vpc" \
+      --query 'Vpcs[0].VpcId' --output text)
+    if [ "$VPC_ID" != "None" ] && [ -n "$VPC_ID" ]; then
+      SG_IDS=$(aws ec2 describe-security-groups \
+        --filters "Name=vpc-id,Values=$VPC_ID" \
+                  "Name=tag-key,Values=aws:eks:cluster-name" \
+        --query 'SecurityGroups[].GroupId' --output text)
+      for SG in $SG_IDS; do
+        aws ec2 delete-security-group --group-id "$SG" || true
+      done
+    fi
+```
+
+Filter is deliberately narrow (`tag-key=aws:eks:cluster-name`): only EKS-auto-created SGs are targeted. User-defined SGs (if ever present in the staging VPC) are untouched. `|| true` on the delete — if the SG is actually still in use (shouldn't be, but defensive), we don't wedge teardown on it; Terraform will surface the DependencyViolation with better diagnostic context.
+
+### Prevention
+
+**Generalize: AWS services that auto-create VPC-scoped resources (SGs, ENIs, endpoints) are teardown hazards.** The pattern applies not just to EKS:
+
+| Service | Auto-created resource | Tag / marker |
+|---------|----------------------|--------------|
+| EKS | Cluster SG | `aws:eks:cluster-name` |
+| EKS Fargate | Fargate profile ENIs | (Terraform-managed via `aws_eks_fargate_profile`) |
+| Lambda in VPC | Lambda hyperplane ENIs | `Interface Description: AWS Lambda VPC ENI-*` |
+| ALB/NLB | LB SGs | LB tags |
+| RDS (Aurora) | DB SGs | DB cluster tags |
+
+Any teardown workflow that targets a VPC should include a pre-Terraform sweep for this class of resource, filtered by provider-specific tags.
+
+In this project, the teardown workflow now sweeps:
+- **Karpenter-provisioned EC2** (Incident 19) — `tag-key=karpenter.sh/nodepool`
+- **EKS cluster SG** (Incident 20) — `tag-key=aws:eks:cluster-name`
+
+When Phase 4+ adds new AWS-service-auto-created resources (GuardDuty detector ENIs, Security Hub agent SGs, Prometheus/AMP resources), extend the sweep accordingly.
+
+### Lessons
+
+- **AWS "managed" doesn't mean "cleaned up automatically on Terraform destroy".** The EKS cluster SG is managed by EKS control-plane, not by the `aws_eks_cluster` Terraform resource. When the cluster is destroyed, EKS is supposed to clean up — but this is an asynchronous, best-effort process from EKS's side. Terraform's view of the destroy is "the cluster resource is gone"; whether AWS followed through on side-effect cleanup is a separate concern.
+- **Teardown pattern generalizes: service-specific orphan sweeps.** Incident 19 established the pattern for Karpenter-managed EC2. Incident 20 extends it to EKS-managed SGs. The same pattern will apply to future AWS services (cert-manager Route53 TXT records, VPC Lambda ENIs, ...). Future teardown hardening is additive along this axis.
+- **`DependencyViolation` on VPC delete is a symptom, not a diagnosis.** The real question is always "what's the last thing in the VPC?" and `describe-network-interfaces`, `describe-security-groups`, `describe-vpc-endpoints`, `describe-subnets` one by one until something non-empty appears. For any VPC-teardown failure, this three-minute enumeration should be step 1.
+- **Tag-based filtering is the right filter for auto-created orphan cleanup.** Not name patterns (names are controller-generated and change), not "everything except default" (risks user resources). Specific AWS-reserved tag keys (`aws:eks:cluster-name`, `aws:cloudformation:stack-name`, etc.) identify orphans precisely.
+
+---
+
 ## Adding a new incident
 
 Append new sections at the bottom, before this footer, using the format:
