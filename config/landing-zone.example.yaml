@@ -107,3 +107,18 @@ control_tower:
     - eu-central-1
     - eu-west-1
   kms_key_alias: "alias/aegis-control-tower-key"
+
+# EKS platform configuration (optional — only environments that deploy the
+# platform layer need an entry). See ADR-013 for version / endpoint rationale
+# and docs/runbooks/002-eks-access.md for the public-IP operational contract.
+eks:
+  staging:
+    version: "1.32"
+    public_access_cidrs:
+      # Operator's current public IP, /32. Update when the ISP reassigns —
+      # see runbook 002 for the check + update procedure.
+      - "203.0.113.1/32"
+  # prod:
+  #   version: "1.32"
+  #   public_access_cidrs:
+  #     - "203.0.113.1/32"
