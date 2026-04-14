@@ -101,8 +101,11 @@ resource "helm_release" "argocd" {
 # sync for prod"). `selfHeal = true` re-applies drift; `prune = true`
 # deletes child resources removed from the repo.
 # -----------------------------------------------------------------------------
-resource "kubernetes_manifest" "argocd_root_app" {
-  manifest = {
+# kubectl_manifest (not kubernetes_manifest) — deferred plan-time schema
+# validation. See the bootstrap-trap note in karpenter-nodepool.tf +
+# Incident 10.
+resource "kubectl_manifest" "argocd_root_app" {
+  yaml_body = yamlencode({
     apiVersion = "argoproj.io/v1alpha1"
     kind       = "Application"
     metadata = {
@@ -144,7 +147,7 @@ resource "kubernetes_manifest" "argocd_root_app" {
         ]
       }
     }
-  }
+  })
 
   depends_on = [helm_release.argocd]
 }
