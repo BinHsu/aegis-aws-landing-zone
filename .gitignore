@@ -26,3 +26,8 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+# Claude Code — local session state, schedule locks, per-user settings.
+# Never committed. Includes .claude/settings.local.json which may contain
+# operator-specific paths.
+.claude/
