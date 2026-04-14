@@ -1,8 +1,8 @@
 # staging/platform
 
-The EKS platform layer for `aegis-staging`. Contains the EKS cluster, Fargate profiles for system pods (CoreDNS, Karpenter controller), the IRSA OIDC provider, Access Entries mapping the CI role and operator SSO role to Kubernetes cluster-admin, and **Karpenter v1** (controller on Fargate + default NodePool + EC2NodeClass).
+The EKS platform layer for `aegis-staging`. Contains the EKS cluster, Fargate profiles for system pods (CoreDNS, Karpenter controller), the IRSA OIDC provider, Access Entries mapping the CI role and operator SSO role to Kubernetes cluster-admin, **Karpenter v1** (controller on Fargate + default NodePool + EC2NodeClass), the **AWS Load Balancer Controller** (Ingress / Service-type-LoadBalancer → ALB / NLB with ACM TLS), and **ArgoCD** with an app-of-apps root Application pointing at `aegis-core/apps/staging/`.
 
-The AWS Load Balancer Controller and ArgoCD are intentionally NOT in this layer — they land in Phase 3c PR 3 so each can be reviewed and applied independently.
+With Phase 3c PR 3 landed, this layer contains the full platform surface area that `aegis-core` application PRs can assume: IRSA-able OIDC, Access-Entry-gated Kubernetes API, Karpenter-provisioned node capacity, ALB provisioning via `Ingress`, and a GitOps controller that auto-syncs any commit to `aegis-core`.
 
 ---
 
@@ -37,13 +37,14 @@ Apply ordering is enforced operationally by the CI workflow split:
 
 ## Cost profile
 
-Apply triggers ~$0.30/hr ongoing while the cluster is running:
+Apply triggers ~$0.35/hr ongoing while the cluster is running:
 
 | Component | Approximate cost while running |
 |---|---|
 | EKS control plane | $0.10/hr (~$73/month always-on) |
 | Fargate (CoreDNS + Karpenter controller, ~3 pods) | ~$0.12/hr |
-| Karpenter-managed Spot EC2 (when there are workloads) | ~$0.01/hr per small instance |
+| Karpenter-managed Spot EC2 (LB Controller + ArgoCD + workloads) | ~$0.02/hr (typically one small Spot instance) |
+| ALB (per Ingress provisioned by LB Controller) | $0.025/hr + LCU, mostly pennies at lab traffic |
 | SQS (Karpenter interruption queue) | $0 at lab message volume |
 | EventBridge rules (4x) | $0 at lab event volume |
 | CloudWatch Logs (5 log types at lab traffic) | pennies/day |
@@ -84,7 +85,11 @@ staging/platform/
 ├── karpenter-interruption.tf     # SQS queue + EventBridge rules for Spot interruption handling
 ├── karpenter-helm.tf             # Karpenter controller Helm release on Fargate
 ├── karpenter-nodepool.tf         # Default NodePool + EC2NodeClass (Spot, 4 vCPU cap, Bottlerocket)
-├── outputs.tf                    # Consumed by LB Controller / ArgoCD PRs
+├── lb-controller-iam.tf          # AWS LB Controller IRSA role (policy loaded from JSON)
+├── lb-controller-policy.json     # Canonical AWS LB Controller IAM policy (v2.8.2)
+├── lb-controller.tf              # AWS LB Controller Helm release in kube-system
+├── argocd.tf                     # ArgoCD Helm release + app-of-apps root Application
+├── outputs.tf                    # Cluster + Karpenter + LB Controller + ArgoCD outputs
 └── README.md                     # This file
 ```
 
