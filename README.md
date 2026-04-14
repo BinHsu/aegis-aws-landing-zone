@@ -17,19 +17,28 @@
 - **Centralized IPAM with RAM cross-account sharing** — single source of truth for VPC CIDR allocation
 - **Fork-and-deploy by config** — one YAML file + two scripts; no per-deployment forks
 - **Runbook-proven reproducibility** — 10-part runbook documents every manual step plus the gotchas that broke the first attempt
-- **EKS + ArgoCD + Karpenter** — planned (Phase 3b/3c), architectural decisions locked in ADR-012 and ADR-013
+- **EKS + ArgoCD + Karpenter** — live (Phase 3c): EKS 1.32, Karpenter v1 on Fargate with Spot-first NodePool, AWS Load Balancer Controller, ArgoCD with app-of-apps pointing at `aegis-core` (ADR-012, ADR-013)
+
+## About this project
+
+Built solo by a senior software architect. The stance is deliberately **generic-architect, not specialist**: ship the cross-cutting scope (multi-account governance, CI/CD, platform bootstrap, security posture, cost discipline) using current-but-stable tools; leave specialist concerns (IAM policy minimization, Karpenter internals, Kubernetes controller-manager internals) with clear hand-off notes for the next owner. Explicit scope-of-claims in [`docs/interview-notes.md §4`](docs/interview-notes.md).
+
+The project value is not algorithm depth or performance tuning — those aren't my claim. The value is the **discipline layer**: 13 ADRs (several with "Design iteration" sections that document reversed decisions honestly), 12 incident postmortems (written after the fact, never softened retroactively), and a 4-workflow CI/CD split shaped by cost profile rather than template copy-paste.
 
 ## Reading guide
 
-| If you want to | Start here |
+Different readers have different goals. Start here:
+
+| If you are… | Start here |
 |---|---|
-| Read the story behind the project | [`docs/design-narrative.md`](docs/design-narrative.md) — 2-minute pitch, key decisions, war stories |
-| See real incidents and postmortems | [`docs/incidents.md`](docs/incidents.md) — 6 real failures with Symptom / Root cause / Resolution / Lessons |
-| See the architecture | [`docs/architecture.md`](docs/architecture.md) — 5 Mermaid diagrams |
-| Understand the design choices | [13 ADRs](docs/decisions/) — Context / Decision / Alternatives / Consequences |
-| Reproduce this from zero | [`docs/runbooks/001-bootstrap-aws-account.md`](docs/runbooks/001-bootstrap-aws-account.md) |
-| Fork and deploy to your org | [Configuration Contract](#configuration-contract) section below |
-| Browse the code | [`terraform/environments/`](terraform/environments/) |
+| You are a recruiter / hunter / HR | [`docs/interview-notes.md`](docs/interview-notes.md) — competency inventory, generic-architect stance, conservative-by-design trade-offs, and the explicit scope-of-claims |
+| You are a technical leader / architect peer | [`docs/decisions/`](docs/decisions/) (13 ADRs, with "Design iteration" sections) + [`docs/incidents.md`](docs/incidents.md) (12 postmortems of real failures) |
+| You want the story behind the project | [`docs/design-narrative.md`](docs/design-narrative.md) — 2-minute pitch, key decisions, war stories |
+| You want the architecture diagrams | [`docs/architecture.md`](docs/architecture.md) — 5 Mermaid diagrams |
+| You want to reproduce this from zero | [`docs/runbooks/001-bootstrap-aws-account.md`](docs/runbooks/001-bootstrap-aws-account.md) |
+| You want to fork and deploy to your org | [Configuration Contract](#configuration-contract) section below |
+| You are an AI agent working on this repo | [`CLAUDE.md`](CLAUDE.md) — operational rules + per-layer runbook pointer |
+| You just want to browse the code | [`terraform/environments/`](terraform/environments/) — start with `staging/platform/` for highest density |
 
 ## Architecture
 
@@ -118,8 +127,8 @@ Status reflects what exists in `main`, not aspirations. Each "Done" row links to
 | 1. Foundation | Config contract, state bucket, SCPs, OIDC, account provisioning | ~Free | **Done** ([#1](https://github.com/BinHsu/aegis-aws-landing-zone/pull/1)..[#7](https://github.com/BinHsu/aegis-aws-landing-zone/pull/7)) |
 | 2. GitOps Pipeline | plan/apply workflows, Checkov, pre-commit, signed commits | ~Free | **Done** ([#1](https://github.com/BinHsu/aegis-aws-landing-zone/pull/1), [#3](https://github.com/BinHsu/aegis-aws-landing-zone/pull/3), [#4](https://github.com/BinHsu/aegis-aws-landing-zone/pull/4), [#5](https://github.com/BinHsu/aegis-aws-landing-zone/pull/5)) |
 | 3a. Network Foundation | IPAM + RAM sharing, ADR-012 + ADR-013 | ~$0 idle / $0.003/IP/hr allocated | **Done** ([#6](https://github.com/BinHsu/aegis-aws-landing-zone/pull/6)..[#9](https://github.com/BinHsu/aegis-aws-landing-zone/pull/9)) |
-| 3b. VPC | Staging VPC (3 AZ, 1 NAT, Gateway endpoints, Flow Logs) | ~$0.05/hr NAT | Not started |
-| 3c. EKS Platform | EKS 1.32 + Karpenter on Fargate + ArgoCD + ALB Controller + ACM | ~$0.15/hr | Not started |
+| 3b. VPC | Staging VPC (3 AZ, 1 NAT, Gateway endpoints; Flow Logs deferred to Phase 4) | ~$0.05/hr NAT | **Done** ([#25](https://github.com/BinHsu/aegis-aws-landing-zone/pull/25)..[#38](https://github.com/BinHsu/aegis-aws-landing-zone/pull/38)) |
+| 3c. EKS Platform | EKS 1.32 + Karpenter v1 on Fargate + AWS LB Controller + ArgoCD app-of-apps | ~$0.30/hr running | **Done** ([#39](https://github.com/BinHsu/aegis-aws-landing-zone/pull/39), [#42](https://github.com/BinHsu/aegis-aws-landing-zone/pull/42), [#43](https://github.com/BinHsu/aegis-aws-landing-zone/pull/43) + fix PRs [#44](https://github.com/BinHsu/aegis-aws-landing-zone/pull/44), [#45](https://github.com/BinHsu/aegis-aws-landing-zone/pull/45), [#46](https://github.com/BinHsu/aegis-aws-landing-zone/pull/46)) |
 | 4. Observability + Security | Prometheus, Grafana, CloudTrail data events, GuardDuty, Security Hub | TBD | Not started |
 | 5. Enterprise Service Mesh & Auth | Istio (mTLS), cert-manager, EKS Pod Identity, External Secrets, Cognito | TBD | Not started |
 
