@@ -63,11 +63,20 @@ resource "kubectl_manifest" "karpenter_default_ec2nodeclass" {
 
       role = aws_iam_role.karpenter_node.name
 
-      tags = merge(local.tags, {
-        "karpenter.sh/discovery"                             = aws_eks_cluster.main.name
-        "kubernetes.io/cluster/${aws_eks_cluster.main.name}" = "owned"
-        "topology.kubernetes.io/region"                      = local.primary_region
-      })
+      # User-level tags only. Karpenter's admission webhook REJECTS tag
+      # prefixes it reserves for internal use:
+      #   - `kubernetes.io/cluster/*`    (Karpenter auto-applies `=owned`
+      #                                   to every EC2 it launches)
+      #   - `karpenter.sh/*`             (Karpenter internal bookkeeping)
+      #   - `karpenter.k8s.aws/*`        (Karpenter internal)
+      #
+      # Note also: `karpenter.sh/discovery` is the tag that should go on
+      # the *subnets* and *security groups* (consumed by
+      # subnetSelectorTerms / securityGroupSelectorTerms above), NOT on
+      # EC2NodeClass.spec.tags. The network layer handles subnet tagging.
+      #
+      # See docs/incidents.md Incident 14 for the webhook-rejection story.
+      tags = local.tags
     }
   })
 
