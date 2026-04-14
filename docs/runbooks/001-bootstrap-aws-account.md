@@ -147,6 +147,20 @@ The $10/day ceiling matches the project-wide daily guardrail in CLAUDE.md. A day
 
 Cost Explorer takes approximately 24 hours to populate initial data after enablement, so enable it now even though it is not immediately useful. It is the primary tool for verifying weekly that actual cost matches the model in ADR-009.
 
+### 3.5.5 Activate IAM access to billing (required for non-root billing visibility)
+
+`AdministratorAccess` does NOT include permission to view Billing / Cost Management data by default. Without this toggle, the `PlatformAdmin` SSO role (added later in Part 4) will land on Billing dashboards that show "Access denied" on every cost field — Month-to-date cost, Forecasted cost, Cost Explorer, etc. The `AWS Budgets` and `Cost Monitor` configs are visible, but the actual cost numbers are not.
+
+The toggle is account-level and can only be flipped by the **root user**:
+
+1. Sign out of any SSO session and sign in as root (the break-glass credential from step 3.1).
+2. Top-right account menu → **Account** (or navigate to `https://us-east-1.console.aws.amazon.com/billing/home?region=us-east-1#/account`).
+3. Scroll to **IAM user and role access to Billing information** → click **Edit**.
+4. Check **Activate IAM Access** → **Update**.
+5. Sign out of root, sign back in as the SSO PlatformAdmin user. Cost dashboards now render with real data.
+
+This activation is per-account (every AWS account you operate will need it). It is idempotent once set. Missing this step is the single most common reason for "I have AdministratorAccess but Billing shows Access Denied" questions; if forking this project and hitting that symptom, this is the fix.
+
 ---
 
 ## Part 4: AWS Control Tower Enrollment
