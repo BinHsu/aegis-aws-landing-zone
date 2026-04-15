@@ -124,14 +124,61 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
+      # Quiesce Karpenter cleanly BEFORE terraform destroy runs. Two-phase:
+      #
+      #   1. Drain NodePools — `kubectl delete nodepool --all` triggers
+      #      Karpenter (still running) to delete all its NodeClaims, which
+      #      gracefully terminates the EC2 instances it manages.
+      #   2. Scale Karpenter to 0 — once NodeClaims are gone, scale the
+      #      controller Deployment to 0 so nothing can spawn new EC2
+      #      capacity during the remainder of destroy.
+      #
+      # Without step 2, Terraform's destroy of helm_release.karpenter is
+      # racy: `helm uninstall` submits pod-delete asynchronously and
+      # returns before the Karpenter pod has actually terminated. Terraform
+      # then parallelizes onward to destroy aws_eks_fargate_profile.karpenter,
+      # which force-kills the still-terminating Karpenter pod mid-finalize.
+      # Any NodeClaim whose reconciliation was in flight at that moment
+      # leaks its EC2 — and that EC2 blocks subnet destroy later.
+      #
+      # The existing `provisioner "local-exec"` on the NodePool is the
+      # equivalent fix for local operators (runbook 002), but in CI it is
+      # effectively a no-op because the runner has no kubeconfig and the
+      # `|| true` swallows the kubectl "no context" error. This step is
+      # the CI-side equivalent; together they cover both code paths.
+      #
+      # See docs/incidents.md Incident 22 for the detection story.
+      - name: Quiesce Karpenter before destroy
+        run: |
+          CLUSTER_NAME=$(aws eks list-clusters \
+            --region ${{ env.AWS_REGION }} \
+            --query "clusters[0]" --output text 2>/dev/null || echo "None")
+          if [ "$CLUSTER_NAME" = "None" ] || [ -z "$CLUSTER_NAME" ] || [ "$CLUSTER_NAME" = "null" ]; then
+            echo "::notice::No EKS cluster in account — skipping Karpenter quiesce."
+            exit 0
+          fi
+          if ! aws eks update-kubeconfig \
+                 --region ${{ env.AWS_REGION }} --name "$CLUSTER_NAME" 2>/dev/null; then
+            echo "::notice::Could not fetch kubeconfig — skipping Karpenter quiesce."
+            exit 0
+          fi
+          # Step 1: delete NodePools, wait for Karpenter to drain NodeClaims
+          # (→ EC2 instances terminate gracefully).
+          echo "::notice::Draining Karpenter NodePools..."
+          kubectl delete nodepool --all --timeout=10m 2>/dev/null || true
+          kubectl wait --for=delete nodeclaim --all --timeout=10m 2>/dev/null || true
+          # Step 2: scale the controller to 0 so no new NodeClaims can be
+          # created during the rest of destroy.
+          echo "::notice::Scaling Karpenter controller to 0 replicas..."
+          kubectl scale deployment karpenter -n karpenter --replicas=0 2>/dev/null || true
+          kubectl wait --for=delete pod \
+            -l app.kubernetes.io/name=karpenter -n karpenter --timeout=5m 2>/dev/null || true
+
       # Safety-net sweep: terminate any EC2 instance tagged as Karpenter-
-      # provisioned before Terraform runs. Normally Karpenter drains these
-      # itself when NodePool is deleted (handled by a local-exec provisioner
-      # on kubectl_manifest.karpenter_default_nodepool). But if state has
-      # drifted (e.g., a prior `terraform state rm` recovery), Terraform
-      # won't even attempt that deprovision — orphan EC2 then blocks subnet
-      # delete in the network layer. This sweep is the unconditional catch.
-      # See docs/incidents.md Incident 19.
+      # provisioned before Terraform runs. The quiesce step above should
+      # normally make this a no-op, but if the quiesce failed (cluster
+      # already gone, access-entry drift, state-rm recovery), this catches
+      # what's left. See docs/incidents.md Incident 19.
       - name: Sweep orphan Karpenter-provisioned EC2 instances
         run: |
           IDS=$(aws ec2 describe-instances \

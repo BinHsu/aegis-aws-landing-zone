@@ -1545,6 +1545,116 @@ More generally: **when AWS documentation is obscure about a constraint that will
 
 ---
 
+## Incident 22 — Karpenter controller killed mid-finalization by Fargate profile destroy
+
+**Date**: 2026-04-14 (Phase 3c, teardown after full verify cold-rebuild — the one that followed Incident 21's fix)
+**Severity**: S3 (teardown blocked; one more orphan EC2 + ENI + SG to clean manually; re-dispatch)
+**Duration**: ~15 min to diagnose + manual cleanup + re-dispatch
+
+### Symptom
+
+After Incidents 15 – 21 were all codified and a full verification cold-rebuild apply succeeded, the subsequent teardown failed at `Destroy staging/network` — same symptom class as Incident 19, but a different instance:
+
+```
+Error: deleting EC2 Subnet (subnet-...): operation error EC2:
+  DeleteSubnet, https response error StatusCode: 400,
+  api error DependencyViolation: The subnet '...' has dependencies
+  and cannot be deleted.
+```
+
+Orphan EC2 `i-0bd2d6d9d56f018b9` was still running, tagged `karpenter.sh/nodepool=default`. Its ENI was still attached; an orphan SG was also left. At first glance this looked like Incident 19 recurring — but Incident 19's workflow-level sweep (added in PR #56) should have caught it before Terraform even started. It didn't.
+
+### Root cause
+
+The orphan was created *during* Terraform's platform destroy, AFTER the pre-Terraform orphan-sweep step had already run (and correctly found nothing). The race is in the destroy ordering inside Terraform:
+
+1. `kubectl_manifest.karpenter_default_nodepool` destroys — submits `kubectl delete nodepool default`, runs its local-exec `kubectl wait --for=delete nodeclaim` provisioner. **In CI, this provisioner is effectively a no-op**: the GitHub Actions runner was never configured with a kubeconfig (no `aws eks update-kubeconfig` step in the teardown workflow), so `kubectl` errors with "no current context" and the `|| true` tail swallows it. Incident 19's Part A defense was silently broken in CI.
+2. Karpenter is still running on Fargate. It sees the NodePool deletion and begins draining NodeClaims, but that work is asynchronous and spans several minutes.
+3. Terraform moves on to destroy `helm_release.karpenter`. The helm provider issues `helm uninstall`, which in turn submits a pod-delete API call to the Kubernetes API. **helm uninstall does not wait for pod termination** — `action.NewUninstall()` has `Wait = false` by default. The Terraform resource reports success as soon as the API accepts the delete.
+4. Terraform sees `helm_release.karpenter` destroyed and parallelizes onward to `aws_eks_fargate_profile.karpenter` destroy. Fargate profile destroy forcefully kills all pods whose namespace selector matches — including the Karpenter controller pod that is still processing its graceful shutdown.
+5. Any NodeClaim whose finalizer was *in flight* when the pod got killed is abandoned. Karpenter's CRD delete-reconcile loop doesn't resume (the controller is gone). The associated EC2 stays running, the ENI stays attached, the VPC cannot be torn down.
+
+The Karpenter-manages-EC2 asynchronous tail (same class as Incident 19) meets the Fargate-profile-kills-pods synchronous cliff. The combination is what leaks the EC2.
+
+This is a different failure mode from Incident 19 — there the cause was `terraform state rm` removing the drain logic from state entirely; here state was intact, but the drain-then-destroy sequence itself is racy when the drain step relies on kubectl being functional.
+
+### Detection
+
+Same as Incident 19: `DependencyViolation` from VPC destroy → `aws ec2 describe-network-interfaces --filters "Name=vpc-id,Values=$VPC_ID"` finds the stuck ENI → `describe-instances` identifies the orphan EC2 → `describe-security-groups` finds the leaked cluster SG.
+
+The tell that distinguished this from Incident 19 was timing: the pre-Terraform orphan sweep job had logged `::notice::No orphan Karpenter-tagged EC2 instances found.` — so the EC2 must have been created *after* that sweep ran, i.e., *during* the platform destroy. That ruled out any prior-state drift and pointed the investigation at in-destroy races.
+
+### Resolution
+
+**Immediate unblock** — manual cleanup of all three leaked resources:
+
+```bash
+export AWS_PROFILE=aegis-staging-admin
+# 1. Terminate the orphan EC2
+aws ec2 terminate-instances --region eu-central-1 --instance-ids i-0bd2d6d9d56f018b9
+aws ec2 wait instance-terminated --region eu-central-1 --instance-ids i-0bd2d6d9d56f018b9
+# 2. ENI is released automatically when instance is terminated (verify)
+aws ec2 describe-network-interfaces --region eu-central-1 \
+  --filters "Name=vpc-id,Values=$VPC_ID" --query 'NetworkInterfaces[].NetworkInterfaceId'
+# 3. Delete the leaked cluster SG (same pattern as Incident 20)
+aws ec2 delete-security-group --region eu-central-1 --group-id sg-...
+# Re-dispatch teardown — network layer now destroys cleanly.
+```
+
+**Codified in Terraform + workflow** (belt-and-suspenders, covering both CI and local operator paths):
+
+**A. Workflow-level Karpenter quiesce BEFORE `terraform destroy`** (`.github/workflows/terraform-teardown-workload.yml` → `destroy-platform` job):
+
+A new step runs immediately after Terraform setup and before the existing orphan-EC2 sweep. It:
+
+1. Fetches kubeconfig for the cluster (the step the workflow previously lacked — which is why Incident 19's local-exec provisioner was silently failing in CI).
+2. Drains NodePools: `kubectl delete nodepool --all --timeout=10m` followed by `kubectl wait --for=delete nodeclaim --all --timeout=10m`. Karpenter, still running, processes these deletions gracefully — EC2s terminate.
+3. Scales the Karpenter controller to 0 replicas: `kubectl scale deployment karpenter -n karpenter --replicas=0`, then `kubectl wait --for=delete pod -l app.kubernetes.io/name=karpenter`. After this, the controller is truly gone before Terraform touches anything, so the subsequent `helm uninstall` → `fargate_profile destroy` sequence has no pod to race against.
+
+All commands tail `|| true` so a cluster-already-gone state doesn't wedge the workflow. The existing post-Terraform sweeps (Incidents 19 + 20) remain in place as final safety nets.
+
+**B. Terraform-level NodePool destroy provisioner enhancement** (`terraform/environments/staging/platform/karpenter-nodepool.tf`):
+
+Extend the existing local-exec from a single `kubectl wait` into a three-command sequence matching the workflow's quiesce logic. This path is what runs for local operators following runbook 002 — the kubectl auth is already present in their shell from `aws eks update-kubeconfig`.
+
+```hcl
+provisioner "local-exec" {
+  when    = destroy
+  command = <<-EOT
+    kubectl wait --for=delete nodeclaim --all --timeout=10m || true
+    kubectl scale deployment karpenter -n karpenter --replicas=0 || true
+    kubectl wait --for=delete pod -l app.kubernetes.io/name=karpenter -n karpenter --timeout=5m || true
+  EOT
+}
+```
+
+The two fixes are complementary: (A) handles CI where kubeconfig is absent and kubectl provisioners are no-ops; (B) handles local operators where kubeconfig is present and the workflow doesn't run.
+
+### Prevention
+
+**Any resource that provisions external state via an asynchronous controller must be fully quiesced — not just told to stop — before the resource's host is destroyed.** Karpenter is one instance; the same applies to:
+
+- cert-manager: scale controller to 0 before destroying ACM / Route53 DNS resources that its CRDs reference
+- External-DNS: same pattern
+- AWS Load Balancer Controller: scale to 0 before destroying the IAM role that its webhook uses, otherwise pending admission requests stall on bad auth
+- Any operator that registers finalizers on non-Kubernetes resources
+
+The general shape of the fix is: **(delete intent → wait for reconciliation → scale controller to 0 → wait for controller gone) must be ONE atomic sequence before anything the controller depends on is destroyed.**
+
+This is the teardown-side complement to the "wait for webhook endpoints to exist before installing the next chart" pattern from Incident 17 — in both cases, Kubernetes's async-reconcile model doesn't fit Terraform's declarative plan without explicit synchronization.
+
+**Sub-rule: provisioners that depend on kubectl need an explicit kubectl setup step in every execution environment.** The local-exec provisioner on the NodePool was added for Incident 19 and tested locally (where `aws eks update-kubeconfig` had been run during session start) — it worked there. It was never validated in CI, where the workflow had no equivalent setup. The pattern generalizes: any Terraform feature that assumes a tool is configured needs a test path through the actual execution environment, not just the operator's local shell.
+
+### Lessons
+
+- **"Fix works locally" ≠ "fix works in CI".** Incident 19's local-exec provisioner solution was validated on the operator's machine and merged. The CI-side regression was invisible because `|| true` converts a fatal kubectl error into a silent no-op. The generalizable rule: defensive error-swallowing hides environment-specific breakage. Either (a) remove the `|| true` and accept that destroys must be resumable when kubectl is misconfigured, or (b) keep `|| true` but require a separate CI-environment validation. This project chose (b) via the workflow-level quiesce step — which does not depend on the provisioner running.
+- **helm uninstall is asynchronous.** `helm_release`'s Terraform resource reports destruction complete as soon as the Kubernetes API accepts the manifest deletes, NOT when pods have actually terminated. Anything that expects "pod gone by now" after helm_release destroys is making an assumption the resource does not guarantee. The fix is always to add explicit pod-wait, not to expect helm to wait on your behalf.
+- **Fargate profile destroy is a hard cliff.** Unlike deleting a Deployment (which triggers graceful pod termination with `terminationGracePeriodSeconds`), deleting a Fargate profile effectively force-kills every pod whose namespace selector matched. There is no "drain" semantic on Fargate. Any controller running on Fargate must be scaled to 0 explicitly before its Fargate profile is destroyed — you cannot rely on normal graceful shutdown.
+- **Belt-and-suspenders is the right teardown architecture.** Three layers now protect against this class of leak: (1) Terraform NodePool destroy provisioner; (2) workflow-level Karpenter quiesce step; (3) workflow-level post-sweep for orphan EC2 and SGs. Each covers cases the others miss. This is more code than a single "correct" fix, but single-point-of-failure in destroy is worse than redundancy — the cost of a missed orphan is paid in dollars per hour and operator time.
+- **Asymmetric dependency reversal is not a fix for destroy-order races.** My initial instinct (recorded the night before) was "add `depends_on = [helm_release.karpenter]` to the Fargate profile so Fargate destroys last." This creates a plan-time cycle with the existing dependency in the opposite direction — which is load-bearing for CREATE order (Fargate must exist before Helm's pods can be admitted). You cannot change destroy order by flipping depends_on without also breaking create order; Terraform uses the same graph for both. The correct fix is an explicit quiesce step that runs as part of one of the destroys, not a graph reshape.
+
+---
+
 ## Adding a new incident
 
 Append new sections at the bottom, before this footer, using the format:
