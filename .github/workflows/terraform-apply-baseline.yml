@@ -51,7 +51,7 @@ jobs:
             account_id: "186052668286"
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Write config
         run: |
