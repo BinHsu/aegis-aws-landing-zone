@@ -60,7 +60,12 @@ jobs:
       - name: Terraform Plan
         working-directory: terraform/environments/${{ matrix.env }}
         id: plan
-        run: terraform plan -no-color -input=false -detailed-exitcode
+        # -lock-timeout=10m serializes concurrent plans that hit the same state
+        # file. Triggered by Dependabot bulk rebases (Incident 23 aftermath): 10
+        # PRs rebased within seconds → 10 matrix runs race for the same S3 lock
+        # → 9 fail immediately with default -lock-timeout=0. 10 min is generous
+        # for plan (plan itself runs ~30s), negligible in the no-contention case.
+        run: terraform plan -no-color -input=false -detailed-exitcode -lock-timeout=10m
         continue-on-error: true
 
       - name: Determine plan status
