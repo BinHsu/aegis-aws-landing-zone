@@ -176,12 +176,26 @@ resource "kubectl_manifest" "karpenter_default_nodepool" {
   # abandoned — the EC2s become orphans that block subnet deletion later
   # in teardown. See docs/incidents.md Incident 19.
   #
-  # The `|| true` tail is deliberate: if the cluster is already gone (e.g.,
-  # destroy is recovering from a partial earlier attempt), we don't want
-  # this wait to wedge the whole teardown. The workflow-level sweep in
-  # terraform-teardown-workload.yml is the safety net for that scenario.
+  # The second kubectl block (scale + wait for pod delete) closes the gap
+  # that Incident 22 exposed: `helm uninstall` returns as soon as the
+  # pod-delete API call is accepted, NOT after the pod has actually
+  # terminated. Terraform then parallelizes onward to destroy the Fargate
+  # profile — which force-kills the still-terminating Karpenter pod
+  # mid-finalization, leaking any in-flight EC2. Scaling Karpenter to 0
+  # here guarantees the pod is gone before helm_release.karpenter destroys.
+  #
+  # The `|| true` tail on each command is deliberate: if the cluster is
+  # already gone (e.g., destroy is recovering from a partial earlier
+  # attempt), we don't want these waits to wedge the whole teardown. The
+  # workflow-level sweep in terraform-teardown-workload.yml is the safety
+  # net for that scenario — and for CI, where the local-exec runs without
+  # a kubeconfig and is effectively a no-op. See docs/incidents.md Incident 22.
   provisioner "local-exec" {
     when    = destroy
-    command = "kubectl wait --for=delete nodeclaim --all --timeout=10m || true"
+    command = <<-EOT
+      kubectl wait --for=delete nodeclaim --all --timeout=10m || true
+      kubectl scale deployment karpenter -n karpenter --replicas=0 || true
+      kubectl wait --for=delete pod -l app.kubernetes.io/name=karpenter -n karpenter --timeout=5m || true
+    EOT
   }
 }
