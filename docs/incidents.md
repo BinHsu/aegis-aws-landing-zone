@@ -1655,6 +1655,120 @@ This is the teardown-side complement to the "wait for webhook endpoints to exist
 
 ---
 
+## Incident 23 — Dependabot PR plans silently fail because secrets live in a separate namespace
+
+**Date**: 2026-04-15 (post-Phase-3c, routine Dependabot sweep)
+**Severity**: S4 (CI-only; no AWS impact, no cost exposure)
+**Duration**: ~30 min (first failing PR seen → fix verified green)
+
+### Symptom
+
+All 11 open Dependabot PRs (3 recent GitHub Actions version bumps + AWS provider v5→v6 across 6 Terraservices + 2 checkout/credentials bumps) fail the required `Terraform Plan` status check. Every matrix leg (`management/bootstrap`, `management/scps`, `shared/bootstrap`, `shared/ipam`, `staging/bootstrap`, `staging/network`) reports the same result.
+
+PR comments posted by the workflow show:
+
+```
+### ❌ Terraform Plan: `shared/ipam`
+**Result:** Plan failed
+
+<details><summary>Plan Output</summary>
+```
+```
+</details>
+```
+
+The plan output fenced block is empty. No visible error. `gh run view --log-failed` returns only the trailing `Fail if plan errored` step (`exit 1`) with no Terraform error text — because `continue-on-error: true` on the plan step means it is not considered the "failing" step.
+
+Meanwhile, the identical workflow run on branches opened by the repo owner (non-Dependabot) passes all checks.
+
+### Root cause
+
+GitHub Dependabot-created PRs execute in a separate security context from PRs opened by human contributors. For `pull_request` events on Dependabot branches, the `secrets.*` context resolves against a **distinct secret store** ("Dependabot secrets", visible under Settings → Secrets and variables → **Dependabot** tab) rather than the "Actions secrets" store. This is GitHub's defense against Dependabot PRs exfiltrating Actions secrets during dependency updates.
+
+Our workflow materializes the landing-zone config file like this (`.github/workflows/terraform-plan.yml:40-45`):
+
+```yaml
+- name: Write config
+  run: |
+    mkdir -p config
+    cat <<'EOFCONFIG' > config/landing-zone.yaml
+    ${{ secrets.LANDING_ZONE_CONFIG }}
+    EOFCONFIG
+```
+
+For Dependabot runs, `secrets.LANDING_ZONE_CONFIG` expands to an empty string because the Dependabot secret store has never been populated. The heredoc still executes, writing an empty file. `terraform init` succeeds because `backend.tf` contains only static strings (bucket name is not a secret per CLAUDE.md's security model). Then `terraform plan` evaluates `config.tf`:
+
+```hcl
+locals {
+  config = yamldecode(file("${path.root}/../../../../config/landing-zone.yaml"))
+}
+```
+
+`yamldecode("")` fails with `on line 1, column 1: missing start of document.` Terraform writes this to stderr and exits 1. `continue-on-error: true` prevents the step from being marked failed; `steps.plan.outputs.stdout` captures stdout only (empty) and the PR comment interpolates that empty string between code fences — producing the "Plan failed / empty output" symptom the developer saw.
+
+### Detection
+
+Four-step bisection that the investigator (future me) should recognize:
+
+1. **`gh run list` shows matrix-wide failure, not a single leg** → suggests something environmental, not code-specific.
+2. **`gh run view --log-failed` returns no useful error** → the error is not in a step with `if: failure()` semantics; need the raw log.
+3. **`gh run view --job <id> --log` with manual grep for `error` / `terraform`** surfaces the actual `yamldecode` message. The trick: `--log-failed` only prints steps whose conclusion is `failed`, but `continue-on-error: true` rewrites the conclusion to `success`. The real error is in a step `--log-failed` never prints.
+4. **Contrast check**: `Terraform Init` succeeded in the same run → backend config loaded fine → the config that failed must be something read at plan-time (i.e., `file()` / `yamldecode()`), not init-time. That narrows the failure to the config-file materialization step.
+
+The bisection, once understood, is generalizable: **"init green + plan red" almost always points at a `file()` or `templatefile()` reading something the runner can't see.**
+
+### Resolution
+
+**Immediate unblock** — populate the Dependabot secret store with the same value as the Actions store:
+
+```bash
+gh secret set LANDING_ZONE_CONFIG \
+  --app dependabot \
+  -R BinHsu/aegis-aws-landing-zone \
+  < config/landing-zone.yaml
+
+# Verify the Dependabot namespace now has the secret:
+gh secret list --app dependabot -R BinHsu/aegis-aws-landing-zone
+# Expect: LANDING_ZONE_CONFIG  <timestamp>
+```
+
+Then trigger reruns on the failing PRs:
+
+```bash
+gh run rerun <run_id> --failed -R BinHsu/aegis-aws-landing-zone
+```
+
+Result on verification rerun (PR #18 `codeql-action v3→v4`): 6/6 matrix legs green within 35 seconds.
+
+### Prevention
+
+**Codified in `scripts/configure-github.sh`.** The fork-setup script now sets `LANDING_ZONE_CONFIG` in BOTH namespaces in a single invocation, with an explicit pointer to this incident in the comment block so future forkers who skip the script and try to configure secrets manually via the UI will find this note when the error surfaces:
+
+```bash
+# Actions namespace — used by workflows triggered by human PRs and workflow_dispatch
+gh secret set LANDING_ZONE_CONFIG < "${CONFIG_FILE}"
+
+# Dependabot namespace — used by workflows triggered by Dependabot PRs
+# (separate store by design; see docs/incidents.md §23)
+gh secret set LANDING_ZONE_CONFIG --app dependabot < "${CONFIG_FILE}"
+```
+
+**Not changed in the workflow.** The `continue-on-error: true` on the plan step combined with a `Comment Plan on PR` step that renders `steps.plan.outputs.stdout` is the documented GitHub Actions pattern for posting plan output as a PR comment regardless of success/failure. Removing `continue-on-error` would mean the `Comment Plan on PR` step is skipped on failure, losing the PR feedback loop on legitimate plan errors (resource conflicts, provider errors, IAM denials). A better long-term improvement is to capture stderr into an output and interpolate BOTH stdout and stderr into the PR comment — tracked as a follow-up, not gated on this incident because the root cause was the secret, not the logging.
+
+**Portfolio-level hardening** (done in the same session, same PR family): enable GitHub-native security controls that protect the "zero static credentials by design" stance — Secret Scanning alerts, Secret Scanning push protection, Dependabot vulnerability alerts. All free on public repos, all high-signal for a landing-zone reference implementation.
+
+### Lessons
+
+- **Dependabot secrets are a separate namespace from Actions secrets, and the error never says so.** Any public repo that uses Dependabot AND has a workflow that reads `secrets.*` must populate both stores. GitHub's UI has separate tabs for them (Settings → Secrets → Actions / Dependabot / Codespaces / Environments), but the `${{ secrets.X }}` syntax is identical for all four — and when Dependabot's store is empty, the expression silently resolves to empty string rather than failing loudly. The failure surfaces only in the downstream tool (Terraform, in our case) that tries to use the empty value, far from the root cause.
+
+- **`continue-on-error: true` will hide stderr when the downstream step only renders stdout.** This is fine when errors are rare and the PR comment is just one of several surfaces (status checks, annotations, logs). It becomes opaque when the annotation is also generic (`exit 1`) and the log is buried behind `--log-failed` (which filters by step conclusion, not by content). The fix is not to remove `continue-on-error` — the comment pattern is worth keeping — but to know the bisection path: `gh run view --job <id> --log | grep -iE 'error|failed'` bypasses the filter.
+
+- **`terraform init` succeeding is not proof that the workspace is ready to plan.** Init reads `backend.tf` (static HCL) and provider requirements (lockfile + `.terraform.lock.hcl`). It does NOT evaluate `locals`, `data`, `resource`, or any expression that calls `file()`, `templatefile()`, or `yamldecode()`. A CI config-materialization bug (missing secret, wrong path, Windows line endings in a heredoc) produces "init green + plan red" and mimics a Terraform bug. When that pattern appears, check config files on the runner before debugging the Terraform.
+
+- **Signed-off behavior of the platform boundary matters more than any one code line.** The repo's security model already documented "account IDs and bucket names are not secrets; access keys are" (CLAUDE.md). That line is what made `backend.tf` static and portable — and it is also what let init still pass even when the user-facing config was empty. The same principle needs a matching line for GitHub's secret-store partitioning: **"Actions and Dependabot secret stores are separate by design; fork setup must populate both, or Dependabot PRs will fail in ways that look like Terraform bugs."** Added to the fork-setup script as an executable form of that rule.
+
+---
+
 ## Adding a new incident
 
 Append new sections at the bottom, before this footer, using the format:
