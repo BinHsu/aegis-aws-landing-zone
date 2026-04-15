@@ -61,7 +61,7 @@ jobs:
           fi
           echo "account_id=${ACCOUNT_ID}" >> "$GITHUB_OUTPUT"
 
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: arn:aws:iam::${{ steps.acct.outputs.account_id }}:role/github-actions-terraform
           aws-region: ${{ env.AWS_REGION }}
@@ -121,7 +121,7 @@ jobs:
           ")
           echo "account_id=${ACCOUNT_ID}" >> "$GITHUB_OUTPUT"
 
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: arn:aws:iam::${{ steps.acct.outputs.account_id }}:role/github-actions-terraform
           aws-region: ${{ env.AWS_REGION }}
@@ -177,7 +177,7 @@ jobs:
           ")
           echo "account_id=${ACCOUNT_ID}" >> "$GITHUB_OUTPUT"
 
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: arn:aws:iam::${{ steps.acct.outputs.account_id }}:role/github-actions-terraform
           aws-region: ${{ env.AWS_REGION }}
