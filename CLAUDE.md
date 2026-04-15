@@ -110,6 +110,14 @@ Some Terraservices layers have their own operational contracts — pre-flight ch
 
 - **Rule: When adding a new layer whose operations require their own diagnostic order (e.g., observability, service mesh), add a runbook under `docs/runbooks/` rather than extending this file.** Keeping CLAUDE.md small preserves its discoverability; layer-specific details belong with the layer.
 
+### Operational principles (as distinct from per-layer runbooks)
+
+Some rules are *cross-cutting* — they apply to reviewing any platform change, not just one layer. These live in `docs/principles/<topic>.md`.
+
+- **Rule: Before opening a PR that touches cluster components, Terraform provider versions, GitHub Actions workflows, IAM surfaces, or SCPs, AI must read `docs/principles/change-review-discipline.md` and answer the 5-step checklist in the PR description.** The checklist (blast radius / dependency assumptions / deprecation status / rollback plan / 2 AM readability) is short by design — if answering takes more than a paragraph per step, the PR is probably too big. Deprecation status specifically must reference the upstream upgrade guide (Terraform provider, Kubernetes API, GitHub Action) so future-me or a forker can trace how "deprecated" was determined at PR time, not after.
+
+- **Rule: When a new cross-cutting discipline emerges that applies to multiple layers (e.g., observability, security posture, release engineering), add a principles doc under `docs/principles/` rather than another CLAUDE.md section.** Same motivation as runbooks: this file stays small, subject-matter details live where the subject lives.
+
 ### Cross-repo coordination (landing-zone ↔ aegis-core)
 
 This repository shares a lifecycle boundary with [aegis-core](https://github.com/BinHsu/aegis-core) — the app-side repository that ArgoCD syncs from. The two repos are maintained by independent agents and must coordinate through durable artifacts, not direct IPC.
@@ -138,43 +146,42 @@ This repository shares a lifecycle boundary with [aegis-core](https://github.com
 
 ```
 aws-landing-zone-lab/
-├── README.md
-├── CLAUDE.md
+├── README.md                  # Public entry point (spirit + reading guide + architecture)
+├── CLAUDE.md                  # This file — operational rules for AI agents
 ├── terraform/
-│   ├── modules/
-│   │   ├── organizations/     # AWS Organizations, OUs, accounts
-│   │   ├── scp/               # Service Control Policies
-│   │   ├── sso/               # AWS Identity Center
-│   │   ├── oidc-github/       # GitHub OIDC provider
-│   │   ├── terraform-backend/ # S3 bucket + state config
-│   │   ├── vpc/               # VPC per account
-│   │   ├── eks/               # EKS cluster
-│   │   └── argocd/            # ArgoCD Helm deployment
-│   ├── environments/
-│   │   ├── management/        # Management account resources
-│   │   ├── security/          # Security account resources
-│   │   ├── staging/           # Staging account resources
-│   │   └── prod/              # Production account resources
-│   └── backend.tf             # Bootstrap backend config
-├── k8s-manifests/
-│   ├── argocd/                # ArgoCD app-of-apps
-│   ├── monitoring/            # Prometheus + Grafana
-│   └── apps/                  # Sample application
+│   └── environments/          # Terraservice layers (one state file per directory)
+│       ├── management/{bootstrap,scps}/
+│       ├── shared/{bootstrap,ipam}/   # shared/aft/ committed but not applied (ADR-011)
+│       ├── staging/{bootstrap,network,platform}/   # platform = EKS + Karpenter + ArgoCD
+│       └── prod/bootstrap/    # prod workloads not yet provisioned
+├── k8s-manifests/             # App-of-apps root (details live in aegis-core repo)
+├── config/
+│   ├── landing-zone.example.yaml   # Template for forkers
+│   ├── landing-zone.yaml           # Gitignored — actual deployment config
+│   └── schema.json                 # JSON Schema for validation
+├── scripts/
+│   ├── configure-backends.sh       # Sync backend.tf from config
+│   ├── configure-github.sh         # Set GitHub Actions + Dependabot secrets
+│   ├── validate-config.py          # JSON-Schema-validate config/landing-zone.yaml
+│   ├── teardown/                   # Soft / hard / emergency teardown scripts
+│   └── emergency/                  # nuke-workload-account.sh (triple-confirm)
 ├── .github/
-│   └── workflows/
-│       ├── terraform-plan.yml
-│       └── terraform-apply.yml
-├── docs/
-│   ├── architecture.md
-│   ├── phase1.md              # Phase 1 spec + design considerations
-│   ├── phase2.md              # Phase 2 spec
-│   ├── phase3.md              # Phase 3 spec
-│   ├── phase4.md              # Phase 4 spec
-│   └── decisions/             # ADRs (Architecture Decision Records)
-│       ├── 001-management-account-scope.md
-│       ├── 002-shared-services-account.md
-│       └── 003-multi-region-strategy.md
-└── README.md
+│   ├── workflows/
+│   │   ├── terraform-plan.yml
+│   │   ├── terraform-apply-baseline.yml
+│   │   ├── terraform-apply-workload.yml
+│   │   ├── terraform-teardown-workload.yml
+│   │   └── checkov.yml
+│   └── dependabot.yml
+└── docs/
+    ├── architecture.md             # Mermaid diagrams (account topology, CI/CD, IPAM, etc.)
+    ├── design-narrative.md         # 2-minute pitch + key decisions + war stories
+    ├── interview-notes.md          # Reader's guide for recruiters / architect peers
+    ├── incidents.md                # Append-only postmortems (24 as of 2026-04-15)
+    ├── decisions/                  # 13 ADRs (NNN-<topic>.md)
+    ├── runbooks/                   # 3 per-layer operational runbooks
+    ├── principles/                 # Cross-cutting discipline docs (e.g. change-review)
+    └── personal/                   # Gitignored — private portfolio brief
 ```
 
 ## Cost Guardrails

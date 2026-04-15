@@ -27,7 +27,7 @@ Built solo by a **hands-on architect** — designs AND implements. Every file in
 
 Stance: ship the cross-cutting scope (multi-account governance, CI/CD, platform bootstrap, security posture, cost discipline) using current-but-stable tools, written line-by-line. Specialist depth in any single area (IAM policy minimization, Karpenter internals, Kubernetes controller-manager internals) is out of scope here and tagged with clear hand-off notes — not because I can't learn it, but because breadth + execution is where my value sits, and a specialist's depth is better invested when they arrive. Explicit scope in [`docs/interview-notes.md §4`](docs/interview-notes.md).
 
-The project value is execution *and* discipline, layered together: 13 ADRs (several with "Design iteration" sections documenting reversed decisions honestly), 20+ incident postmortems (written after the fact, never softened retroactively), 3 runbooks (AWS bootstrap / EKS operator access / platform first-time verification), and a 4-workflow CI/CD split shaped by cost profile rather than template copy-paste. None of it could be produced by someone who only draws architecture diagrams.
+The project value is execution *and* discipline, layered together: 13 ADRs (several with "Design iteration" sections documenting reversed decisions honestly), 24 incident postmortems (written after the fact, never softened retroactively), 3 runbooks (AWS bootstrap / EKS operator access / platform first-time verification), and a 4-workflow CI/CD split shaped by cost profile rather than template copy-paste. None of it could be produced by someone who only draws architecture diagrams.
 
 ## Reading guide
 
@@ -36,7 +36,7 @@ Different readers have different goals. Start here:
 | If you are… | Start here |
 |---|---|
 | You are a recruiter / hunter / HR | [`docs/interview-notes.md`](docs/interview-notes.md) — competency inventory, hands-on-architect stance, conservative-by-design trade-offs, and the explicit scope-of-claims |
-| You are a technical leader / architect peer | [`docs/decisions/`](docs/decisions/) (13 ADRs, with "Design iteration" sections) + [`docs/incidents.md`](docs/incidents.md) (12 postmortems of real failures) |
+| You are a technical leader / architect peer | [`docs/decisions/`](docs/decisions/) (13 ADRs, with "Design iteration" sections) + [`docs/incidents.md`](docs/incidents.md) (24 postmortems of real failures) |
 | You want the story behind the project | [`docs/design-narrative.md`](docs/design-narrative.md) — 2-minute pitch, key decisions, war stories |
 | You want the architecture diagrams | [`docs/architecture.md`](docs/architecture.md) — 5 Mermaid diagrams |
 | You want to reproduce this from zero | [`docs/runbooks/001-bootstrap-aws-account.md`](docs/runbooks/001-bootstrap-aws-account.md) |

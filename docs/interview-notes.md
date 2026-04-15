@@ -4,7 +4,7 @@ A reader's guide for recruiters, hiring managers, and technical leadership revie
 
 **Time budget**:
 - Recruiter / HR / hunter: read all of this doc (~10 min).
-- Technical leader / architect peer: skim section 1 (stance), then jump to [`docs/decisions/`](decisions/) for the 13 ADRs and [`docs/incidents.md`](incidents.md) for the 20 postmortems.
+- Technical leader / architect peer: skim section 1 (stance), then jump to [`docs/decisions/`](decisions/) for the 13 ADRs and [`docs/incidents.md`](incidents.md) for the 24 postmortems.
 
 ---
 
@@ -93,16 +93,16 @@ Each entry: what was built → where to look in the repo → the kind of questio
 
 **Built**: three layers of operational writing with explicit rules in [`CLAUDE.md`](../CLAUDE.md):
 - **ADRs** — 13 in [`docs/decisions/`](decisions/), supersede-in-place style ("Design iteration" sections note evolution)
-- **Incidents** — 20 in [`docs/incidents.md`](incidents.md), append-only, standard format
+- **Incidents** — 24 in [`docs/incidents.md`](incidents.md), append-only, standard format
 - **Runbooks** — 3 in [`docs/runbooks/`](runbooks/); CLAUDE.md rule requires AI agents to read the layer's runbook before operating on it
 
 **Where to look**:
 - [`CLAUDE.md`](../CLAUDE.md) — 6 explicit "Rule: AI must..." clauses
 - [`docs/decisions/`](decisions/) — 13 ADRs
-- [`docs/incidents.md`](incidents.md) — 20 postmortems
+- [`docs/incidents.md`](incidents.md) — 24 postmortems
 - [`docs/runbooks/`](runbooks/) — 3 runbooks
 
-**Likely questions**: show me a real incident (pick from the 20 in `docs/incidents.md` — Incidents 6, 7, 12, 18, 20 are the most informative for different angles: CMK recovery, cross-account IAM subtlety, design reversal, asymmetric policy, AWS-side orphan cleanup); what does the ADR format give you that code comments don't (ADRs preserve *why* even when *what* is obvious from code); how do you keep this discipline consistent (CLAUDE.md rules + pre-commit hooks + AI reminders — not willpower).
+**Likely questions**: show me a real incident (pick from the 24 in `docs/incidents.md` — Incidents 6, 7, 12, 18, 22, 24 cover the widest angle: CMK recovery, hidden cross-account prerequisites, honest design reversal, asymmetric IAM policy, belt-and-suspenders teardown architecture, and Terraform concurrency edge cases); what does the ADR format give you that code comments don't (ADRs preserve *why* even when *what* is obvious from code); how do you keep this discipline consistent (CLAUDE.md rules + pre-commit hooks + AI reminders — not willpower).
 
 ### 2.7 Cost governance
 
@@ -145,7 +145,7 @@ Positive statements of what this project demonstrates, paired with explicit stat
 ### What is claimed
 
 - **Cross-cutting architectural design**: composing 10+ AWS services into a working multi-account landing zone with explicit decisions (ADRs) and documented trade-offs.
-- **Operational discipline**: 13 ADRs + 20 incident postmortems + 3 runbooks, each written to a consistent format, never softened retroactively.
+- **Operational discipline**: 13 ADRs + 24 incident postmortems + 3 runbooks, each written to a consistent format, never softened retroactively.
 - **Production-shaped patterns** — not production-*hardened* (the lab is single-operator, single-region-primary, no DR-tested, no SOC 2 audit trail). The patterns are transferable to production; the lab itself isn't production.
 - **Reproducibility**: a single `config/landing-zone.yaml` + two shell scripts land the whole foundation in a fresh AWS organization. Fork-and-deploy is not a slogan here; it's tested.
 
@@ -178,7 +178,10 @@ IAM Identity Center, SSO user, permission set, cross-account IAM; Terraform stat
 GitHub OIDC, four GitHub Actions workflows split by cost profile, Checkov + pre-commit. PRs #9-#38 span this phase. Incidents 3, 6 (CMK destroyed by CI), 8 (OIDC subject claims) landed here.
 
 ### Phase 3 — EKS + Karpenter + ArgoCD (done)
-Three incremental PRs for core features (#39 EKS core, #42 Karpenter, #43 LB Controller + ArgoCD) plus a run of cold-apply hardening PRs (#44–#46, #48, #51, #53, #56, #57) that codified every first-apply discovery into infra-as-code so a forker's next cold apply is clean. Incidents 10–20 landed here, covering bootstrap traps, AWS-side auto-resource orphans, admission webhook races, IAM policy asymmetry, and teardown ordering with external-controller-managed resources.
+Three incremental PRs for core features (#39 EKS core, #42 Karpenter, #43 LB Controller + ArgoCD) plus a run of cold-apply hardening PRs (#44–#46, #48, #51, #53, #56, #57, #59, #62) that codified every first-apply discovery into infra-as-code so a forker's next cold apply is clean. Incidents 10–22 landed here, covering bootstrap traps, AWS-side auto-resource orphans, admission webhook races, IAM policy asymmetry, and the Karpenter-quiesce belt-and-suspenders teardown architecture (Incidents 19–22, all four layered on top of each other).
+
+### Post-Phase-3c — ongoing ops hygiene (done 2026-04-15)
+Two incidents caught during a Dependabot maintenance sweep after the Phase 3c rollout, both fixed via PRs #63 and #64: **Incident 23** — Dependabot PRs run in a separate secret namespace from Actions, so `scripts/configure-github.sh` now populates both; **Incident 24** — S3 native state locking is strictly FCFS with no queue, default `-lock-timeout=0` stampedes under bulk rebase, `terraform-plan.yml` now specifies `-lock-timeout=10m`. Same session also enabled GitHub Secret Scanning + push protection + Dependabot vulnerability alerts (free on public repos; directly validate the "zero static credentials by design" stance) and bumped the AWS Terraform provider v5.100 → v6.40 across all six Terraservices with baseline apply success on every leg.
 
 ### Phase 4 — Observability + security-at-cluster (not started)
 Prometheus + Grafana, VPC Flow Logs, GuardDuty, Security Hub, AWS Config conformance packs.
@@ -195,7 +198,7 @@ This doc is frame-level. For the actual substance:
 | Interest | Open |
 |---|---|
 | "Walk me through the architectural decisions" | [`docs/decisions/`](decisions/) — 13 ADRs |
-| "Show me real failures and what you learned" | [`docs/incidents.md`](incidents.md) — 20 postmortems |
+| "Show me real failures and what you learned" | [`docs/incidents.md`](incidents.md) — 24 postmortems |
 | "How do I reproduce this?" | [`docs/runbooks/001-bootstrap-aws-account.md`](runbooks/001-bootstrap-aws-account.md) |
 | "How would an AI agent work on this?" | [`CLAUDE.md`](../CLAUDE.md) |
 | "What does the config contract look like?" | [`config/landing-zone.example.yaml`](../config/landing-zone.example.yaml) + [`config/schema.json`](../config/schema.json) + [ADR-004](decisions/004-deployment-configuration-contract.md) |
@@ -203,4 +206,4 @@ This doc is frame-level. For the actual substance:
 
 ---
 
-*Last updated: 2026-04-14 — end of Phase 3c initial rollout.*
+*Last updated: 2026-04-15 — Post-Phase-3c ops hygiene sweep (provider v6 + Incidents 23/24 + GitHub security posture).*
