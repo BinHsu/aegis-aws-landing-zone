@@ -1769,6 +1769,81 @@ gh secret set LANDING_ZONE_CONFIG --app dependabot < "${CONFIG_FILE}"
 
 ---
 
+## Incident 24 — Terraform plan stampede fails on S3 native state lock under Dependabot bulk rebase
+
+**Date**: 2026-04-15 (same session as Incident 23; discovered while verifying the Incident 23 fix)
+**Severity**: S4 (CI-only; self-inflicted via operator-issued parallel rebases)
+**Duration**: ~5 min detect (after second matrix-wide failure in the same session)
+
+### Symptom
+
+Ten open Dependabot PRs were each given `@dependabot rebase` via `gh pr comment`, issued by a single `for` loop with 2 s between each comment. Dependabot processed them as a batch over ~1 min. Each rebase pushed a new commit → each PR's `Terraform Plan` workflow fired almost simultaneously. Nine of the ten runs failed within seconds with:
+
+```
+Error: Error acquiring the state lock
+Error message: operation error S3: PutObject, https response error,
+Terraform acquires a state lock to protect the state from being written
+```
+
+The one that succeeded (`checkout-6`) happened to be the first to acquire the S3 lock for each of its matrix legs; the other nine got their `PutObject` rejected because the lock object already existed and retried until default timeout (zero) elapsed immediately.
+
+### Root cause
+
+Two compounding factors, each benign in isolation:
+
+1. **S3 native state locking is strictly serial per state file.** The Terraform `s3` backend with `use_lockfile = true` (the mode this project adopted instead of DynamoDB, per ADR-003) creates a sibling object `<state-key>.tflock` and enforces exclusive hold via conditional `PutObject`. This is correct and cheap — but it is single-holder, no queue. Concurrent planners either acquire immediately or retry locally under `-lock-timeout`. Default `-lock-timeout=0` means "fail instantly if lock is held."
+
+2. **`terraform plan` acquires the same state lock as `terraform apply`.** Even though plan is logically read-only, the s3 backend still writes a lockfile during plan (to preserve snapshot consistency for potential apply). Multiple concurrent plans against the same state file therefore serialize in the same queue as applies would.
+
+Under a Dependabot bulk rebase, ten PRs × six matrix legs = sixty plan invocations targeting six state files (one per Terraservice layer). Each state file gets ten racers with `-lock-timeout=0`. Exactly one wins per leg per moment; the other nine fail and the workflow reports "Plan failed" with the stdout of Terraform's lock error.
+
+The operator-side amplifier was issuing all ten rebase comments in a tight loop rather than letting them drift naturally. Dependabot does not rate-limit its rebase response; it processes comments at its normal cadence (single-digit seconds).
+
+### Detection
+
+The failure class was recognizable immediately because this was the **second** matrix-wide failure of the session with **different error text**:
+
+1. First wave (Incident 23): `yamldecode: missing start of document` — six legs × multiple PRs.
+2. After fixing the Dependabot secret and verifying `codeql-action` went 6/6 green, I bulk-reran the other nine with `gh run rerun --failed`. Same matrix-wide failure pattern, but error text changed to `Error acquiring the state lock`. Different symptom, different root cause. Same shape (all-legs failure across all PRs) because both causes are environmental, not code-specific.
+
+General rule for bisection: **matrix-wide failure across unrelated PRs is always environmental.** The question is only which part of the environment — secrets, state, permissions, quota, external dependency. When one of those is ruled out, work down the list.
+
+### Resolution
+
+**Preventive fix to the plan workflow.** Adding `-lock-timeout=10m` to the plan command (`.github/workflows/terraform-plan.yml`) lets each planner wait up to 10 min for the lock instead of failing instantly. Under Dependabot stampede, the ten runs serialize: each plan takes ~30 s, so the last one in the queue waits ~5 min — well inside the timeout. In the no-contention case (normal human PR), the flag is a no-op.
+
+```diff
+-        run: terraform plan -no-color -input=false -detailed-exitcode
++        run: terraform plan -no-color -input=false -detailed-exitcode -lock-timeout=10m
+```
+
+Not applied to `terraform-apply-*.yml` and `terraform-teardown-workload.yml` in this incident's fix, because:
+
+- Apply and destroy are always gated behind explicit `workflow_dispatch` + GitHub Environment approval. There is no scenario where ten applies race for the same state file.
+- A stuck state lock on apply/destroy is a real operational signal the operator should see quickly (someone killed a previous run, `force-unlock` may be needed). Masking that with a generous timeout would hurt, not help.
+
+If a future session shows apply-side contention, the flag can be added there too — tracked as "apply lock-timeout" follow-up, but not done now (YAGNI).
+
+**Operational correction**: the nine failed PRs can be re-driven either by another `@dependabot rebase` (now safe — lock-timeout makes the stampede self-serializing) or by waiting for Dependabot's next poll which rebases onto the lock-timeout-fixed main.
+
+### Prevention
+
+- **Workflow-level**: `-lock-timeout=10m` on plan, as above. Eliminates this class of failure for any future concurrent-PR scenario (Dependabot, multiple humans reviewing different PRs, CI rerun loops).
+- **Operator-level**: when bulk-operating on Dependabot PRs (or any action that triggers many workflows at once), space the triggers OR rely on downstream serialization. Posting ten `@dependabot rebase` comments with a `sleep 2` in a loop is **not** spacing — GitHub and Dependabot will happily process them faster than the Terraform back-end can serialize plans. If you find yourself writing a `for` loop that triggers workflows, prefer `until`-loop polling that waits for the previous run to finish before starting the next.
+- **No new `configure-*.sh` change.** The script sets secrets, not timeouts. Timeouts are CI config, correctly located in the workflow.
+
+### Lessons
+
+- **`use_lockfile = true` (S3 native locking) is strictly first-come-first-served with no queue.** The choice to drop DynamoDB (ADR-003) is correct for this project — DynamoDB's lease-based locking had the same "no queue, fails fast" semantics anyway — but it means explicit `-lock-timeout` on every Terraform CLI invocation in CI is the *only* defense against concurrent-plan failure. It is not optional for a repo that uses matrix plans AND expects multiple PRs open simultaneously.
+
+- **"Plan is read-only" is a mental model trap.** Plan writes a state lockfile. Plan writes a plan file if `-out` is used. Plan may refresh remote state and rewrite it (until `-refresh=false`). Anything about plan that assumes "no side effects" is wrong at the infrastructure boundary, even if the Terraform resources themselves are untouched. The practical consequence: any CI orchestration that assumes "plans are fine to run in parallel" needs lock-timeout, not just "I thought plan was read-only."
+
+- **Two incidents in one session with identical symptoms but different root causes is a pattern, not a coincidence.** Both Incident 23 and 24 presented as "matrix-wide Plan failure across all six Terraservice layers and all Dependabot PRs." Different errors, same shape. When the second wave appeared, the shape of the failure ruled out code-level bugs (different provider versions, different GitHub Action bumps) and pointed at environment. That shape-based filter is worth remembering as a first-cut triage tool — *if every leg fails the same way across unrelated PRs, look outside the code.*
+
+- **Operator batching + bot batching = quadratic pressure on shared-state systems.** I issued ten rebase comments with a 2-second gap. Dependabot consumed them in parallel. Ten PRs × six matrix legs = sixty plan invocations against six state files, arriving within ~10 seconds. This is not a theoretical edge case — it is what happens every time a batch of Dependabot PRs gets rebased simultaneously after a main-branch update. `-lock-timeout` is the generic answer. The more specific answer is: **don't batch-trigger bot workflows from the command line.** Either `@dependabot rebase` one-by-one as each preceding PR lands, or let Dependabot's own cadence handle it.
+
+---
+
 ## Adding a new incident
 
 Append new sections at the bottom, before this footer, using the format:
