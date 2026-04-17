@@ -1,4 +1,4 @@
-<!-- session-close-review: phase status table, ADR/incident counts, cost baseline -->
+<!-- session-close-review: phase status table, ADR table completeness, cost baseline, directory structure -->
 # Aegis AWS Landing Zone
 
 [![Terraform Apply](https://github.com/BinHsu/aegis-aws-landing-zone/actions/workflows/terraform-apply.yml/badge.svg)](https://github.com/BinHsu/aegis-aws-landing-zone/actions/workflows/terraform-apply.yml)
@@ -6,9 +6,17 @@
 ![Terraform](https://img.shields.io/badge/Terraform-%E2%89%A51.10-5C4EE5?logo=terraform)
 ![License](https://img.shields.io/badge/License-MIT-yellow.svg)
 
-**Aegis** is a shield — the one Athena carried beside the hero, not in place of him. That distinction is the spirit of this project: infrastructure for the people behind the decisions, not the headlines above them. Software is a bridge; business is the ground beneath it. A bridge can be rebuilt; a foundation cannot. This landing zone is built in that posture — speed where it helps, sovereignty where it matters, automation that assumes human judgment rather than replaces it — so that whatever the principals above decide to build can stand on ground that holds.
+**Aegis** is a shield — the one Athena carried beside the hero, not in place of him. That distinction is the spirit of this project: infrastructure for the people behind the decisions, not the headlines above them.
+
+Software is a bridge; business is the ground beneath it. A bridge can be rebuilt; a foundation cannot. This landing zone is built in that posture — speed where it helps, sovereignty where it matters, automation that assumes human judgment rather than replaces it — so that whatever the principals above decide to build can stand on ground that holds.
+
+What that looks like in practice: six AWS accounts under a single Organization with SCPs enforcing guardrails before any workload runs. Zero static credentials — humans authenticate through SSO, CI through OIDC federation, workloads through IRSA. Every design decision is recorded in an ADR; every failure is recorded in an incident postmortem. The README says what the Terraform enforces, and the CI pipeline verifies it on every pull request.
 
 > A reference implementation of a production-grade multi-account AWS landing zone, managed entirely through GitOps — for single-operator labs and small-team deployments that want AWS best-practice structure without the enterprise overhead.
+
+---
+
+**Contents**: [Features](#features-at-a-glance) | [About](#about-this-project) | [Reading Guide](#reading-guide) | [Architecture](#architecture) | [Design Principles](#design-principles) | [Configuration](#configuration-contract) | [Phases](#phases) | [ADRs](#architecture-decision-records) | [Companion Repo](#companion-application-repository) | [Cost](#cost-management) | [Prerequisites](#prerequisites)
 
 ## Features at a glance
 
@@ -28,7 +36,7 @@ Built solo by a **hands-on architect** — designs AND implements. Every file in
 
 Stance: ship the cross-cutting scope (multi-account governance, CI/CD, platform bootstrap, security posture, cost discipline) using current-but-stable tools, written line-by-line. Specialist depth in any single area (IAM policy minimization, Karpenter internals, Kubernetes controller-manager internals) is out of scope here and tagged with clear hand-off notes — not because I can't learn it, but because breadth + execution is where my value sits, and a specialist's depth is better invested when they arrive. Explicit scope in [`docs/interview-notes.md §4`](docs/interview-notes.md).
 
-The project value is execution *and* discipline, layered together: 13 ADRs (several with "Design iteration" sections documenting reversed decisions honestly), 24 incident postmortems (written after the fact, never softened retroactively), 3 runbooks (AWS bootstrap / EKS operator access / platform first-time verification), and a 4-workflow CI/CD split shaped by cost profile rather than template copy-paste. None of it could be produced by someone who only draws architecture diagrams.
+The project value is execution *and* discipline, layered together: ADRs in [`docs/decisions/`](docs/decisions/) (several with "Design iteration" sections documenting reversed decisions honestly), incident postmortems in [`docs/incidents.md`](docs/incidents.md) (written after the fact, never softened retroactively), runbooks in [`docs/runbooks/`](docs/runbooks/) (AWS bootstrap / EKS operator access / platform first-time verification), and a 4-workflow CI/CD split shaped by cost profile rather than template copy-paste. None of it could be produced by someone who only draws architecture diagrams.
 
 ## Reading guide
 
@@ -37,7 +45,7 @@ Different readers have different goals. Start here:
 | If you are… | Start here |
 |---|---|
 | You are a recruiter / hunter / HR | [`docs/interview-notes.md`](docs/interview-notes.md) — competency inventory, hands-on-architect stance, conservative-by-design trade-offs, and the explicit scope-of-claims |
-| You are a technical leader / architect peer | [`docs/decisions/`](docs/decisions/) (13 ADRs, with "Design iteration" sections) + [`docs/incidents.md`](docs/incidents.md) (24 postmortems of real failures) |
+| You are a technical leader / architect peer | [`docs/decisions/`](docs/decisions/) (ADRs with "Design iteration" sections) + [`docs/incidents.md`](docs/incidents.md) (postmortems of real failures) |
 | You want the story behind the project | [`docs/design-narrative.md`](docs/design-narrative.md) — 2-minute pitch, key decisions, war stories |
 | You want the architecture diagrams | [`docs/architecture.md`](docs/architecture.md) — 5 Mermaid diagrams |
 | You want to reproduce this from zero | [`docs/runbooks/001-bootstrap-aws-account.md`](docs/runbooks/001-bootstrap-aws-account.md) |
@@ -52,7 +60,7 @@ High-level view. Full diagrams (account topology, CI/CD flow, identity, IPAM, de
 ```mermaid
 flowchart TB
   subgraph GH["GitHub (this repository)"]
-    Code["Terraform code<br/>13 ADRs<br/>Runbook"]
+    Code["Terraform code<br/>ADRs · Runbooks"]
     CI["GitHub Actions<br/>plan + apply + Checkov"]
   end
 
@@ -89,7 +97,7 @@ These are the load-bearing rules the project optimizes for. Every trade-off in t
 
 1. **Trade cost for reproducibility, not vice versa.** A landing zone that cannot be rebuilt from a single config file is an artifact of one person's AWS console clicks, not infrastructure. The [configuration contract (ADR-004)](docs/decisions/004-deployment-configuration-contract.md) and [`scripts/configure-backends.sh`](scripts/configure-backends.sh) exist precisely to make forking and re-deploying a one-file operation.
 
-2. **Document decisions, not just code.** 13 Architecture Decision Records capture *Context / Decision / Alternatives / Consequences* for every load-bearing choice. When the code and an ADR disagree, the ADR wins and the code gets fixed.
+2. **Document decisions, not just code.** Architecture Decision Records in [`docs/decisions/`](docs/decisions/) capture *Context / Decision / Alternatives / Consequences* for every load-bearing choice. When the code and an ADR disagree, the ADR wins and the code gets fixed.
 
 3. **Cost-conscious by default.** Single NAT Gateway (not three) for the lab; ACM over cert-manager (free, fewer moving parts); EKS deferred until needed. Always-on baseline is ~$5/month; per-session ephemeral is ~$1–2. See [ADR-009](docs/decisions/009-lifecycle-and-teardown-strategy.md).
 
@@ -134,7 +142,7 @@ Status reflects what exists in `main`, not aspirations. Each "Done" row links to
 | 3a. Network Foundation | IPAM + RAM sharing, ADR-012 + ADR-013 | ~$0 idle / $0.003/IP/hr allocated | **Done** ([#6](https://github.com/BinHsu/aegis-aws-landing-zone/pull/6)..[#9](https://github.com/BinHsu/aegis-aws-landing-zone/pull/9)) |
 | 3b. VPC | Staging VPC (3 AZ, 1 NAT, Gateway endpoints; Flow Logs deferred to Phase 4) | ~$0.05/hr NAT | **Done** ([#25](https://github.com/BinHsu/aegis-aws-landing-zone/pull/25)..[#38](https://github.com/BinHsu/aegis-aws-landing-zone/pull/38)) |
 | 3c. EKS Platform | EKS 1.32 + Karpenter v1 on Fargate + AWS LB Controller + ArgoCD app-of-apps | ~$0.30/hr running | **Done** — core: [#39](https://github.com/BinHsu/aegis-aws-landing-zone/pull/39) (cluster), [#42](https://github.com/BinHsu/aegis-aws-landing-zone/pull/42) (Karpenter), [#43](https://github.com/BinHsu/aegis-aws-landing-zone/pull/43) (LB+ArgoCD). Cold-apply hardening through first-apply iteration: [#44](https://github.com/BinHsu/aegis-aws-landing-zone/pull/44)–[#46](https://github.com/BinHsu/aegis-aws-landing-zone/pull/46), [#48](https://github.com/BinHsu/aegis-aws-landing-zone/pull/48), [#51](https://github.com/BinHsu/aegis-aws-landing-zone/pull/51), [#53](https://github.com/BinHsu/aegis-aws-landing-zone/pull/53), [#56](https://github.com/BinHsu/aegis-aws-landing-zone/pull/56), [#57](https://github.com/BinHsu/aegis-aws-landing-zone/pull/57) (Incidents 10–20 codified into bootstrap+platform+teardown). |
-| 4. Observability + Security | Prometheus, Grafana, CloudTrail data events, GuardDuty, Security Hub | TBD | Not started |
+| 4. Observability + Security | kube-prometheus-stack, Grafana, VPC Flow Logs, GuardDuty EKS, Kyverno admission control | ~$0.25/session extra | **Done** ([#67](https://github.com/BinHsu/aegis-aws-landing-zone/pull/67) 4a'+4b, [#68](https://github.com/BinHsu/aegis-aws-landing-zone/pull/68) 4c, [#69](https://github.com/BinHsu/aegis-aws-landing-zone/pull/69) flow logs bucket) |
 | 5. Enterprise Service Mesh & Auth | Istio (mTLS), cert-manager, EKS Pod Identity, External Secrets, Cognito | TBD | Not started |
 
 ## Architecture Decision Records
@@ -154,6 +162,10 @@ Status reflects what exists in `main`, not aspirations. Each "Done" row links to
 | [011](docs/decisions/011-account-provisioning-two-path-strategy.md) | Account provisioning — two-path strategy |
 | [012](docs/decisions/012-vpc-topology-and-egress-strategy.md) | VPC topology and egress strategy |
 | [013](docs/decisions/013-eks-architecture.md) | EKS architecture |
+| [014](docs/decisions/014-alb-session-affinity.md) | ALB session affinity for gRPC workloads |
+| [015](docs/decisions/015-observability-tooling.md) | Observability tooling — kube-prometheus-stack |
+| [016](docs/decisions/016-admission-control.md) | Admission control — Kyverno |
+| [017](docs/decisions/017-workload-namespace-and-rbac-model.md) | Workload namespace and RBAC model |
 
 ## Runbooks
 
@@ -212,7 +224,11 @@ aegis-aws-landing-zone/
 │       │   ├── bootstrap/         # State bucket, OIDC
 │       │   ├── ipam/              # IPAM pools + RAM share
 │       │   └── aft/               # AFT code (not deployed — ADR-011 Path A)
-│       ├── staging/bootstrap/     # Alias + OIDC
+│       ├── staging/
+│       │   ├── bootstrap/         # Alias, OIDC, ECR, aegis-core CI roles
+│       │   ├── network/           # VPC, subnets, NAT, Flow Logs
+│       │   ├── platform/          # EKS, Karpenter, LBC, ArgoCD
+│       │   └── workloads/         # Namespace, IRSA, NetworkPolicy, observability, Kyverno
 │       └── prod/bootstrap/        # Alias only
 ├── scripts/
 │   ├── configure-backends.sh      # Sync backend.tf from config
