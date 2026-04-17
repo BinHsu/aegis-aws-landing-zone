@@ -35,6 +35,15 @@ resource "aws_s3_bucket_lifecycle_configuration" "flow_logs" {
       days = 365
     }
   }
+
+  rule {
+    id     = "abort-incomplete-multipart"
+    status = "Enabled"
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
+  }
 }
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "flow_logs" {
