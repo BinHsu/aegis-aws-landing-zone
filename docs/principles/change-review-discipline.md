@@ -1,3 +1,4 @@
+<!-- session-close-review: version tracking table §4 matches actual deployed versions -->
 # Change Review Discipline
 
 > **Scope**: platform-level change review — cluster components, EKS version upgrades, CNI/CSI, ingress controller, IAM surfaces, GitHub Actions workflow edits, Terraform provider / module bumps, SCP changes.

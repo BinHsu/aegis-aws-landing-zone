@@ -1,3 +1,4 @@
+<!-- session-close-review: Mermaid diagrams reflect current phase status and resource topology -->
 # Architecture
 
 This document is the authoritative visual reference for the `aegis-aws-landing-zone` deployment. Every diagram is **Mermaid** (text-based, GitHub-rendered) — no static images, no external renderers, no drift risk. Edit the diagram when you edit the code.

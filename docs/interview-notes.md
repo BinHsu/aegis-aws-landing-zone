@@ -1,3 +1,4 @@
+<!-- session-close-review: recruiter-facing narrative, ADR/incident counts, phase status in §5, version table in §3 -->
 # Interview Notes
 
 A reader's guide for recruiters, hiring managers, and technical leadership reviewing this project as a portfolio artifact. Different from the rest of the repo, this document is written *about* the project rather than *inside* it — its job is to frame scope, stance, and what a conversation could productively cover.

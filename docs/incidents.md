@@ -1,3 +1,4 @@
+<!-- session-close-review: new incidents from this session; count matches README + interview-notes -->
 # Incidents
 
 A running postmortem log of every non-trivial failure during this project's deployment. Each entry is written after the fact, with the benefit of hindsight, and follows a consistent postmortem format so they are scannable.

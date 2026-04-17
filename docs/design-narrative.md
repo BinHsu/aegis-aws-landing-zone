@@ -1,3 +1,4 @@
+<!-- session-close-review: war story references match incident count, retrospective still accurate -->
 # Design Narrative
 
 A narrative companion to the ADRs. The ADRs capture individual decisions in their own right. This document connects the dots — what the project is trying to prove, what trade-offs were made consciously, what went wrong, and what the scaling path looks like.

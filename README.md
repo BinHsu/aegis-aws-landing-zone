@@ -1,3 +1,4 @@
+<!-- session-close-review: phase status table, ADR/incident counts, cost baseline -->
 # Aegis AWS Landing Zone
 
 [![Terraform Apply](https://github.com/BinHsu/aegis-aws-landing-zone/actions/workflows/terraform-apply.yml/badge.svg)](https://github.com/BinHsu/aegis-aws-landing-zone/actions/workflows/terraform-apply.yml)

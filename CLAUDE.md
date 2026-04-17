@@ -145,6 +145,32 @@ This repository shares a lifecycle boundary with [aegis-core](https://github.com
 
 - **Anti-pattern**: direct agent-to-agent messaging, shared memory mounts, or any ephemeral channel. The audit trail is the point.
 
+## Session-close review (marker-based)
+
+Before suggesting the user close a session, the AI must run:
+
+```bash
+grep -rIln "session-close-review:" . --include='*.md' | grep -v node_modules
+```
+
+Each file in the result set declares its own review axis via an HTML comment at the top:
+
+```
+<!-- session-close-review: <what to check> -->
+```
+
+The AI must open each file, read the marker, and verify the axis is up to date against work done in the current session. If the axis is stale, fix it before closing.
+
+Additionally, scan for forgotten placeholders:
+
+```bash
+grep -rIn "TODO\|WIP\|coming soon\|not started" . --include='*.md' | grep -v node_modules | grep -v CHANGELOG
+```
+
+Any hit that contradicts work shipped in the session is a drift bug — fix it.
+
+**Rule: New session-sensitive docs must add a `<!-- session-close-review: ... -->` marker at the top.** This is opt-in: if a doc does not declare a marker, it is not reviewed at session close. The marker is the single source of truth for what needs per-session attention — CLAUDE.md does not hardcode filenames.
+
 ## Directory Structure
 
 ```

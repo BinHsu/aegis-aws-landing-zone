@@ -1,3 +1,4 @@
+<!-- session-close-review: sub-phase status, aegis-core readiness table, ADR candidate status, cost model -->
 # Phase 4 — Workload Readiness, Observability, Cluster Security
 
 ## Context
