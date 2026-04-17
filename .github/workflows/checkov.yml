@@ -41,7 +41,8 @@ jobs:
             CKV_AWS_18,
             CKV_AWS_144,
             CKV2_AWS_62,
-            CKV_AWS_274
+            CKV_AWS_274,
+            CKV2_AWS_3
           # CKV_AWS_18  (S3 access logging) — deferred per ADR-003 Future Hardening.
           #   Enabling requires a separate log-destination bucket with ACL-based
           #   write permissions. Tracked for Phase 2 observability work.
@@ -53,6 +54,10 @@ jobs:
           # CKV_AWS_274 (AdministratorAccess policy) — intentional for lab per
           #   ADR-001 scope boundary and inline comments in oidc-github.tf.
           #   Production should scope down to per-environment minimum permissions.
+          # CKV2_AWS_3  (GuardDuty org-wide) — check requires org-level
+          #   delegated admin setup. This lab enables GuardDuty per-account
+          #   in staging/workloads (Phase 4c). Org-wide delegation via the
+          #   security account is a future hardening item.
           # CKV2_AWS_11 (VPC Flow Logs) — RESOLVED in Phase 4b. Flow Logs
           #   enabled in staging/network/flow-logs.tf → S3 in staging account.
 
