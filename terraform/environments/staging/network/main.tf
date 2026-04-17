@@ -8,8 +8,7 @@
 # CIDR allocated dynamically from the shared/ipam regional pool (RFC1918
 # 10.0.0.0/12 for eu-central-1). Specific CIDR is known-after-apply.
 #
-# VPC Flow Logs are deferred to Phase 4 when the logarchive layer is
-# available. See ADR-012 "Consequences" for the deferral note.
+# VPC Flow Logs: see flow-logs.tf (added in Phase 4b).
 # -----------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------
