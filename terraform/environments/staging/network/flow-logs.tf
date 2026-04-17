@@ -1,88 +1,33 @@
 # -----------------------------------------------------------------------------
 # VPC Flow Logs — Phase 4b
 # -----------------------------------------------------------------------------
-# Network audit trail: all accepted/rejected traffic logged to S3. Delivers
-# to a staging-local bucket for now; migration to a centralized logarchive
-# bucket (ADR-006: aegis-logarchive account) is a future improvement.
+# Network audit trail: all accepted/rejected traffic logged to S3.
 #
-# Cost: negligible at lab traffic volume — Flow Logs publishing to S3 is
-# $0.25/GB for the first 10 TB (minimal in a lab). Storage: $0.023/GB/month
-# for S3 Standard, transitions to IA after 90 days ($0.0125/GB/month).
-# Expected total: < $0.50/month.
+# The S3 bucket lives in staging/bootstrap (persistent across teardown).
+# Only the aws_flow_log resource is here — it is destroyed with the VPC
+# on teardown but the bucket and its data survive.
+#
+# The flow log is conditionally created: if bootstrap has not yet been
+# applied with the flow_logs_bucket_arn output, the resource is skipped.
+# This avoids a plan failure when bootstrap and network are planned in
+# parallel (CI) before bootstrap has been applied.
+#
+# Cost: $0.25/GB publishing fee (negligible at lab traffic).
 # -----------------------------------------------------------------------------
 
-resource "aws_s3_bucket" "flow_logs" {
-  bucket = "aegis-staging-vpc-flow-logs-${local.account_id}"
-
-  tags = {
-    Name = "staging-vpc-flow-logs"
-  }
+locals {
+  flow_logs_bucket_arn = try(
+    data.terraform_remote_state.staging_bootstrap.outputs.flow_logs_bucket_arn,
+    null
+  )
 }
-
-resource "aws_s3_bucket_lifecycle_configuration" "flow_logs" {
-  bucket = aws_s3_bucket.flow_logs.id
-
-  rule {
-    id     = "transition-to-ia"
-    status = "Enabled"
-
-    transition {
-      days          = 90
-      storage_class = "STANDARD_IA"
-    }
-
-    expiration {
-      days = 365
-    }
-  }
-
-  rule {
-    id     = "abort-incomplete-multipart"
-    status = "Enabled"
-
-    abort_incomplete_multipart_upload {
-      days_after_initiation = 7
-    }
-  }
-}
-
-resource "aws_s3_bucket_server_side_encryption_configuration" "flow_logs" {
-  bucket = aws_s3_bucket.flow_logs.id
-
-  rule {
-    apply_server_side_encryption_by_default {
-      sse_algorithm = "aws:kms"
-    }
-    bucket_key_enabled = true
-  }
-}
-
-resource "aws_s3_bucket_public_access_block" "flow_logs" {
-  bucket = aws_s3_bucket.flow_logs.id
-
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
-}
-
-resource "aws_s3_bucket_versioning" "flow_logs" {
-  bucket = aws_s3_bucket.flow_logs.id
-
-  versioning_configuration {
-    status = "Enabled"
-  }
-}
-
-# -----------------------------------------------------------------------------
-# Flow Log — captures all traffic (ACCEPT + REJECT) in the default format.
-# max_aggregation_interval = 600 (10 min) balances cost vs. resolution.
-# -----------------------------------------------------------------------------
 
 resource "aws_flow_log" "main" {
+  count = local.flow_logs_bucket_arn != null ? 1 : 0
+
   vpc_id               = aws_vpc.main.id
   traffic_type         = "ALL"
-  log_destination      = aws_s3_bucket.flow_logs.arn
+  log_destination      = local.flow_logs_bucket_arn
   log_destination_type = "s3"
 
   max_aggregation_interval = 600

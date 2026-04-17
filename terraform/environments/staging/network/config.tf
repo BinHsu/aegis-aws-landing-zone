@@ -26,11 +26,10 @@ data "terraform_remote_state" "shared_ipam" {
   }
 }
 
-data "terraform_remote_state" "logarchive_bootstrap" {
-  # Placeholder — logarchive does not yet have a Terraform bootstrap.
-  # When Phase 4 adds logarchive/bootstrap with a central log bucket,
-  # this block will read the Flow Logs destination bucket ARN from it.
-  # For now, Flow Logs go to a staging-local S3 bucket (defined inline).
+data "terraform_remote_state" "staging_bootstrap" {
+  # Flow Logs S3 bucket lives in bootstrap (persistent across teardown).
+  # The aws_flow_log resource in flow-logs.tf reads the bucket ARN from
+  # this remote state so that network destroy does not delete log data.
   backend = "s3"
   config = {
     bucket = "aegis-terraform-state-345895787808"
