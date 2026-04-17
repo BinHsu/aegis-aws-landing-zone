@@ -49,6 +49,7 @@ This is a hands-on portfolio project by **Bin Hsu**, a Senior Software Architect
 - **OIDC only**: No static AWS credentials anywhere. GitHub OIDC → `aws-actions/configure-aws-credentials`
 - **Workflow pattern**: `plan` on PR (comment plan output), `apply` on merge to main
 - **Self-hosted runners**: Phase 3+ (EKS-based). Use GitHub-hosted runners for Phase 1-2
+- **Rule: AI must wait for ALL CI jobs to pass before merging a PR.** Checkov passing alone is not sufficient — every Terraform Plan job in the matrix must also be green. A partial green (e.g., Checkov pass + 4 plan pending) is not mergeable. If any job fails, diagnose and fix before merging; do not merge with known failures.
 
 ### AWS
 - **Region**: `eu-central-1` (Frankfurt) as primary. SCPs deny all other regions except `eu-west-1` (Ireland) as DR
