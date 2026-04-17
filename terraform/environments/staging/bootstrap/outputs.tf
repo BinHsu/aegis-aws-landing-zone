@@ -27,3 +27,8 @@ output "ecr_aegis_core_repository_arn" {
   description = "ECR repository ARN for the aegis-core application image"
   value       = aws_ecr_repository.aegis_core.arn
 }
+
+output "flow_logs_bucket_arn" {
+  description = "S3 bucket ARN for VPC Flow Logs — consumed by staging/network"
+  value       = aws_s3_bucket.flow_logs.arn
+}
