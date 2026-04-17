@@ -144,6 +144,7 @@ The living inventory of what's deployed and when it expires. Maintained in this 
 | AWS Load Balancer Controller | v2.8.2 | — | Bump with EKS minor | [ADR-013](../decisions/013-eks-architecture.md) |
 | ArgoCD | 7.6.12 (chart) | — | Quarterly review | [ADR-013](../decisions/013-eks-architecture.md) |
 | kube-prometheus-stack | 72.6.2 (chart) | — | Dependabot or manual review | [ADR-015](../decisions/015-observability-tooling.md) |
+| Kyverno | 3.4.1 (chart) | — | Dependabot or manual review | [ADR-016](../decisions/016-admission-control.md) |
 | cert-manager | Not deployed | — | Phase 5 (service mesh + per-pod TLS) | — |
 
 ---
