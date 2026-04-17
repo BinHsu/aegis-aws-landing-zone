@@ -20,8 +20,8 @@ This split is explicit for a reason: a hands-on architect's value comes from shi
 The project value is execution and discipline, layered together:
 
 - **Execution**: the entire repo is working code — Terraform applies cleanly, CI applies to a live AWS organization, the EKS platform bootstraps end-to-end in one workflow dispatch. See the [Phase table in README](../README.md#phases) for what's actually deployed on `main`, not aspirations.
-- 13 [Architecture Decision Records](decisions/) (including several "Design iteration" sections documenting *reversed* decisions honestly)
-- 20+ [incident postmortems](incidents.md) (each written after the fact in a consistent format, never softened retroactively)
+- 17 [Architecture Decision Records](decisions/) (including several "Design iteration" sections documenting *reversed* decisions honestly)
+- 24 [incident postmortems](incidents.md) (each written after the fact in a consistent format, never softened retroactively)
 - A 4-workflow CI/CD split shaped by cost profile (not template copy-paste)
 - Runbooks covering both the happy path and the "here is how to debug when it breaks" diagnostic order
 - A config contract that makes the whole landing zone forkable in one YAML file
@@ -104,7 +104,19 @@ Each entry: what was built → where to look in the repo → the kind of questio
 
 **Likely questions**: show me a real incident (pick from the 24 in `docs/incidents.md` — Incidents 6, 7, 12, 18, 22, 24 cover the widest angle: CMK recovery, hidden cross-account prerequisites, honest design reversal, asymmetric IAM policy, belt-and-suspenders teardown architecture, and Terraform concurrency edge cases); what does the ADR format give you that code comments don't (ADRs preserve *why* even when *what* is obvious from code); how do you keep this discipline consistent (CLAUDE.md rules + pre-commit hooks + AI reminders — not willpower).
 
-### 2.7 Cost governance
+### 2.7 Cross-repo coordination
+
+**Built**: a durable coordination protocol between two independently-maintained repositories (`aegis-aws-landing-zone` for infrastructure, `aegis-core` for application). Standing GitHub Issues serve as the contract surface — [#54](https://github.com/BinHsu/aegis-aws-landing-zone/issues/54) documents what the platform provides; [#11](https://github.com/BinHsu/aegis-core/issues/11) documents what the application needs. Label semantics (`cross-repo`, `cross-repo/blocking`, `cross-repo/fyi`) govern urgency. Either side can open issues on the other.
+
+**Where to look**:
+- [README §Cross-repo coordination](../README.md#cross-repo-coordination)
+- [CONTRIBUTING.md §Cross-repo coordination](../CONTRIBUTING.md#cross-repo-coordination)
+- [`CLAUDE.md`](../CLAUDE.md) "Cross-repo coordination" section (operational rules for AI agents)
+- [#54 body](https://github.com/BinHsu/aegis-aws-landing-zone/issues/54) — the live platform contract
+
+**Likely questions**: why Issues instead of a shared config file or API contract (audit trail + async-first — agents and humans both see the same history); how do you prevent drift between the contract and reality (CLAUDE.md rule: PRs that change the platform surface must update #54 in the same PR); what happens when one side is blocked (label escalation — `cross-repo/blocking` halts planning until acknowledged).
+
+### 2.8 Cost governance
 
 **Built**: $30/month + $10/day AWS Budgets. Baseline layers cost < $5/mo; workload layers cost $5-10/session when running. Teardown is a first-class feature: three scripts (soft for session end, hard for project end with triple confirmation + anti-CI flag, emergency cloud-nuke for drift recovery). Karpenter NodePool has a hard 4-vCPU cluster-wide cap as a cost backstop.
 
@@ -156,7 +168,7 @@ Positive statements of what this project demonstrates, paired with explicit stat
 - **Karpenter / ArgoCD internals as a specialty.** Install + configure + diagnose connectivity; I do not claim to know what changed internally between Karpenter v0.37 → v1.0 beyond what the release notes say.
 - **Algorithm-level optimization.** When a teardown takes 20 minutes due to IPAM release lag ([ADR-004 Consequences](decisions/004-deployment-configuration-contract.md)), the answer is "live with it, document it, adjust timeouts." A specialist might investigate whether there's a faster release path; that investigation is not in scope for a hands-on architect whose job is shipping the cross-cutting system.
 - **Network deep-dive.** VPC design (subnets, NAT, Gateway endpoints) follows public reference architectures. Deep questions about BGP, IPv6 dual-stack, Transit Gateway attachment routing, or MTU tuning are outside the scope of this project.
-- **Production observability** — reserved for Phase 4. Currently: CloudTrail (aggregated in `aegis-logarchive`), AWS Config (aggregated), CloudWatch log groups with 365-day retention on EKS control plane. Prometheus, Grafana, Datadog-style stacks are deferred.
+- **Production observability at scale.** Phase 4b ships kube-prometheus-stack (Prometheus + Grafana + node-exporter + kube-state-metrics) for single-cluster observability. Multi-cluster federation (Thanos/Mimir), long-term metric storage, and managed APM (Datadog, Grafana Cloud) are out of scope.
 - **DR testing.** Control Tower governs two regions (eu-central-1 primary, eu-west-1 DR), but no DR failover has been tested end-to-end. The DR region is set up for future work.
 - **Compliance audit readiness.** ISO 27001 alignment is the guardrail ([ADR-005](decisions/005-compliance-framework-iso-27001.md)). Closest specific control: AWS Config conformance packs could be enabled in `aegis-security` if required — not done here. No SOC 2 / PCI / HIPAA claims.
 
@@ -183,8 +195,8 @@ Three incremental PRs for core features (#39 EKS core, #42 Karpenter, #43 LB Con
 ### Post-Phase-3c — ongoing ops hygiene (done 2026-04-15)
 Two incidents caught during a Dependabot maintenance sweep after the Phase 3c rollout, both fixed via PRs #63 and #64: **Incident 23** — Dependabot PRs run in a separate secret namespace from Actions, so `scripts/configure-github.sh` now populates both; **Incident 24** — S3 native state locking is strictly FCFS with no queue, default `-lock-timeout=0` stampedes under bulk rebase, `terraform-plan.yml` now specifies `-lock-timeout=10m`. Same session also enabled GitHub Secret Scanning + push protection + Dependabot vulnerability alerts (free on public repos; directly validate the "zero static credentials by design" stance) and bumped the AWS Terraform provider v5.100 → v6.40 across all six Terraservices with baseline apply success on every leg.
 
-### Phase 4 — Observability + security-at-cluster (not started)
-Prometheus + Grafana, VPC Flow Logs, GuardDuty, Security Hub, AWS Config conformance packs.
+### Phase 4 — Observability + cluster security (done 2026-04-17)
+Three sub-phases shipped in PRs #67–#69: **4a'** (docking station — `aegis` namespace, IRSA skeleton, default-deny NetworkPolicy, ADR-017); **4b** (kube-prometheus-stack via ArgoCD with deprecated-API alert rule, VPC Flow Logs to S3 in Parquet, ADR-015); **4c** (GuardDuty EKS Runtime + Audit Log Monitoring, Kyverno admission controller with 4 baseline policies in Audit mode, ADR-016). Cross-repo coordination protocol ([#54](https://github.com/BinHsu/aegis-aws-landing-zone/issues/54), [#11](https://github.com/BinHsu/aegis-core/issues/11)) exercised live during the session. Phase 4a'' (actual workload deployment) gates on aegis-core shipping OCI images.
 
 ### Phase 5 — Service mesh + per-pod TLS (not started)
 cert-manager, service mesh mTLS, private endpoints, EKS Pod Identity migration.
@@ -206,4 +218,4 @@ This doc is frame-level. For the actual substance:
 
 ---
 
-*Last updated: 2026-04-15 — Post-Phase-3c ops hygiene sweep (provider v6 + Incidents 23/24 + GitHub security posture).*
+*Last updated: 2026-04-17 — Phase 4 shipped (4a' docking station, 4b observability, 4c cluster security); cross-repo coordination documented for forkers; ADR count 13→17.*

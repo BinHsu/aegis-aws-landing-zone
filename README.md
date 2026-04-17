@@ -160,7 +160,20 @@ Status reflects what exists in `main`, not aspirations. Each "Done" row links to
 
 ## Companion application repository
 
-This repository is the **Pointer** — it defines VPCs, EKS clusters, OIDC, and (Phase 3c+) hoists ArgoCD. The application workload is intended to live in [aegis-core](https://github.com/BinHsu/aegis-core) (the **Payload**, planned). ArgoCD will watch `aegis-core` and deploy changes via pull-based GitOps. See [ADR-007](docs/decisions/007-infra-app-repository-split.md).
+This repository is the **Pointer** — it defines VPCs, EKS clusters, OIDC, and (Phase 3c+) hoists ArgoCD. The application workload lives in [aegis-core](https://github.com/BinHsu/aegis-core) (the **Payload**). ArgoCD watches `aegis-core` and deploys changes via pull-based GitOps. See [ADR-007](docs/decisions/007-infra-app-repository-split.md).
+
+### Cross-repo coordination
+
+The two repositories are maintained independently and coordinate through GitHub Issues, not direct IPC or shared state:
+
+- **[#54 — Platform surface contract](https://github.com/BinHsu/aegis-aws-landing-zone/issues/54)** (this repo): what aegis-core can assume — namespaces, IRSA roles, ECR, CRDs.
+- **[#11 — Requirements from landing-zone](https://github.com/BinHsu/aegis-core/issues/11)** (aegis-core): what aegis-core needs from the platform.
+
+Both are standing issues (never closed; body is edited to maintain). Either repo can open issues on the other with the `cross-repo` label. Label semantics:
+
+- `cross-repo` — default coordination tag
+- `cross-repo/blocking` — the other side is blocked until this lands
+- `cross-repo/fyi` — informational only
 
 ## Cost management
 
