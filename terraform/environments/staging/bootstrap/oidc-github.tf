@@ -11,6 +11,8 @@ locals {
   github_infra_repo = local.config.github.infra_repo
   github_oidc_url   = "https://token.actions.githubusercontent.com"
 
+  github_app_repo = local.config.github.app_repo
+
   # Subject claims the role trust policy accepts. Each trigger type in GitHub
   # Actions produces a different `sub` claim in the OIDC token:
   #   - push to main                      → ref:refs/heads/main
@@ -18,11 +20,15 @@ locals {
   #   - workflow_dispatch + environment:X → environment:X
   # Baseline apply uses main; plan uses pull_request; workload apply + teardown
   # use environment-scoped claims (ADR-009 workflow split).
+  #
+  # aegis-core (app repo) is granted main-branch push access so its CI can
+  # push container images to ECR in this account. See #54 platform contract.
   github_oidc_subjects = [
     "repo:${local.github_org}/${local.github_infra_repo}:ref:refs/heads/main",
     "repo:${local.github_org}/${local.github_infra_repo}:pull_request",
     "repo:${local.github_org}/${local.github_infra_repo}:environment:workload-apply",
     "repo:${local.github_org}/${local.github_infra_repo}:environment:workload-teardown",
+    "repo:${local.github_org}/${local.github_app_repo}:ref:refs/heads/main",
   ]
 }
 
