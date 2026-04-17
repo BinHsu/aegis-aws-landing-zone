@@ -140,6 +140,8 @@ This repository shares a lifecycle boundary with [aegis-core](https://github.com
   - `cross-repo/blocking` — the other side is blocked until this lands / is acknowledged
   - `cross-repo/fyi` — informational only; no action required
 
+- **Rule: Do NOT implement a cross-repo request before the other side's issue arrives.** The issue is the requirements document, not just a notification. The other side may specify security constraints (least-privilege roles vs shared admin), blast radius boundaries, or future-proofing requirements that fundamentally change the implementation. Acknowledge the gap, note what needs to happen, but do not write code until the spec is in hand. "Obvious" fixes that skip this gate have caused wasted PR cycles and briefly-incorrect trust policies (see PR #73 → #72 lesson).
+
 - **Anti-pattern**: direct agent-to-agent messaging, shared memory mounts, or any ephemeral channel. The audit trail is the point.
 
 ## Directory Structure

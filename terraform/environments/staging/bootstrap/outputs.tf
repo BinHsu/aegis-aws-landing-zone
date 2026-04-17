@@ -32,3 +32,27 @@ output "flow_logs_bucket_arn" {
   description = "S3 bucket ARN for VPC Flow Logs — consumed by staging/network"
   value       = aws_s3_bucket.flow_logs.arn
 }
+
+# -----------------------------------------------------------------------------
+# aegis-core CI outputs — consumed by aegis-core's GitHub Actions workflows
+# -----------------------------------------------------------------------------
+
+output "aegis_core_ecr_role_arn" {
+  description = "IAM role ARN for aegis-core CI → ECR push (least-privilege, main branch only)"
+  value       = aws_iam_role.aegis_core_ecr.arn
+}
+
+output "aegis_core_cache_role_arn" {
+  description = "IAM role ARN for aegis-core CI → S3 Bazel cache (least-privilege, main branch only)"
+  value       = aws_iam_role.aegis_core_cache.arn
+}
+
+output "bazel_cache_bucket_name" {
+  description = "S3 bucket name for Bazel remote cache"
+  value       = aws_s3_bucket.bazel_cache.bucket
+}
+
+output "bazel_cache_bucket_arn" {
+  description = "S3 bucket ARN for Bazel remote cache"
+  value       = aws_s3_bucket.bazel_cache.arn
+}
