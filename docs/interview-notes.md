@@ -157,7 +157,7 @@ Positive statements of what this project demonstrates, paired with explicit stat
 ### What is claimed
 
 - **Cross-cutting architectural design**: composing 10+ AWS services into a working multi-account landing zone with explicit decisions (ADRs) and documented trade-offs.
-- **Operational discipline**: 13 ADRs + 24 incident postmortems + 3 runbooks, each written to a consistent format, never softened retroactively.
+- **Operational discipline**: 17 ADRs + 24 incident postmortems + 3 runbooks, each written to a consistent format, never softened retroactively.
 - **Production-shaped patterns** — not production-*hardened* (the lab is single-operator, single-region-primary, no DR-tested, no SOC 2 audit trail). The patterns are transferable to production; the lab itself isn't production.
 - **Reproducibility**: a single `config/landing-zone.yaml` + two shell scripts land the whole foundation in a fresh AWS organization. Fork-and-deploy is not a slogan here; it's tested.
 
@@ -170,7 +170,7 @@ Positive statements of what this project demonstrates, paired with explicit stat
 - **Network deep-dive.** VPC design (subnets, NAT, Gateway endpoints) follows public reference architectures. Deep questions about BGP, IPv6 dual-stack, Transit Gateway attachment routing, or MTU tuning are outside the scope of this project.
 - **Production observability at scale.** Phase 4b ships kube-prometheus-stack (Prometheus + Grafana + node-exporter + kube-state-metrics) for single-cluster observability. Multi-cluster federation (Thanos/Mimir), long-term metric storage, and managed APM (Datadog, Grafana Cloud) are out of scope.
 - **DR testing.** Control Tower governs two regions (eu-central-1 primary, eu-west-1 DR), but no DR failover has been tested end-to-end. The DR region is set up for future work.
-- **Compliance audit readiness.** ISO 27001 alignment is the guardrail ([ADR-005](decisions/005-compliance-framework-iso-27001.md)). Closest specific control: AWS Config conformance packs could be enabled in `aegis-security` if required — not done here. No SOC 2 / PCI / HIPAA claims.
+- **Compliance audit readiness.** ISO 27001 alignment is the guardrail ([ADR-005](decisions/005-compliance-framework-iso-27001.md)). Phase 4c adds runtime enforcement (GuardDuty EKS for threat detection, Kyverno for admission control) but this is not a SOC 2 / PCI / HIPAA audit-ready posture. The lab demonstrates the *patterns* — baseline policies, deny-privileged, require-limits — not the completeness of a production control set.
 
 ### Positive framing for the interview
 
