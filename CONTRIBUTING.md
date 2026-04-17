@@ -70,6 +70,24 @@ Follow Conventional Commits loosely:
 
 Keep the first line under 72 characters. Body explains *why*, not *what* — the diff shows what changed.
 
+## Cross-repo coordination
+
+This repository shares a lifecycle boundary with [aegis-core](https://github.com/BinHsu/aegis-core). The two repos coordinate through GitHub Issues labeled `cross-repo` — not chat, not shared memory, not ephemeral channels. The audit trail is the point.
+
+**Standing issues** (never closed; body edited to maintain):
+- [#54 — Platform surface contract](https://github.com/BinHsu/aegis-aws-landing-zone/issues/54) (this repo)
+- [#11 — Requirements from landing-zone](https://github.com/BinHsu/aegis-core/issues/11) (aegis-core)
+
+**Rules for PRs that touch the platform contract** (namespaces, IRSA roles, CRDs, ECR, OIDC trust):
+1. Update the [#54 issue body](https://github.com/BinHsu/aegis-aws-landing-zone/issues/54) in the same PR to reflect the new state.
+2. If the change would break aegis-core's existing assumptions, label the PR `cross-repo/blocking`.
+3. If aegis-core needs something from the platform, it opens an issue on this repo with `cross-repo/blocking`.
+
+**Label semantics**:
+- `cross-repo` — default coordination tag
+- `cross-repo/blocking` — the other side is blocked until this lands or is acknowledged
+- `cross-repo/fyi` — informational only; no action required
+
 ## Reviewing PRs (for maintainers)
 
 - Does CI pass? If not, fix CI before reviewing code.
