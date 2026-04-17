@@ -2,8 +2,9 @@
 # Bazel remote cache S3 bucket — per aegis-core #72 / ADR-0014 §δ
 # -----------------------------------------------------------------------------
 # Ephemeral build cache. Objects expire after 14 days — cache is rebuild-
-# able from source, so durability is not a concern. No versioning (cache
-# entries are immutable by content hash; overwrites are safe).
+# able from source, so durability is not a concern. Versioning enabled to
+# satisfy CKV_AWS_21 (consistent with other project buckets); the 14-day
+# expiry keeps version accumulation bounded.
 #
 # Cost: $0.023/GB/month Standard. At typical C++ + Go cache size (~2-5 GB),
 # this rounds to < $0.15/month.
@@ -44,8 +45,17 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "bazel_cache" {
 
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
+      sse_algorithm = "aws:kms"
     }
+    bucket_key_enabled = true
+  }
+}
+
+resource "aws_s3_bucket_versioning" "bazel_cache" {
+  bucket = aws_s3_bucket.bazel_cache.id
+
+  versioning_configuration {
+    status = "Enabled"
   }
 }
 
