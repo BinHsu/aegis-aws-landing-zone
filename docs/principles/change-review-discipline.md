@@ -135,14 +135,15 @@ The living inventory of what's deployed and when it expires. Maintained in this 
 
 > **Update rule**: whenever a platform component version changes (Terraform apply merged to main, Helm chart bumped, EKS upgrade performed), update this table in the same PR. Out-of-date version tracking is worse than no tracking.
 
-| Component | Version (as of 2026-04-15) | Upstream EOL / deprecation | Our migration trigger | ADR |
+| Component | Version (as of 2026-04-16) | Upstream EOL / deprecation | Our migration trigger | ADR |
 |---|---|---|---|---|
 | Terraform CLI | 1.14.8 | — | — | [ADR-003](../decisions/003-terraform-backend-bootstrap.md) |
-| AWS provider | 6.40.0 | v5 EOL TBD | Dependabot PR when v7 releases | — |
+| AWS provider | 5.100.0 | v5 EOL TBD | Dependabot PR when v6 releases | — |
 | EKS Kubernetes | 1.32 | ~14 months from GA | Three releases before EOL | [ADR-013](../decisions/013-eks-architecture.md) |
 | Karpenter | v1.0.8 | v0.x deprecated; on v1 | Hold on v1.x until v2 stabilizes | [ADR-013](../decisions/013-eks-architecture.md) |
 | AWS Load Balancer Controller | v2.8.2 | — | Bump with EKS minor | [ADR-013](../decisions/013-eks-architecture.md) |
-| ArgoCD | (per Helm chart version in `k8s-manifests/argocd/`) | — | Quarterly review | [ADR-013](../decisions/013-eks-architecture.md) |
+| ArgoCD | 7.6.12 (chart) | — | Quarterly review | [ADR-013](../decisions/013-eks-architecture.md) |
+| kube-prometheus-stack | 72.6.2 (chart) | — | Dependabot or manual review | [ADR-015](../decisions/015-observability-tooling.md) |
 | cert-manager | Not deployed | — | Phase 5 (service mesh + per-pod TLS) | — |
 
 ---
