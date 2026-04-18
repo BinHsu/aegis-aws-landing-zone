@@ -129,6 +129,47 @@ Each entry: what was built → where to look in the repo → the kind of questio
 
 **Likely questions**: what prevents a forgotten teardown (budget alerts + CLAUDE.md rule + one-command soft teardown); soft vs hard teardown (soft preserves state bucket and all non-workload resources; hard calls CloseAccount → 90-day suspension); worst-case leak (EKS + NAT + Fargate = ~$135/mo if forgotten; daily budget alert catches within 24h).
 
+### 2.9 Methodology alignment — GitOps, DevSecOps, FinOps
+
+This project practices all three frameworks. None are bolted on — they are load-bearing properties enforced by code, not compliance checklists filled in after the fact. The mapping below is for interviewers who want to verify the claim against specific artifacts.
+
+**GitOps** — Git is the single source of truth for both infrastructure and workload state.
+
+| Practice | Where it's enforced |
+|---|---|
+| Declarative infrastructure | All Terraform; zero imperative scripts or console clicks |
+| PR-based change flow | `terraform-plan.yml` comments plan output on every PR; merge triggers apply |
+| Pull-based workload deployment | ArgoCD watches `aegis-core`, auto-syncs staging ([`argocd.tf`](../terraform/environments/staging/platform/argocd.tf)) |
+| Drift detection + self-heal | ArgoCD `selfHeal: true`; Checkov blocks drifted security posture at PR time |
+| Environment parity via config | Single `landing-zone.yaml` drives all environments ([ADR-004](decisions/004-deployment-configuration-contract.md)) |
+
+**DevSecOps** — security is a property of the pipeline, not a gate after it.
+
+| Practice | Where it's enforced |
+|---|---|
+| Shift-left security scan | Checkov IaC scan on every PR ([`.github/workflows/checkov.yml`](../.github/workflows/checkov.yml)) |
+| Guardrails before resources | SCPs deny dangerous actions org-wide before any workload runs ([`management/scps/`](../terraform/environments/management/scps/)) |
+| Zero static credentials | SSO for humans, OIDC for CI, IRSA for pods; `deny-iam-user-creation` SCP enforces this at org level |
+| Least-privilege CI roles | Dedicated per-function roles for aegis-core ECR push and cache access (#74); Terraform CI is separate |
+| Runtime threat detection | GuardDuty EKS Runtime + Audit Log Monitoring ([`workloads/guardduty.tf`](../terraform/environments/staging/workloads/guardduty.tf)) |
+| Admission control | Kyverno baseline policies: deny-privileged, deny-host-namespaces, require-limits, require-labels ([ADR-016](decisions/016-admission-control.md)) |
+| Network segmentation | Default-deny NetworkPolicy in workload namespace; VPC Flow Logs to S3 |
+| Supply chain | Signed commits (branch protection), GitHub Secret Scanning + push protection, Dependabot vulnerability alerts, ECR `scan_on_push` |
+| Compliance alignment | ISO 27001 Annex A.8 ([ADR-005](decisions/005-compliance-framework-iso-27001.md)); change-review discipline doc ([`docs/principles/`](principles/change-review-discipline.md)) |
+
+**FinOps** — cost is a design constraint, not a surprise on the bill.
+
+| Practice | Where it's enforced |
+|---|---|
+| Cost-aware architecture | Single NAT (not three), Spot-first nodes, ACM over cert-manager, Fargate for bootstrap pods |
+| Budget alerts | $10/day + $30/month AWS Budgets in management account |
+| Teardown as first-class feature | Three scripts (soft/hard/emergency) + CI teardown workflow ([ADR-009](decisions/009-lifecycle-and-teardown-strategy.md)) |
+| Cost-profile workflow split | Baseline layers (~free) auto-apply on merge; workload layers ($5-10/session) require manual dispatch + approval gate |
+| Resource caps | Karpenter 4-vCPU cluster-wide limit as cost backstop |
+| Cost visibility | Every ADR, phase spec, and PR description notes hourly/monthly cost; CLAUDE.md rule requires AI to flag cost before applying |
+
+**Likely questions**: which of these three was the hardest to maintain (FinOps — cost discipline is a continuous judgment call, not a one-time policy; every new resource needs a "what does this cost idle?" answer before it ships); how do you prevent methodology drift (CLAUDE.md rules are the enforcement layer — they are read by both the human operator and the AI agent, and they reference specific artifacts rather than abstract principles); is this SOC 2 / PCI ready (no — [§4 Explicit scope-of-claims](#4-explicit-scope-of-claims) states this explicitly; the methodology is transferable but the audit trail is not complete).
+
 ---
 
 ## 3. Conservative-by-design — "why not the absolute newest"
