@@ -5,7 +5,7 @@ A narrative companion to the ADRs. The ADRs capture individual decisions in thei
 
 ## The 30-second version
 
-This project is a reference implementation of a multi-account AWS landing zone for single-operator labs and small-team deployments. It demonstrates senior-level architectural thinking — not by reinventing AWS primitives but by making every load-bearing decision explicit and defensible. 13 Architecture Decision Records capture the *why* of every choice. A 10-part runbook documents every manual step plus the gotchas that broke the first attempt. End-to-end deployment is a config-only operation: one YAML file, two shell scripts, one GitHub pull request.
+This project is a reference implementation of a multi-account AWS landing zone for single-operator labs and small-team deployments. It demonstrates senior-level architectural thinking — not by reinventing AWS primitives but by making every load-bearing decision explicit and defensible. Architecture Decision Records in [`docs/decisions/`](decisions/) capture the *why* of every choice. A 10-part runbook documents every manual step plus the gotchas that broke the first attempt. End-to-end deployment is a config-only operation: one YAML file, two shell scripts, one GitHub pull request.
 
 ## The 2-minute version
 
@@ -20,7 +20,7 @@ The project is organized around six design principles that live at the top of th
 5. Drift is a bug
 6. Automate the steady state. Accept one manual break.
 
-The first principle is the reason `config/landing-zone.yaml` + `scripts/configure-backends.sh` exists. The second is the reason there are 13 ADRs instead of 3. The third is the reason there is one NAT Gateway instead of three. The fourth is enforced by a Service Control Policy at the organization level, not just IAM policy. The fifth is why the README and the architecture diagrams update in the same PR as the code. The sixth is why `aegis-shared` is created by hand and every other account is fully automated.
+The first principle is the reason `config/landing-zone.yaml` + `scripts/configure-backends.sh` exists. The second is the reason every load-bearing decision has its own ADR. The third is the reason there is one NAT Gateway instead of three. The fourth is enforced by a Service Control Policy at the organization level, not just IAM policy. The fifth is why the README and the architecture diagrams update in the same PR as the code. The sixth is why `aegis-shared` is created by hand and every other account is fully automated.
 
 None of these were obvious up front. They emerged from working through the actual constraints and will be explained below.
 
@@ -109,7 +109,7 @@ Every one of these is either an *Alternatives Considered* entry, a *Future Harde
 These are honest retrospectives, not false-modesty performances:
 
 - **Start with `.github/workflows/` from day one.** Phase 1 work was done through local `terraform apply` commands. Moving to PR-based CI/CD in Phase 2 was strictly better. The lesson: if PR-based flow is the end state, it should be the start state too. Starting earlier would have caught the management/shared/ipam apply-order issue before it became a production incident in PR #7.
-- **Write ADRs as decisions are being made, not in batches after the fact.** ADRs 001–009 were written together after key decisions had already crystallized. ADRs 010–013 were written *during* the decision process and are noticeably sharper — the "Alternatives Considered" sections are more specific because I could see the alternatives in real time, not reconstruct them later.
+- **Write ADRs as decisions are being made, not in batches after the fact.** The early ADRs (001–009) were written together after key decisions had already crystallized. Later ADRs were written *during* the decision process and are noticeably sharper — the "Alternatives Considered" sections are more specific because I could see the alternatives in real time, not reconstruct them later.
 - **Use the `gh` CLI from the start.** Every `gh api` command in the runbook is replayable by a future operator. Every "click Settings → Branches → Add rule" in an earlier draft was not. The runbook is more useful the further it leans on CLI commands instead of console navigation.
 - **Put LICENSE in the first commit.** The project was a public repo for several PRs before it had a license. This was an inconsistency with the "real OSS project" framing introduced later.
 
@@ -120,7 +120,7 @@ For a technical reviewer reading this repository as part of an evaluation:
 - **Senior-level architectural decision-making** — every load-bearing choice is explicit, reasoned, with alternatives rejected on record
 - **Cost-consciousness at lab scale with an articulated scaling path to production**
 - **Zero-credential security posture** — enforced by SCP at organization level, not just by policy
-- **Documentation-first discipline** — 13 ADRs, 10-part runbook, 5-diagram architecture document, explicit drift policy
+- **Documentation-first discipline** — ADRs for every load-bearing decision, 10-part runbook, Mermaid architecture diagrams, explicit drift policy
 - **Real infrastructure, not a tutorial** — six real AWS accounts, state in S3 with native locking, CI that actually applies to AWS via OIDC
 - **Operational discipline** — signed commits required, branch protection with required status checks, admin bypass for documented legitimate cases, explicit teardown strategy
 - **Self-correcting process** — the main branch's git history contains real mistakes with their fixes (KMS policy, RAM sharing, apply order, stale UI state). This is a feature, not a gap. A repository with no commit-history mistakes is either trivial or pretending.

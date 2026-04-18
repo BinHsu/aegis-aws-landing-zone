@@ -255,4 +255,6 @@ WORKLOAD TRACK (gates on aegis-core)
 
 ---
 
-*Written: 2026-04-16. Revised same day to reflect aegis-core readiness assessment — OCI packaging not yet available; spec split into two parallel tracks. First action: ADR-014 (ALB affinity) + ADR-017 (namespace model), then 4a' Terraform (docking station). 4b can start in the same session.*
+*Written: 2026-04-16. Revised same day to reflect aegis-core readiness assessment — OCI packaging not yet available; spec split into two parallel tracks.*
+
+*Updated: 2026-04-17. Landing-zone track complete: 4a' (PR #67), 4b (PR #67), 4c (PR #68). ADRs 014–017 all shipped. Flow logs bucket moved to bootstrap (PR #69). Least-privilege aegis-core CI roles landed (PR #74, per #72). Remaining: 4a'' gates on aegis-core OCI packaging.*
