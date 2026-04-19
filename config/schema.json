@@ -259,7 +259,8 @@
           "regions": {
             "type": "array",
             "minItems": 1,
-            "description": "EKS compute footprint per env — must be a subset of top-level regions[]. Length 1 = single-region; length 2+ = multi-region with primary + slave(s). See docs/decisions/018-multi-region-eks-design.md. Cross-field invariants (exactly-one-primary, subset, uniqueness) validated by scripts/validate-config.py and Terraform check blocks.",
+            "maxItems": 2,
+            "description": "EKS compute footprint per env — must be a subset of top-level regions[]. Length 1 = single-region; length 2 = multi-region with primary + one slave. The maxItems=2 ceiling matches the slot-pattern K=2 declared in docs/decisions/018-multi-region-eks-design.md §3 'Scaling boundary'. To go beyond 2: amend ADR-018 §3 (raise K), add a `slave_2` provider alias + module invocation in staging/{network,platform}/ (mirroring slave_1), then bump both this maxItems and the terraform_data.assert_k2_max precondition in the two config.tf files. Cross-field invariants (exactly-one-primary, subset, uniqueness) validated by scripts/validate-config.py and Terraform check blocks.",
             "items": {
               "type": "object",
               "required": ["region", "role", "mode"],

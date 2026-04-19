@@ -109,6 +109,16 @@ module "cluster_slave_1" {
 - Growing to length 3 requires adding (a) one more `provider "aws"` block with alias `slave_2`, (b) one more `module "cluster_slave_2"` invocation, and (c) an ADR amendment raising K to 3. This is minutes of work.
 - Growing beyond K=3 (or wanting truly dynamic N) means breaking the slot pattern entirely. The documented escape hatch is to migrate to a **`scripts/configure-providers.sh` template**: `providers.tf` becomes gitignored, generated from config at plan time like `backend.tf` is today. This is a substantive architectural change — it costs reviewability (providers.tf is no longer in PR diffs) and adds a CI prerequisite step — and requires its own ADR superseding this section.
 
+**Enforcement — hard guard, not just convention**:
+
+The K=2 ceiling is enforced at three layers so a forker who edits `eks.<env>.regions` to length 3 without reading this ADR cannot accidentally produce broken Terraform:
+
+1. **JSON Schema** — `config/schema.json` declares `maxItems: 2` on `eks.<env>.regions`. `scripts/validate-config.py` catches violations pre-commit.
+2. **Terraform precondition** — `terraform_data "assert_k2_max"` resources in both `staging/network/config.tf` and `staging/platform/config.tf` use `lifecycle.precondition { condition = length(local.eks_regions) <= 2 }`. Unlike the `check` blocks for §2 invariants (warnings, plan continues), `lifecycle.precondition` is a hard error that halts plan. The error message inlines the full eight-step unlock procedure so an operator hitting it mid-session doesn't have to jump between the ADR and the .tf files.
+3. **This ADR's Scaling boundary section** (above) — human-readable version with rationale.
+
+The guard is intentionally temporary per slot bump: after amending this §3 and adding a `slave_2` slot + module invocation, the operator bumps both the schema `maxItems` and the precondition threshold to `<= 3` in the same PR. Removing the guard entirely is the migration signal for the escape-hatch generation-script approach.
+
 The pattern here is deliberately **pragmatic over clever**: K=2 is what the actual demo needs (primary + DR failover). We do not pre-invest in K=N flexibility that has zero near-term use.
 
 ### 4. State structure: single state per layer
