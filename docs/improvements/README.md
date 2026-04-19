@@ -69,6 +69,7 @@ See [`001-state-backend-spof.md`](001-state-backend-spof.md) for a fully worked 
 | 006 | Recovery drill cadence | Unvalidated RTO | ~$0 + 2h / quarter | Not implemented |
 | 007 | SLI / SLO empirical baseline | No ground truth for SLO claims | included in Phase 4 | Phase 4 partial (SLIs collected, no SLO targets yet) |
 | [008](008-workload-multi-region.md) | Workload multi-region DR (active-passive pilot light) | AWS region outage | ~$2 / session (Mode A) or ~$1 / month (Mode B persistent) | Partially implemented — schema ready, modules pending Session B |
+| [009](009-grafana-sso-integration.md) | Grafana SSO integration (disable local admin) | Auth-model consistency, operator identity attribution | ~$0 (reuses Identity Center) + ALB if stable URL added | Not started — PR #78 landed `random_password` foundation |
 
 Entries with file links are written in full. Other numbers are tracked here as placeholder entries and will be expanded using the same template when prioritized.
 
