@@ -1,7 +1,7 @@
 # 018. Multi-region EKS design
 
 ## Status
-Accepted
+Accepted (**amended 2026-04-19**: §3 provider alias labels changed from region-based to role-based to comply with CLAUDE.md "zero tolerance for region strings in .tf" rule; renamed the pattern "slot pattern" and clarified the escape hatch to a generation-script approach. Core decisions — sub-module with `configuration_aliases`, single-state-per-layer, K=2 ceiling — unchanged.)
 
 ## Context
 
@@ -57,14 +57,25 @@ Validation layers:
 
 JSON Schema cannot express invariants 2–4 (cross-field constraints are outside its grammar). Python + Terraform cover what schema cannot.
 
-### 3. Terraform provider pattern: module with `configuration_aliases`
+### 3. Terraform provider pattern: slot pattern with sub-module + `configuration_aliases`
 
 Per-cluster resources (EKS cluster, Karpenter IAM, LB Controller, ArgoCD, CoreDNS addon, access entries) are encapsulated in a sub-module. Each `eks.regions[]` entry gets its own module invocation with a per-region provider alias passed in.
 
+Provider alias *labels* must be static HCL identifiers (Terraform language limitation — see Alternatives D). But that does not mean region strings must appear in the label or in the `region =` argument. The codebase uses **role-based alias labels** (`primary`, `slave_1`) and drives `region =` from config. This is the **slot pattern**: K pre-declared slots, each occupied conditionally based on `length(local.eks_regions)`.
+
 ```hcl
-# staging/platform/providers.tf — STATIC aliases, required by Terraform
-provider "aws" { alias = "eu_central_1" region = "eu-central-1" }
-provider "aws" { alias = "eu_west_1"    region = "eu-west-1" }
+# staging/platform/providers.tf — STATIC alias labels, region values from config
+provider "aws" {
+  alias  = "primary"
+  region = local.primary_region
+}
+provider "aws" {
+  alias  = "slave_1"
+  region = try(local.slave_regions[0], local.primary_region)
+  # `try(..., local.primary_region)` gives the slot a valid region when
+  # length(eks.regions) == 1 (no slave exists). The provider is declared
+  # but the module invocation below has count=0, so nothing is created.
+}
 
 # modules/eks-cluster/versions.tf
 terraform {
@@ -78,21 +89,27 @@ terraform {
 # staging/platform/main.tf
 module "cluster_primary" {
   source    = "./modules/eks-cluster"
-  providers = { aws.cluster_region = aws.eu_central_1 }
-  region    = "eu-central-1"
+  providers = { aws.cluster_region = aws.primary }
+  region    = local.primary_region
   ...
 }
 
 module "cluster_slave_1" {
   count     = length(local.eks_regions) > 1 ? 1 : 0
   source    = "./modules/eks-cluster"
-  providers = { aws.cluster_region = aws.eu_west_1 }
-  region    = "eu-west-1"
+  providers = { aws.cluster_region = aws.slave_1 }
+  region    = try(local.slave_regions[0], local.primary_region)
   ...
 }
 ```
 
-**Scaling boundary**: the lab declares two static provider aliases (`eu_central_1`, `eu_west_1`). Adding a third region requires adding both a provider alias block in `providers.tf` and a module invocation in `main.tf`. This is a Terraform language limitation, not a design choice — see Alternatives D.
+**Scaling boundary — the K=2 slot ceiling**:
+
+- `eks.<env>.regions[]` of length 1 (primary only) or 2 (primary + one slave) is a **pure config change**. No `.tf` file is modified.
+- Growing to length 3 requires adding (a) one more `provider "aws"` block with alias `slave_2`, (b) one more `module "cluster_slave_2"` invocation, and (c) an ADR amendment raising K to 3. This is minutes of work.
+- Growing beyond K=3 (or wanting truly dynamic N) means breaking the slot pattern entirely. The documented escape hatch is to migrate to a **`scripts/configure-providers.sh` template**: `providers.tf` becomes gitignored, generated from config at plan time like `backend.tf` is today. This is a substantive architectural change — it costs reviewability (providers.tf is no longer in PR diffs) and adds a CI prerequisite step — and requires its own ADR superseding this section.
+
+The pattern here is deliberately **pragmatic over clever**: K=2 is what the actual demo needs (primary + DR failover). We do not pre-invest in K=N flexibility that has zero near-term use.
 
 ### 4. State structure: single state per layer
 
@@ -146,7 +163,7 @@ Rejected. Terraform workspaces carry HashiCorp-acknowledged baggage (`default` w
 
 ### D. Dynamic provider aliases from a list
 
-Not available. Terraform's language does not support runtime provider generation. OpenTofu 1.7+ has preliminary discussion but no stable feature as of 2026-04. The static alias declaration is unavoidable for this codebase's expected lifetime.
+Not available in Terraform HCL. Provider alias *labels* must be static identifiers; the language does not support runtime provider generation. OpenTofu 1.7+ has preliminary discussion but no stable feature as of 2026-04. **The amended §3 slot pattern is the Terraform-idiomatic workaround** — static labels (`primary`, `slave_1`), dynamic region values from config, and one pre-declared slot per region in the declared ceiling K. If truly dynamic N is ever needed, the escape hatch is a `scripts/configure-providers.sh` template (see §3's "Scaling boundary"). That is a separate ADR.
 
 ### E. Central ArgoCD managing remote clusters
 
