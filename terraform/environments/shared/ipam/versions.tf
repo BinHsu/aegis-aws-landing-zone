@@ -3,8 +3,8 @@ terraform {
 
   required_providers {
     aws = {
-      source  = "hashicorp/aws"
-      version = "~> 6.40"
+      source                = "hashicorp/aws"
+      version               = "~> 6.40"
       configuration_aliases = [aws.eu_west_1]
     }
   }

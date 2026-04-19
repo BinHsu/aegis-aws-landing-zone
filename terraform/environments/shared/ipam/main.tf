@@ -18,7 +18,7 @@
 
 resource "aws_vpc_ipam" "main" {
   description = "Aegis organization-wide IPAM for VPC CIDR allocation"
-  tier        = "advanced"  # Required for cross-account RAM sharing
+  tier        = "advanced" # Required for cross-account RAM sharing
 
   dynamic "operating_regions" {
     for_each = local.operating_regions

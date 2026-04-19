@@ -30,6 +30,13 @@ locals {
   })
 }
 
+check "exactly_one_primary_region" {
+  assert {
+    condition     = length([for r in local.config.regions : r if r.role == "primary"]) == 1
+    error_message = "config/landing-zone.yaml regions[] must have exactly one entry with role: primary."
+  }
+}
+
 # -----------------------------------------------------------------------------
 # Cross-layer state reads
 # -----------------------------------------------------------------------------
@@ -43,9 +50,9 @@ locals {
 data "terraform_remote_state" "staging_network" {
   backend = "s3"
   config = {
-    bucket = "aegis-terraform-state-345895787808"
+    bucket = "${local.config.organization.name}-terraform-state-${local.config.accounts.shared.id}"
     key    = "staging/network/terraform.tfstate"
-    region = "eu-central-1"
+    region = local.primary_region
   }
 }
 

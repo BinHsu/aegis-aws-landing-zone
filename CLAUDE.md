@@ -42,7 +42,7 @@ This is a hands-on portfolio project by **Bin Hsu**, a Senior Software Architect
 - **Style**: One module per logical component (organizations, sso, scp, vpc, eks, argocd)
 - **Backend**: S3 with native locking (`use_lockfile = true`), no DynamoDB
 - **State isolation**: Separate state file per account per component
-- **Variables**: Use `tfvars` files per environment, never hardcode account IDs or regions
+- **No hardcoded config in `.tf` files**: Every deployment-specific value (account IDs, emails, regions, CIDRs, AZ names, state bucket name, KMS aliases, remote state bucket/region inside `terraform_remote_state` blocks, etc.) must be read from `config/landing-zone.yaml` via `local.config = yamldecode(file("${path.root}/../../../../config/landing-zone.yaml"))`. If a value *changes per deployment*, it belongs in config. The only acknowledged exception is `backend.tf` — Terraform's backend block does not accept variables; `scripts/configure-backends.sh` templates those from the same config. See ADR-004.
 - **Naming**: `snake_case` for resources, descriptive names (e.g., `deny_non_eu_regions`)
 
 ### GitHub Actions

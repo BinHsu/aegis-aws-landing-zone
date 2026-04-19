@@ -42,7 +42,7 @@ resource "aws_subnet" "public" {
   vpc_id                  = aws_vpc.main.id
   availability_zone       = local.primary_zones[count.index]
   cidr_block              = cidrsubnet(aws_vpc.main.cidr_block, 4, count.index)
-  map_public_ip_on_launch = false  # Nothing in public subnets needs auto-public-IP
+  map_public_ip_on_launch = false # Nothing in public subnets needs auto-public-IP
 
   tags = {
     Name                     = "staging-public-${local.primary_zones[count.index]}"
@@ -93,7 +93,7 @@ resource "aws_eip" "nat" {
 
 resource "aws_nat_gateway" "main" {
   allocation_id = aws_eip.nat.id
-  subnet_id     = aws_subnet.public[0].id  # AZ-a
+  subnet_id     = aws_subnet.public[0].id # AZ-a
 
   tags = {
     Name = "staging-nat-a"

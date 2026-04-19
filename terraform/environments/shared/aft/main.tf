@@ -27,10 +27,10 @@ module "aft" {
   version = "~> 1.12"
 
   # Control Tower account IDs — read from config
-  ct_management_account_id    = local.config.accounts.management.id
-  log_archive_account_id      = local.config.accounts.logarchive.id
-  audit_account_id            = local.config.accounts.security.id
-  aft_management_account_id   = local.config.accounts.shared.id
+  ct_management_account_id  = local.config.accounts.management.id
+  log_archive_account_id    = local.config.accounts.logarchive.id
+  audit_account_id          = local.config.accounts.security.id
+  aft_management_account_id = local.config.accounts.shared.id
 
   # Region configuration
   ct_home_region              = local.primary_region
@@ -50,9 +50,9 @@ module "aft" {
   terraform_distribution = "oss"
 
   # Feature flags
-  aft_feature_cloudtrail_data_events      = false  # Cost control: data events are expensive
-  aft_feature_enterprise_support          = false  # Not applicable for lab accounts
-  aft_feature_delete_default_vpcs_enabled = true   # Clean up default VPCs in all regions
+  aft_feature_cloudtrail_data_events      = false # Cost control: data events are expensive
+  aft_feature_enterprise_support          = false # Not applicable for lab accounts
+  aft_feature_delete_default_vpcs_enabled = true  # Clean up default VPCs in all regions
 }
 
 check "config_account_ids_not_empty" {

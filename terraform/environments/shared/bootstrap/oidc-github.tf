@@ -7,9 +7,9 @@
 # -----------------------------------------------------------------------------
 
 locals {
-  github_org       = local.config.github.org
+  github_org        = local.config.github.org
   github_infra_repo = local.config.github.infra_repo
-  github_oidc_url  = "https://token.actions.githubusercontent.com"
+  github_oidc_url   = "https://token.actions.githubusercontent.com"
 
   # OIDC subject claims allowed to assume the CI role
   # Format: repo:<org>/<repo>:<context>
@@ -21,8 +21,8 @@ locals {
 }
 
 resource "aws_iam_openid_connect_provider" "github" {
-  url             = local.github_oidc_url
-  client_id_list  = ["sts.amazonaws.com"]
+  url            = local.github_oidc_url
+  client_id_list = ["sts.amazonaws.com"]
 
   # AWS handles GitHub OIDC certificate validation automatically.
   # This thumbprint is required by the API but not used for verification
