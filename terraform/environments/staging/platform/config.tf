@@ -77,6 +77,30 @@ check "eks_region_names_unique" {
   }
 }
 
+# -----------------------------------------------------------------------------
+# K=2 slot ceiling — hard error, not a warning
+# -----------------------------------------------------------------------------
+# Duplicated in staging/network/config.tf. The full unlock procedure lives
+# there (single source of truth). The guard must exist in BOTH layers
+# because either layer can be planned/applied independently; missing the
+# guard in one would leave half the infrastructure attempting K=3 while
+# the other refuses.
+# -----------------------------------------------------------------------------
+resource "terraform_data" "assert_k2_max" {
+  lifecycle {
+    precondition {
+      condition     = length(local.eks_regions) <= 2
+      error_message = <<-EOT
+        eks.staging.regions[] has ${length(local.eks_regions)} entries, exceeding the slot-pattern K=2 ceiling declared in ADR-018 §3 "Scaling boundary".
+
+        See the detailed unlock procedure in terraform/environments/staging/network/config.tf — it walks through the eight-step multi-file edit required to add a K=3 slot. Same error, same procedure; duplicating it here would let the two copies drift.
+
+        TL;DR: amend ADR-018 §3, add slave_2 provider alias + module invocation in BOTH staging/network/ and staging/platform/, extend outputs maps, bump schema.json maxItems, bump the `<=` threshold in both config.tf files.
+      EOT
+    }
+  }
+}
+
 check "config_eks_section_present" {
   assert {
     condition     = contains(keys(local.config), "eks") && contains(keys(local.config.eks), "staging")

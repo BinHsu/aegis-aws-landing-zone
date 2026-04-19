@@ -98,6 +98,76 @@ check "eks_region_names_unique" {
   }
 }
 
+# -----------------------------------------------------------------------------
+# K=2 slot ceiling — hard error, not a warning
+# -----------------------------------------------------------------------------
+# Unlike the check blocks above (which surface as warnings and let plan
+# continue), this terraform_data precondition HARD-ERRORS at plan time. The
+# slot pattern is K=2 by ADR-018 §3; going beyond requires the multi-step
+# unlock below, NOT just editing config. If you're reading this message
+# because your plan just failed, follow the numbered steps exactly.
+# -----------------------------------------------------------------------------
+resource "terraform_data" "assert_k2_max" {
+  lifecycle {
+    precondition {
+      condition     = length(local.eks_regions) <= 2
+      error_message = <<-EOT
+        eks.staging.regions[] has ${length(local.eks_regions)} entries, exceeding the slot-pattern K=2 ceiling declared in ADR-018 §3 "Scaling boundary".
+
+        This project's current slot commitment is TWO regions (primary + one slave). Adding a third region is intentionally made loud — it requires more than a YAML edit because the Terraform provider-alias layer does not support dynamic slot generation (see ADR-018 Alternatives D).
+
+        ## Unlock procedure for K=3 (in order)
+
+          1. Amend docs/decisions/018-multi-region-eks-design.md §3:
+             - Change "K=2" to "K=3" in the "Scaling boundary" paragraph
+             - Document the third slot in the Consequences section
+             - Update the "Amended YYYY-MM-DD" note at the top
+
+          2. In terraform/environments/staging/network/providers.tf:
+             - Add a `provider "aws" { alias = "slave_2" ... }` block
+               with region driven from `try(local.slave_regions[1].region, local.primary_region)`
+
+          3. In terraform/environments/staging/network/main.tf:
+             - Add a `module "vpc_slave_2"` invocation mirroring vpc_slave_1
+             - count = `length(local.slave_regions) >= 2 ? 1 : 0`
+             - providers = `{ aws.this = aws.slave_2 }`
+
+          4. Mirror steps 2-3 in terraform/environments/staging/platform/:
+             - Four provider aliases (aws.slave_2, kubernetes.slave_2, helm.slave_2, kubectl.slave_2)
+             - module "cluster_slave_2" invocation
+
+          5. In staging/network/outputs.tf and staging/platform/outputs.tf,
+             extend the `vpcs` / `clusters` maps with a `slave_2` entry
+             (wrapped in a length >= 2 conditional same as slave_1)
+
+          6. In config/schema.json: bump eks.<env>.regions maxItems from 2 to 3
+
+          7. Bump the `<=` threshold in THIS precondition (both network AND
+             platform config.tf) from 2 to 3
+
+          8. Commit the multi-file change as a single PR — reviewers should
+             see the whole ceiling bump atomically
+
+        ## Unlock procedure for K > 3 (truly dynamic N)
+
+        The slot pattern stops scaling cleanly around K=4+ (providers.tf
+        becomes unwieldy). Instead migrate to a generation-script approach
+        documented in ADR-018 §3 escape hatch: `scripts/configure-providers.sh`
+        reads config and writes providers.tf at plan time (same idea as the
+        existing `scripts/configure-backends.sh`). This is a substantive
+        architectural change requiring a new ADR (ADR-020+) because it
+        removes providers.tf from source control (generated artifact,
+        gitignored), which costs PR-diff reviewability.
+
+        See project memory `project_eks_cluster_module_provider_layout.md`
+        for the full rationale behind the slot-pattern choice and why
+        module-local providers (which would sidestep the slot cap) are
+        rejected by Terraform in the presence of `count`.
+      EOT
+    }
+  }
+}
+
 check "vpc_sizing_present_for_every_eks_region" {
   assert {
     condition = alltrue([
