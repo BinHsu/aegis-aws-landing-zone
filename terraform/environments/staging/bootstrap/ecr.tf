@@ -54,3 +54,54 @@ resource "aws_ecr_lifecycle_policy" "aegis_core" {
     ]
   })
 }
+
+# -----------------------------------------------------------------------------
+# Repository policy — Deny push from any principal except the OIDC role
+# -----------------------------------------------------------------------------
+# Server-side defense-in-depth for aegis-core's image push pipeline, paired
+# with the Bazel-side `target_compatible_with = ["@platforms//os:linux"]`
+# gate on `oci_push` rules. Asked for in cross-repo issue #83.
+#
+# Attack surfaces this closes:
+#   - A dev with AWS console / CLI access running `docker push` manually
+#     from a macOS box — previously would have uploaded a Mach-O-inside-
+#     Linux-image that confuses downstream consumers (ArgoCD, Cosign,
+#     Trivy). Now rejected by ECR with AccessDenied before any bytes land.
+#   - A future contributor with AWS access who skips reading CLAUDE.md
+#     and tries direct `docker push`. Same rejection.
+#
+# What this does NOT catch:
+#   - A compromised CI runner that has the OIDC token. At that point we
+#     have larger problems than a bad image in ECR.
+#
+# The OIDC role principal is the single exception. Cosign signing (future
+# Phase 4b) will use the same role; if a second push identity arrives, add
+# a second ArnEquals entry to the condition — do not weaken to a prefix
+# match.
+# -----------------------------------------------------------------------------
+
+resource "aws_ecr_repository_policy" "aegis_core_push_restriction" {
+  repository = aws_ecr_repository.aegis_core.name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "DenyPushExceptFromOIDCRole"
+      Effect    = "Deny"
+      Principal = "*"
+      Action = [
+        "ecr:PutImage",
+        "ecr:InitiateLayerUpload",
+        "ecr:UploadLayerPart",
+        "ecr:CompleteLayerUpload",
+        "ecr:BatchCheckLayerAvailability",
+      ]
+      Resource = "*"
+      Condition = {
+        StringNotEquals = {
+          "aws:PrincipalArn" = aws_iam_role.aegis_core_ecr.arn
+        }
+      }
+    }]
+  })
+}
