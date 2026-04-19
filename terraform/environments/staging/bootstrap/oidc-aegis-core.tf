@@ -71,6 +71,22 @@ resource "aws_iam_role_policy" "aegis_core_ecr" {
         ]
         Resource = aws_ecr_repository.aegis_core.arn
       },
+      {
+        # Read-after-write — required for rules_oci `oci_push` which fetches
+        # the manifest post-push to verify the upload succeeded, and for any
+        # downstream automation (Cosign signing, Trivy scanning, ArgoCD tag
+        # watching) that needs to resolve the image it just pushed. Scoped
+        # to the same single repo as the push permissions; the role still
+        # cannot list, read, or modify any other repo in the account.
+        # Requested by cross-repo aegis-core Phase 4a Slice 3 (see ldz #80).
+        Sid    = "VerifyPushedManifest"
+        Effect = "Allow"
+        Action = [
+          "ecr:BatchGetImage",
+          "ecr:GetDownloadUrlForLayer",
+        ]
+        Resource = aws_ecr_repository.aegis_core.arn
+      },
     ]
   })
 }
