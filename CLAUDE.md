@@ -111,6 +111,7 @@ Some Terraservices layers have their own operational contracts — pre-flight ch
   - `docs/runbooks/001-bootstrap-aws-account.md` — initial AWS / Control Tower bootstrap
   - `docs/runbooks/002-eks-access.md` — EKS operator access (MUST read before any `kubectl`, `aws eks`, or `staging/platform` apply in a session)
   - `docs/runbooks/003-platform-first-verification.md` — end-to-end checklist after `staging/platform` applies; links to Incidents 10–17 for cold-apply gotchas (MUST follow for any fresh apply of the platform layer)
+  - `docs/runbooks/004-dns-delegation-cloudflare-to-route53.md` — Cloudflare-side subdomain NS delegation to a Route53 hosted zone; one-time setup + rollback + troubleshooting (MUST read when provisioning `staging/edge/` or any future env's edge Terraservice)
 
 - **Rule: When adding a new layer whose operations require their own diagnostic order (e.g., observability, service mesh), add a runbook under `docs/runbooks/` rather than extending this file.** Keeping CLAUDE.md small preserves its discoverability; layer-specific details belong with the layer.
 
