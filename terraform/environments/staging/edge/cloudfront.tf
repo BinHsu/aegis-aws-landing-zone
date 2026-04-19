@@ -25,6 +25,11 @@ resource "aws_cloudfront_origin_access_control" "frontend" {
 }
 
 resource "aws_cloudfront_distribution" "frontend" {
+  # checkov:skip=CKV_AWS_310: Single S3 origin by design — there is no secondary origin to fail over to for a static SPA. Multi-region SPA hosting is a different architecture entirely (Route53 geoloc + two regional CloudFronts); not in lab scope.
+  # checkov:skip=CKV_AWS_374: Geo restriction intentionally set to "none" — public-facing demo with worldwide expected audience. ADR-019 §"Why PriceClass_100" covers the scope.
+  # checkov:skip=CKV_AWS_86: Access logging not configured — would require a second S3 bucket + lifecycle + Athena query layer. Lab traffic volume doesn't justify the operational complexity. CloudFront real-time logs also skipped for same reason. Follow-up if usage analytics become useful.
+  # checkov:skip=CKV_AWS_68: WAF not attached — rate limits at the CloudFront layer are 25K req/sec per IP which is above any realistic lab traffic. No auth-sensitive endpoints on this origin (it is a public static site). WAF cost is $5/month per Web ACL + request fees. Follow-up if abuse observed.
+  # checkov:skip=CKV2_AWS_47: Same as CKV_AWS_68 — no WAF means no WAFv2 AMR. Paired skip.
   enabled             = true
   is_ipv6_enabled     = true
   comment             = "Aegis staging frontend — CloudFront fronting S3 SPA bundle"
@@ -52,6 +57,12 @@ resource "aws_cloudfront_distribution" "frontend" {
     # Managed cache policy: CachingOptimized (recommended by AWS for static
     # web assets — 1 day default TTL, uses gzip/brotli hints from origin).
     cache_policy_id = "658327ea-f89d-4fab-a63d-7e88639e58f6" # Managed-CachingOptimized (fixed AWS-managed ID)
+
+    # Managed response headers policy: SecurityHeadersPolicy
+    # Adds HSTS (max-age=31536000; includeSubDomains), X-Content-Type-Options: nosniff,
+    # X-Frame-Options: SAMEORIGIN, Referrer-Policy: strict-origin-when-cross-origin,
+    # X-XSS-Protection: 1; mode=block. Covers CKV2_AWS_32.
+    response_headers_policy_id = "67f7725c-6f97-4210-82d7-5512b31e9d03" # Managed-SecurityHeadersPolicy
 
     # No query strings forwarded → Managed-CachingOptimized already handles this,
     # but being explicit is fine.

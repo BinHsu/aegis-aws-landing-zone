@@ -10,6 +10,11 @@
 # -----------------------------------------------------------------------------
 
 resource "aws_s3_bucket" "frontend" {
+  # checkov:skip=CKV_AWS_145: SSE-S3 (AES256) is used, not KMS. SSE-KMS adds ~$0.03/10K requests for zero security benefit on a public-CDN-fronted static asset bucket (no PII, no compliance requirement to show key custody). ADR-019 Consequences "Cost" section documents this choice.
+  # checkov:skip=CKV2_AWS_61: Lifecycle rule IS configured below (aws_s3_bucket_lifecycle_configuration.frontend) — Checkov's cross-resource awareness occasionally misses it.
+  # checkov:skip=CKV2_AWS_62: Event notifications not needed — CloudFront invalidation is driven by the aegis-core CI workflow directly, not by S3 bucket events.
+  # checkov:skip=CKV_AWS_18: S3 access logging disabled — would add a second bucket + lifecycle for the logs, not justified for lab traffic volume. Follow-up if audit requires it.
+  # checkov:skip=CKV_AWS_144: Cross-region replication not configured — lab scope, single-region residency (EU).
   bucket = "${local.config.organization.name}-staging-frontend-${local.account_id}"
 
   tags = {
@@ -87,6 +92,12 @@ resource "aws_s3_bucket_lifecycle_configuration" "frontend" {
 
     noncurrent_version_expiration {
       noncurrent_days = 30
+    }
+
+    # Abandoned multipart uploads (CKV_AWS_300) — 7-day cap on orphan upload
+    # parts. Big upload that fails mid-way doesn't accumulate charges forever.
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
     }
   }
 }
