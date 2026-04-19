@@ -260,24 +260,34 @@ jobs:
       # See docs/incidents.md Incident 20.
       - name: Sweep orphan EKS security groups in target VPC
         run: |
-          VPC_ID=$(aws ec2 describe-vpcs \
+          # Filter by component tags rather than by Name tag: PR-c (#84)
+          # refactored the VPC name from `<env>-vpc` to `<env>-<region_key>-vpc`
+          # (e.g. `staging-primary-vpc`). Matching on Name alone would silently
+          # return no VPC and skip the sweep. The component-tag filter also
+          # matches multi-region VPCs (primary + slave_1) — the for-loop below
+          # iterates across all matched VPC IDs so both regions get swept.
+          VPC_IDS=$(aws ec2 describe-vpcs \
             --region ${{ env.AWS_REGION }} \
-            --filters "Name=tag:Name,Values=${{ inputs.env }}-vpc" \
-            --query 'Vpcs[0].VpcId' --output text 2>/dev/null || echo "None")
-          if [ "$VPC_ID" = "None" ] || [ -z "$VPC_ID" ] || [ "$VPC_ID" = "null" ]; then
-            echo "::notice::VPC for ${{ inputs.env }} does not exist; nothing to sweep."
+            --filters "Name=tag:Project,Values=landing-zone-lab" \
+                      "Name=tag:Environment,Values=${{ inputs.env }}" \
+                      "Name=tag:Component,Values=network" \
+            --query 'Vpcs[].VpcId' --output text 2>/dev/null || echo "")
+          if [ -z "$VPC_IDS" ]; then
+            echo "::notice::No VPCs tagged for ${{ inputs.env }}/network in this region; nothing to sweep."
             exit 0
           fi
-          echo "::notice::Sweeping orphan EKS SGs in VPC $VPC_ID"
-          SG_IDS=$(aws ec2 describe-security-groups \
-            --region ${{ env.AWS_REGION }} \
-            --filters "Name=vpc-id,Values=$VPC_ID" \
-                      "Name=tag-key,Values=aws:eks:cluster-name" \
-            --query 'SecurityGroups[].GroupId' \
-            --output text)
-          for SG in $SG_IDS; do
-            echo "::notice::Deleting orphan EKS SG $SG"
-            aws ec2 delete-security-group --region ${{ env.AWS_REGION }} --group-id "$SG" || true
+          for VPC_ID in $VPC_IDS; do
+            echo "::notice::Sweeping orphan EKS SGs in VPC $VPC_ID"
+            SG_IDS=$(aws ec2 describe-security-groups \
+              --region ${{ env.AWS_REGION }} \
+              --filters "Name=vpc-id,Values=$VPC_ID" \
+                        "Name=tag-key,Values=aws:eks:cluster-name" \
+              --query 'SecurityGroups[].GroupId' \
+              --output text)
+            for SG in $SG_IDS; do
+              echo "::notice::Deleting orphan EKS SG $SG"
+              aws ec2 delete-security-group --region ${{ env.AWS_REGION }} --group-id "$SG" || true
+            done
           done
 
       - name: Check layer exists

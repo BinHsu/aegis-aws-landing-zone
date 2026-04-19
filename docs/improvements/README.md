@@ -21,7 +21,7 @@ This directory documents **known gaps** between the current lab state and what a
 | Workload data plane | ~3 nines (99.9%) | Single-region multi-AZ, `eu-central-1` |
 | CI / deployment path | ~2.5 nines (~99.8%) | State bucket SPOF in single account + region; worst-case MTTR unbounded |
 | Observability SLI | Phase 4 shipped (Prometheus + Grafana) | No empirical SLO baseline yet — see entry 007 |
-| Multi-region extent | **IPAM + config schema only** | Workload clusters single-region by default |
+| Multi-region extent | **Modules + CI matrix + K=2 guard shipped; unapplied** | Workload clusters single-region by default; flipping `eks.<env>.regions` to length-2 spins up primary + DR on next apply |
 
 ### Design target (if fully productionized)
 
@@ -68,7 +68,7 @@ See [`001-state-backend-spof.md`](001-state-backend-spof.md) for a fully worked 
 | 005 | Manual override policy (when console / CLI is allowed) | Operator error, audit gap | ~$0 (policy only) | Not implemented |
 | 006 | Recovery drill cadence | Unvalidated RTO | ~$0 + 2h / quarter | Not implemented |
 | 007 | SLI / SLO empirical baseline | No ground truth for SLO claims | included in Phase 4 | Phase 4 partial (SLIs collected, no SLO targets yet) |
-| [008](008-workload-multi-region.md) | Workload multi-region DR (active-passive pilot light) | AWS region outage | ~$2 / session (Mode A) or ~$1 / month (Mode B persistent) | Partially implemented — schema ready, modules pending Session B |
+| [008](008-workload-multi-region.md) | Workload multi-region DR (active-passive pilot light) | AWS region outage | ~$2 / session (Mode A) or ~$1 / month (Mode B persistent) | Partially implemented — schema + modules + CI matrix + K=2 guard done (Session A+B, 2026-04-19); Session C apply/teardown pending |
 | [009](009-grafana-sso-integration.md) | Grafana SSO integration (disable local admin) | Auth-model consistency, operator identity attribution | ~$0 (reuses Identity Center) + ALB if stable URL added | Not started — PR #78 landed `random_password` foundation |
 
 Entries with file links are written in full. Other numbers are tracked here as placeholder entries and will be expanded using the same template when prioritized.

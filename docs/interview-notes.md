@@ -93,17 +93,17 @@ Each entry: what was built → where to look in the repo → the kind of questio
 ### 2.6 Operational discipline (ADRs, incidents, runbooks)
 
 **Built**: three layers of operational writing with explicit rules in [`CLAUDE.md`](../CLAUDE.md):
-- **ADRs** — 13 in [`docs/decisions/`](decisions/), supersede-in-place style ("Design iteration" sections note evolution)
-- **Incidents** — 24 in [`docs/incidents.md`](incidents.md), append-only, standard format
-- **Runbooks** — 3 in [`docs/runbooks/`](runbooks/); CLAUDE.md rule requires AI agents to read the layer's runbook before operating on it
+- **ADRs** — 19 in [`docs/decisions/`](decisions/), supersede-in-place style ("Design iteration" sections note evolution; ADR-018 §3 has an in-place amendment demonstrating the pattern)
+- **Incidents** — 25 in [`docs/incidents.md`](incidents.md), append-only, standard format
+- **Runbooks** — 4 in [`docs/runbooks/`](runbooks/); CLAUDE.md rule requires AI agents to read the layer's runbook before operating on it
 
 **Where to look**:
 - [`CLAUDE.md`](../CLAUDE.md) — 6 explicit "Rule: AI must..." clauses
-- [`docs/decisions/`](decisions/) — 13 ADRs
-- [`docs/incidents.md`](incidents.md) — 24 postmortems
-- [`docs/runbooks/`](runbooks/) — 3 runbooks
+- [`docs/decisions/`](decisions/) — 19 ADRs
+- [`docs/incidents.md`](incidents.md) — 25 postmortems
+- [`docs/runbooks/`](runbooks/) — 4 runbooks
 
-**Likely questions**: show me a real incident (pick from the 24 in `docs/incidents.md` — Incidents 6, 7, 12, 18, 22, 24 cover the widest angle: CMK recovery, hidden cross-account prerequisites, honest design reversal, asymmetric IAM policy, belt-and-suspenders teardown architecture, and Terraform concurrency edge cases); what does the ADR format give you that code comments don't (ADRs preserve *why* even when *what* is obvious from code); how do you keep this discipline consistent (CLAUDE.md rules + pre-commit hooks + AI reminders — not willpower).
+**Likely questions**: show me a real incident (pick from the 25 in `docs/incidents.md` — Incidents 6, 7, 12, 18, 22, 24, 25 cover the widest angle: CMK recovery, hidden cross-account prerequisites, honest design reversal, asymmetric IAM policy, belt-and-suspenders teardown architecture, Terraform concurrency edge cases, and service-specific resource-policy quirks); what does the ADR format give you that code comments don't (ADRs preserve *why* even when *what* is obvious from code); how do you keep this discipline consistent (CLAUDE.md rules + pre-commit hooks + AI reminders — not willpower).
 
 ### 2.7 Cross-repo coordination
 

@@ -150,7 +150,7 @@ Status reflects what exists in `main`, not aspirations. Each "Done" row links to
 **Today (lab baseline)**:
 - Workload data plane: ~3 nines (99.9%) — single-region multi-AZ, `eu-central-1`
 - CI / deployment path: ~2.5 nines (~99.8%) — state bucket is a single-account, single-region SPOF with unbounded worst-case MTTR
-- Multi-region extent: **IPAM pools + config schema only**; workload clusters run single-region by default
+- Multi-region extent: **Modules + CI matrix + K=2 guard shipped (Session B, 2026-04-19); unapplied**; workload clusters run single-region by default — flipping `eks.<env>.regions` to length-2 spins up primary + DR on next apply
 
 **Design target (if productionized)**:
 - Workload: 3.5 nines (99.95%) via active-passive pilot light in `eu-west-1` ([ADR-018](docs/decisions/018-multi-region-eks-design.md))
