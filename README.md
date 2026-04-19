@@ -1,4 +1,4 @@
-<!-- session-close-review: phase status table, ADR table completeness, cost baseline, directory structure -->
+<!-- session-close-review: phase status table, ADR table completeness, cost baseline, directory structure, reliability posture (current + target tables), multi-region extent claims -->
 # Aegis AWS Landing Zone
 
 [![Terraform Apply](https://github.com/BinHsu/aegis-aws-landing-zone/actions/workflows/terraform-apply.yml/badge.svg)](https://github.com/BinHsu/aegis-aws-landing-zone/actions/workflows/terraform-apply.yml)
@@ -16,7 +16,7 @@ What that looks like in practice: six AWS accounts under a single Organization w
 
 ---
 
-**Contents**: [Features](#features-at-a-glance) | [About](#about-this-project) | [Reading Guide](#reading-guide) | [Architecture](#architecture) | [Design Principles](#design-principles) | [Configuration](#configuration-contract) | [Phases](#phases) | [ADRs](#architecture-decision-records) | [Companion Repo](#companion-application-repository) | [Cost](#cost-management) | [Prerequisites](#prerequisites)
+**Contents**: [Features](#features-at-a-glance) | [About](#about-this-project) | [Reading Guide](#reading-guide) | [Architecture](#architecture) | [Design Principles](#design-principles) | [Configuration](#configuration-contract) | [Phases](#phases) | [Reliability](#reliability--recovery-posture) | [ADRs](#architecture-decision-records) | [Companion Repo](#companion-application-repository) | [Cost](#cost-management) | [Prerequisites](#prerequisites)
 
 ## Features at a glance
 
@@ -145,6 +145,23 @@ Status reflects what exists in `main`, not aspirations. Each "Done" row links to
 | 4. Observability + Security | kube-prometheus-stack, Grafana, VPC Flow Logs, GuardDuty EKS, Kyverno admission control | ~$0.25/session extra | **Done** ([#67](https://github.com/BinHsu/aegis-aws-landing-zone/pull/67) 4a'+4b, [#68](https://github.com/BinHsu/aegis-aws-landing-zone/pull/68) 4c, [#69](https://github.com/BinHsu/aegis-aws-landing-zone/pull/69) flow logs bucket) |
 | 5. Enterprise Service Mesh & Auth | Istio (mTLS), cert-manager, EKS Pod Identity, External Secrets, Cognito | TBD | Not started |
 
+## Reliability & Recovery Posture
+
+**Today (lab baseline)**:
+- Workload data plane: ~3 nines (99.9%) — single-region multi-AZ, `eu-central-1`
+- CI / deployment path: ~2.5 nines (~99.8%) — state bucket is a single-account, single-region SPOF with unbounded worst-case MTTR
+- Multi-region extent: **IPAM pools + config schema only**; workload clusters run single-region by default
+
+**Design target (if productionized)**:
+- Workload: 3.5 nines (99.95%) via active-passive pilot light in `eu-west-1` ([ADR-018](docs/decisions/018-multi-region-eks-design.md))
+- CI: 3.5 nines with RPO=1h, RTO=1h via cross-account + cross-region S3 replication ([improvement 001](docs/improvements/001-state-backend-spof.md))
+
+**Why the lab stops here**: the gap is operational burden, not knowledge. Running persistent multi-region adds ~$1/month for Mode B infrastructure plus ~6–8 hours/month of cross-cluster sync and drift management — out of scope for a single-operator lab. The [improvements directory](docs/improvements/) is the productionization roadmap.
+
+**Scope of multi-region in this repo**: the design is structurally ready for forkers who want full multi-region, but the lab runs single-region by default. Config drives it: `eks.<env>.regions` accepts a list of 1..N entries. Lab defaults to length 1 (current behavior); forkers fill more entries to enable multi-region. See [`docs/improvements/008-workload-multi-region.md`](docs/improvements/008-workload-multi-region.md) for the Mode A (pilot light, default) vs Mode B (warm standby, persistent DR) capability boundary, and [ADR-018](docs/decisions/018-multi-region-eks-design.md) for the architectural specification.
+
+Complete improvement index and reliability map: [`docs/improvements/README.md`](docs/improvements/README.md), [`docs/improvements/spof-map.md`](docs/improvements/spof-map.md).
+
 ## Architecture Decision Records
 
 | ADR | Decision |
@@ -166,6 +183,7 @@ Status reflects what exists in `main`, not aspirations. Each "Done" row links to
 | [015](docs/decisions/015-observability-tooling.md) | Observability tooling — kube-prometheus-stack |
 | [016](docs/decisions/016-admission-control.md) | Admission control — Kyverno |
 | [017](docs/decisions/017-workload-namespace-and-rbac-model.md) | Workload namespace and RBAC model |
+| [018](docs/decisions/018-multi-region-eks-design.md) | Multi-region EKS design (list-driven, pilot light default) |
 
 ## Runbooks
 
@@ -237,6 +255,7 @@ aegis-aws-landing-zone/
 ├── docs/
 │   ├── architecture.md            # Detailed Mermaid diagrams
 │   ├── decisions/                 # Architecture Decision Records (ADRs)
+│   ├── improvements/              # Known gaps + productionization roadmap (+ SPOF map)
 │   └── runbooks/                  # Operational runbooks
 ├── .github/workflows/             # plan + apply + checkov
 ├── .pre-commit-config.yaml        # Local quality gates

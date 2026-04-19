@@ -125,7 +125,25 @@ eks:
       #   - Option Y (strict):    self-hosted GH Actions runners inside
       #     the VPC, then restrict to operator /32 + runner subnet CIDR
       - "0.0.0.0/0"
+    # EKS compute footprint — subset of top-level regions[].
+    # Length 1 (default): single-region cluster, cheapest demo.
+    # Length 2+: multi-region with primary + slave(s).
+    # See docs/decisions/018-multi-region-eks-design.md for the full spec,
+    # docs/improvements/008-workload-multi-region.md for Mode A vs Mode B.
+    regions:
+      - region: eu-central-1
+        role: primary
+        mode: active
+      # Uncomment to enable multi-region pilot light DR (~$2 per 4h session).
+      # The region must also be declared in the top-level regions[] list.
+      # - region: eu-west-1
+      #   role: slave
+      #   mode: pilot_light
   # prod:
   #   version: "1.32"
   #   public_access_cidrs:
   #     - "203.0.113.1/32"
+  #   regions:
+  #     - region: eu-central-1
+  #       role: primary
+  #       mode: active

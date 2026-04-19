@@ -199,7 +199,7 @@ Positive statements of what this project demonstrates, paired with explicit stat
 ### What is claimed
 
 - **Cross-cutting architectural design**: composing 10+ AWS services into a working multi-account landing zone with explicit decisions (ADRs) and documented trade-offs.
-- **Operational discipline**: 17 ADRs + 24 incident postmortems + 3 runbooks, each written to a consistent format, never softened retroactively.
+- **Operational discipline**: 18 ADRs + 24 incident postmortems + 3 runbooks, each written to a consistent format, never softened retroactively.
 - **Production-shaped patterns** — not production-*hardened* (the lab is single-operator, single-region-primary, no DR-tested, no SOC 2 audit trail). The patterns are transferable to production; the lab itself isn't production.
 - **Reproducibility**: a single `config/landing-zone.yaml` + two shell scripts land the whole foundation in a fresh AWS organization. Fork-and-deploy is not a slogan here; it's tested.
 
@@ -260,4 +260,6 @@ This doc is frame-level. For the actual substance:
 
 ---
 
-*Last updated: 2026-04-17 — Phase 4 shipped (4a' docking station, 4b observability, 4c cluster security); cross-repo coordination documented for forkers; ADR count 13→17.*
+*Last updated: 2026-04-19 — Multi-region EKS design ratified (ADR-018); `docs/improvements/` directory established for productionization roadmap (state backend cross-account replica, workload multi-region DR); ADR count 17→18.*
+
+*Previous: 2026-04-17 — Phase 4 shipped (4a' docking station, 4b observability, 4c cluster security); cross-repo coordination documented for forkers; ADR count 13→17.*
