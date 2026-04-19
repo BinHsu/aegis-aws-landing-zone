@@ -19,6 +19,25 @@ jobs:
     # rows for the same env but different config shapes are distinguishable
     # (see `staging/network (multi-region)` below).
     name: Plan ${{ matrix.env }}${{ matrix.variant && format(' ({0})', matrix.variant) || '' }}
+    # -----------------------------------------------------------------------
+    # Concurrency — serialize matrix rows that share the same env + branch
+    # -----------------------------------------------------------------------
+    # Terraform's S3 backend with `use_lockfile = true` (per ADR-003) does
+    # conditional-put on a `.tflock` sidecar object. Two plans against the
+    # SAME state key hit a race: first planner writes tflock, second's
+    # if-none-match PutObject returns 412 PreconditionFailed.
+    # `-lock-timeout=10m` helps with normal retryable contention but not
+    # with the 412-then-404 corner case observed in CI when two matrix
+    # rows (e.g. staging/network length-1 + length-2) start concurrently.
+    #
+    # This concurrency group forces same-env rows within the same PR branch
+    # to queue serially (`cancel-in-progress: false`). Different branches /
+    # different envs continue to run in parallel — throughput cost is only
+    # the extra variant row.
+    # -----------------------------------------------------------------------
+    concurrency:
+      group: plan-${{ matrix.env }}-${{ github.head_ref || github.ref_name }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
