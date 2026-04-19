@@ -184,6 +184,7 @@ Complete improvement index and reliability map: [`docs/improvements/README.md`](
 | [016](docs/decisions/016-admission-control.md) | Admission control — Kyverno |
 | [017](docs/decisions/017-workload-namespace-and-rbac-model.md) | Workload namespace and RBAC model |
 | [018](docs/decisions/018-multi-region-eks-design.md) | Multi-region EKS design (list-driven, pilot light default) |
+| [019](docs/decisions/019-frontend-serving-strategy.md) | Frontend serving strategy — S3 + CloudFront, split subdomain |
 
 ## Runbooks
 
