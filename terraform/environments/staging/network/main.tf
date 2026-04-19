@@ -1,203 +1,57 @@
 # -----------------------------------------------------------------------------
-# Staging VPC — Phase 3b per ADR-012
+# Staging VPCs — ADR-012 topology, ADR-018 multi-region
 # -----------------------------------------------------------------------------
-# Three-AZ VPC with public/private subnet split, single NAT Gateway (lab
-# compromise — production uses 3), Gateway endpoints for S3 + DynamoDB,
-# Internet Gateway for public subnets.
+# One module invocation per entry in eks.staging.regions[]. Provider alias
+# is the slot pattern: always two aliases (primary, slave_1), growing requires
+# ADR amendment. All region-specific resources live inside the module so the
+# top level stays small and reviewable.
 #
-# CIDR allocated dynamically from the shared/ipam regional pool (RFC1918
-# 10.0.0.0/12 for eu-central-1). Specific CIDR is known-after-apply.
-#
-# VPC Flow Logs: see flow-logs.tf (added in Phase 4b).
+# State structure: single state file for the layer — all invocations share
+# `staging/network/terraform.tfstate`. Per ADR-018 §4.
 # -----------------------------------------------------------------------------
 
-# -----------------------------------------------------------------------------
-# VPC (CIDR from IPAM)
-# -----------------------------------------------------------------------------
-
-resource "aws_vpc" "main" {
-  ipv4_ipam_pool_id   = data.terraform_remote_state.shared_ipam.outputs.primary_pool_id
-  ipv4_netmask_length = local.vpc_config.netmask_length
-
-  enable_dns_hostnames = true
-  enable_dns_support   = true
-
-  tags = {
-    Name = "staging-vpc"
-  }
+locals {
+  # flow_logs_bucket_arn is read once at layer scope and passed into each
+  # module. Null-safe: if bootstrap has not been applied, the VPC module
+  # skips the aws_flow_log resource entirely (see module flow-logs.tf).
+  flow_logs_bucket_arn = try(
+    data.terraform_remote_state.staging_bootstrap.outputs.flow_logs_bucket_arn,
+    null
+  )
 }
 
-# -----------------------------------------------------------------------------
-# Subnets — 3 public (/24) + 3 private (/23) across 3 AZs
-# -----------------------------------------------------------------------------
-# Sizing from a /20 VPC:
-#   Public  /24 × 3 = 768 IPs   (indices 0,1,2 of the /24 split)
-#   Private /23 × 3 = 1,536 IPs (indices 4,5,6 of the /23 split)
-#   Unused: 1,792 IPs (room for growth without resize)
-# -----------------------------------------------------------------------------
+module "vpc_primary" {
+  source = "./modules/vpc"
 
-resource "aws_subnet" "public" {
-  count = length(local.primary_zones)
-
-  vpc_id                  = aws_vpc.main.id
-  availability_zone       = local.primary_zones[count.index]
-  cidr_block              = cidrsubnet(aws_vpc.main.cidr_block, 4, count.index)
-  map_public_ip_on_launch = false # Nothing in public subnets needs auto-public-IP
-
-  tags = {
-    Name                     = "staging-public-${local.primary_zones[count.index]}"
-    Tier                     = "public"
-    "kubernetes.io/role/elb" = "1"
+  providers = {
+    aws.this = aws.primary
   }
+
+  region_key           = "primary"
+  region_name          = local.primary_eks_region.region
+  zones                = local.zones_by_region[local.primary_eks_region.region]
+  netmask_length       = local.vpc_config_by_region[local.primary_eks_region.region].netmask_length
+  ipam_pool_id         = local.ipam_pool_by_region[local.primary_eks_region.region]
+  flow_logs_bucket_arn = local.flow_logs_bucket_arn
+  env_name             = "staging"
 }
 
-resource "aws_subnet" "private" {
-  count = length(local.primary_zones)
+module "vpc_slave_1" {
+  source = "./modules/vpc"
 
-  vpc_id            = aws_vpc.main.id
-  availability_zone = local.primary_zones[count.index]
-  cidr_block        = cidrsubnet(aws_vpc.main.cidr_block, 3, count.index + 4)
+  count = length(local.slave_regions) >= 1 ? 1 : 0
 
-  tags = {
-    Name                              = "staging-private-${local.primary_zones[count.index]}"
-    Tier                              = "private"
-    "kubernetes.io/role/internal-elb" = "1"
-  }
-}
-
-# -----------------------------------------------------------------------------
-# Internet Gateway (public egress)
-# -----------------------------------------------------------------------------
-
-resource "aws_internet_gateway" "main" {
-  vpc_id = aws_vpc.main.id
-
-  tags = {
-    Name = "staging-igw"
-  }
-}
-
-# -----------------------------------------------------------------------------
-# NAT Gateway (single, in AZ-a — lab compromise per ADR-012)
-# -----------------------------------------------------------------------------
-
-resource "aws_eip" "nat" {
-  domain = "vpc"
-
-  tags = {
-    Name = "staging-nat-eip"
+  providers = {
+    aws.this = aws.slave_1
   }
 
-  depends_on = [aws_internet_gateway.main]
-}
-
-resource "aws_nat_gateway" "main" {
-  allocation_id = aws_eip.nat.id
-  subnet_id     = aws_subnet.public[0].id # AZ-a
-
-  tags = {
-    Name = "staging-nat-a"
-  }
-
-  depends_on = [aws_internet_gateway.main]
-}
-
-# -----------------------------------------------------------------------------
-# Route Tables — one for all public subnets, one for all private subnets
-# -----------------------------------------------------------------------------
-# Single private route table is acceptable because the single NAT in AZ-a
-# is the only egress target. When production splits to one NAT per AZ,
-# split to one private route table per AZ.
-# -----------------------------------------------------------------------------
-
-resource "aws_route_table" "public" {
-  vpc_id = aws_vpc.main.id
-
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.main.id
-  }
-
-  tags = {
-    Name = "staging-public-rt"
-  }
-}
-
-resource "aws_route_table" "private" {
-  vpc_id = aws_vpc.main.id
-
-  route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.main.id
-  }
-
-  tags = {
-    Name = "staging-private-rt"
-  }
-}
-
-resource "aws_route_table_association" "public" {
-  count = length(aws_subnet.public)
-
-  subnet_id      = aws_subnet.public[count.index].id
-  route_table_id = aws_route_table.public.id
-}
-
-resource "aws_route_table_association" "private" {
-  count = length(aws_subnet.private)
-
-  subnet_id      = aws_subnet.private[count.index].id
-  route_table_id = aws_route_table.private.id
-}
-
-# -----------------------------------------------------------------------------
-# Gateway VPC Endpoints (free — S3 and DynamoDB)
-# -----------------------------------------------------------------------------
-# Gateway endpoints attach to route tables and route traffic to AWS services
-# over the private network. No data processing charges, no hourly fees.
-# S3 endpoint is the big cost-saver — ECR image layers traverse S3 internally,
-# routing them through the Gateway endpoint offloads NAT data transfer.
-# -----------------------------------------------------------------------------
-
-resource "aws_vpc_endpoint" "s3" {
-  vpc_id            = aws_vpc.main.id
-  service_name      = "com.amazonaws.${local.primary_region}.s3"
-  vpc_endpoint_type = "Gateway"
-  route_table_ids   = [aws_route_table.private.id, aws_route_table.public.id]
-
-  tags = {
-    Name = "staging-vpce-s3"
-  }
-}
-
-resource "aws_vpc_endpoint" "dynamodb" {
-  vpc_id            = aws_vpc.main.id
-  service_name      = "com.amazonaws.${local.primary_region}.dynamodb"
-  vpc_endpoint_type = "Gateway"
-  route_table_ids   = [aws_route_table.private.id, aws_route_table.public.id]
-
-  tags = {
-    Name = "staging-vpce-dynamodb"
-  }
-}
-
-# -----------------------------------------------------------------------------
-# Default security group — deny all traffic (CKV2_AWS_12)
-# -----------------------------------------------------------------------------
-# AWS creates a default security group when the VPC is created. By default
-# it allows all traffic within the group, which is an implicit "anything in
-# this VPC can talk to anything else in this SG." Best practice is to
-# explicitly empty the default SG so nothing uses it accidentally — every
-# resource must attach to a named security group with explicit rules.
-# -----------------------------------------------------------------------------
-
-resource "aws_default_security_group" "main" {
-  vpc_id = aws_vpc.main.id
-
-  # No ingress, no egress — deny all
-  tags = {
-    Name = "staging-default-sg-denyall"
-  }
+  region_key           = "slave_1"
+  region_name          = try(local.slave_regions[0].region, local.primary_region)
+  zones                = try(local.zones_by_region[local.slave_regions[0].region], [])
+  netmask_length       = try(local.vpc_config_by_region[local.slave_regions[0].region].netmask_length, 20)
+  ipam_pool_id         = try(local.ipam_pool_by_region[local.slave_regions[0].region], "")
+  flow_logs_bucket_arn = local.flow_logs_bucket_arn
+  env_name             = "staging"
 }
 
 check "ipam_pool_available" {
