@@ -1845,6 +1845,87 @@ If a future session shows apply-side contention, the flag can be added there too
 
 ---
 
+## Incident 25 — ECR repository policy rejected at apply time despite clean plan (principal shorthand + resource-field ambiguity)
+
+### Symptom
+
+A PR (#86 / commit `e4e…`, closing cross-repo issue #83) added an `aws_ecr_repository_policy` to the `aegis-core` ECR repo. `terraform plan` in CI was clean — "Plan: 1 to add, 0 to change, 0 to destroy." After merge to main, `terraform-apply-baseline.yml` → job `Apply staging/bootstrap` failed with:
+
+```
+Error: putting ECR Repository Policy (aegis-core): operation error ECR:
+SetRepositoryPolicy, https response error StatusCode: 400, ... InvalidParameterException:
+Invalid parameter at 'PolicyText' failed to satisfy constraint: 'Invalid repository policy provided'
+```
+
+Other baseline jobs (management/bootstrap, management/scps, shared/bootstrap, shared/ipam) all succeeded — only the ECR-touching layer failed. Baseline run: 24629024427. Full log: job 72013019050.
+
+### Root cause
+
+Three defects in the policy document shape, each independently enough to trip ECR's `ValidatePolicy` API call. Terraform's plan step does no server-side validation for resource-policy fields — it just serializes the HCL into a JSON blob and sends it at apply time. That is why plan was green.
+
+1. **`Principal = "*"` — shorthand not accepted by ECR repository policies.** The IAM identity-policy spec allows `"Principal": "*"` as a shortcut for `{ "AWS": "*" }`, and many AWS services accept it in resource policies. ECR does not. It requires the explicit `{ "AWS": "*" }` form. This is ECR-specific strictness — the same shorthand works on S3 bucket policies, KMS key policies, and IAM role trust policies without complaint.
+
+2. **`Resource = "*"` in a repository-scoped policy.** ECR repository policies are attached to a specific repository; the resource is implicit. Including an explicit `Resource` field, even `"*"`, makes ECR interpret the policy as trying to cover multiple resources across the account — which is not a thing repository policies can do. The fix is to omit the field entirely.
+
+3. **`ecr:BatchCheckLayerAvailability` included in the deny list.** Functionally wrong, not a policy-validity issue in isolation but worth pairing in the same fix: `BatchCheckLayerAvailability` is called on the pull path *and* the push path. Denying it for non-OIDC principals would have broken pulls from Karpenter EC2 nodes (pulling the engine image to schedule pods), ArgoCD (pulling to validate manifest references), and every future Cosign/Trivy consumer. The four remaining actions — `PutImage`, `InitiateLayerUpload`, `UploadLayerPart`, `CompleteLayerUpload` — are push-only and sufficient to block `docker push` from any non-OIDC identity.
+
+### Detection
+
+`gh run view 24629024427 -R … --log-failed | grep -B1 -A10 'Error:'` surfaced the AWS-side validation error. The error message is generic ("Invalid repository policy provided") — AWS does not tell you *which* field failed. Debugging required diffing the written policy against a known-working ECR policy from the HashiCorp AWS provider examples.
+
+### Resolution
+
+PR #87 with three changes, each with inline comments documenting the quirk:
+
+```hcl
+resource "aws_ecr_repository_policy" "aegis_core_push_restriction" {
+  repository = aws_ecr_repository.aegis_core.name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid    = "DenyPushExceptFromOIDCRole"
+      Effect = "Deny"
+      Principal = {
+        AWS = "*"                                      # (1) explicit form, not "*"
+      }
+      Action = [
+        "ecr:PutImage",
+        "ecr:InitiateLayerUpload",
+        "ecr:UploadLayerPart",
+        "ecr:CompleteLayerUpload",                     # (3) BatchCheckLayerAvailability removed
+      ]
+                                                       # (2) Resource field omitted
+      Condition = {
+        StringNotEquals = {
+          "aws:PrincipalArn" = aws_iam_role.aegis_core_ecr.arn
+        }
+      }
+    }]
+  })
+}
+```
+
+Verified with a local `terraform apply` against live state before committing. Plan delta: `Plan: 1 to add, 0 to change, 0 to destroy.` — same shape as the failing PR, but this time apply succeeds.
+
+### Prevention
+
+- **For any new AWS resource-policy resource (S3 bucket policy, KMS key policy, SQS/SNS queue policy, ECR repository policy, etc.): test the policy with a throwaway local apply before committing.** `terraform plan` validates Terraform-side schema but cannot catch service-specific policy-document rejection. The round-trip is ~10 seconds; the cost of a failed baseline apply and a fix-forward PR is ~20 minutes. Always cheaper to apply locally first.
+
+- **Do not carry shorthand IAM forms across service boundaries.** `Principal = "*"` works for S3/IAM/KMS but not ECR. `Resource = "*"` has different semantics across services (global vs. resource-implicit vs. repository-scoped). When writing a resource policy for a service you have not touched before, start from the AWS documentation's canonical example for that service, not from a copied IAM policy that happens to look similar.
+
+- **Read action lists by their use path, not their name.** `BatchCheckLayerAvailability` *sounds* like a push action because layer existence is checked during push. It is also called during pull to detect missing layers. Any name that looks push-only or pull-only in ECR's action list deserves a quick "is it used by both paths?" check before putting it into a Deny statement. The AWS ECR IAM reference documents which actions are on which path; the action name alone is not a guide.
+
+### Lessons
+
+- **Clean plan ≠ apply will succeed** for resource-policy resources. This is structural in Terraform: plan is a dry run that cannot validate opaque document fields (IAM policy JSON, Lambda function code, CloudFormation templates embedded as strings, etc.). Treat every resource whose state-changing field is a blob as "plan is necessary but not sufficient."
+
+- **Defense-in-depth work needs a fire drill step.** The whole point of the ECR resource policy is to block a hypothetical attack path that has never been exercised. The first time it will be exercised is when something legitimate accidentally trips it — e.g. a future Cosign integration that pushes signatures as OCI artifacts. When this happens, the operator should already have the mental model "this is the policy that denied me, here is the ARN condition, here is how to add a new allowed principal." The inline comments in the Terraform resource carry that forward; so does this incident entry.
+
+- **Baseline apply failures on merge are the most painful class of failure.** They fire post-merge, so the PR is already closed; the only recourse is a fix-forward PR. Plan-time validation matrices in CI are the correct forum for blob validation once the pattern is identified — e.g. an opa/conftest check on ECR policy JSON shape would have caught all three defects at PR time. Worth revisiting if a second "plan green but apply fails on a resource-policy blob" incident appears.
+
+---
+
 ## Adding a new incident
 
 Append new sections at the bottom, before this footer, using the format:
