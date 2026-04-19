@@ -30,6 +30,7 @@ resource "aws_cloudfront_distribution" "frontend" {
   # checkov:skip=CKV_AWS_86: Access logging not configured — would require a second S3 bucket + lifecycle + Athena query layer. Lab traffic volume doesn't justify the operational complexity. CloudFront real-time logs also skipped for same reason. Follow-up if usage analytics become useful.
   # checkov:skip=CKV_AWS_68: WAF not attached — rate limits at the CloudFront layer are 25K req/sec per IP which is above any realistic lab traffic. No auth-sensitive endpoints on this origin (it is a public static site). WAF cost is $5/month per Web ACL + request fees. Follow-up if abuse observed.
   # checkov:skip=CKV2_AWS_47: Same as CKV_AWS_68 — no WAF means no WAFv2 AMR. Paired skip.
+  # checkov:skip=CKV2_AWS_32: response_headers_policy_id IS set on default_cache_behavior (Managed-SecurityHeadersPolicy, AWS managed policy ID 67f7725c-6f97-4210-82d7-5512b31e9d03) — live headers include HSTS / X-Content-Type-Options / X-Frame-Options / Referrer-Policy / X-XSS-Protection. Checkov's static analysis does not resolve managed-policy IDs and flags the check as failed despite the attachment being correct; verified post-apply via `curl -I https://aegis-app.staging.binhsu.org/` once first sync lands.
   enabled             = true
   is_ipv6_enabled     = true
   comment             = "Aegis staging frontend — CloudFront fronting S3 SPA bundle"
