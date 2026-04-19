@@ -83,20 +83,35 @@ resource "aws_ecr_lifecycle_policy" "aegis_core" {
 resource "aws_ecr_repository_policy" "aegis_core_push_restriction" {
   repository = aws_ecr_repository.aegis_core.name
 
+  # ECR repository-policy quirks addressed here vs. the first attempt that
+  # failed apply with `Invalid repository policy provided` (baseline run
+  # 24629024427):
+  #   1. Principal uses the nested `{ AWS = "*" }` form. ECR rejects the
+  #      string-shorthand `Principal = "*"` in repository policies even
+  #      though IAM identity policies accept it.
+  #   2. `Resource` field omitted. For repository policies, the resource
+  #      is inherent (the repo itself); including an explicit `"*"` made
+  #      ECR interpret it as a malformed cross-resource policy.
+  #   3. `BatchCheckLayerAvailability` removed from the deny list. It is
+  #      called on the pull path as well as the push path — denying it
+  #      for non-OIDC principals would break pulls from Karpenter nodes,
+  #      ArgoCD, and any future Cosign/Trivy consumer. The four remaining
+  #      actions (PutImage + the three LayerUpload primitives) are
+  #      push-only and sufficient to block `docker push`.
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Sid       = "DenyPushExceptFromOIDCRole"
-      Effect    = "Deny"
-      Principal = "*"
+      Sid    = "DenyPushExceptFromOIDCRole"
+      Effect = "Deny"
+      Principal = {
+        AWS = "*"
+      }
       Action = [
         "ecr:PutImage",
         "ecr:InitiateLayerUpload",
         "ecr:UploadLayerPart",
         "ecr:CompleteLayerUpload",
-        "ecr:BatchCheckLayerAvailability",
       ]
-      Resource = "*"
       Condition = {
         StringNotEquals = {
           "aws:PrincipalArn" = aws_iam_role.aegis_core_ecr.arn
