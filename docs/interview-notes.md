@@ -260,6 +260,8 @@ This doc is frame-level. For the actual substance:
 
 ---
 
-*Last updated: 2026-04-19 — Multi-region EKS design ratified (ADR-018); `docs/improvements/` directory established for productionization roadmap (state backend cross-account replica, workload multi-region DR); ADR count 17→18.*
+*Last updated: 2026-04-20 — Multi-region slot pattern now covers all three workload-tier layers (network + platform + workloads); ADR-015 amended (Discovery contract for PrometheusRule / ServiceMonitor / Grafana dashboard discovery, fixing fact drift on Application CRD ownership); ADR-018 §3 amended (K=2 ceiling guard now in 3 layers, not 2). ADR count unchanged at 19; only amendments.*
+
+*Previous: 2026-04-19 — Multi-region EKS design ratified (ADR-018); `docs/improvements/` directory established for productionization roadmap (state backend cross-account replica, workload multi-region DR); ADR count 17→18.*
 
 *Previous: 2026-04-17 — Phase 4 shipped (4a' docking station, 4b observability, 4c cluster security); cross-repo coordination documented for forkers; ADR count 13→17.*
