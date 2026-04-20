@@ -5,7 +5,7 @@ A reader's guide for recruiters, hiring managers, and technical leadership revie
 
 **Time budget**:
 - Recruiter / HR / hunter: read all of this doc (~10 min).
-- Technical leader / architect peer: skim section 1 (stance), then jump to [`docs/decisions/`](decisions/) for the 19 ADRs and [`docs/incidents.md`](incidents.md) for the 30 postmortems.
+- Technical leader / architect peer: skim section 1 (stance), then jump to [`docs/decisions/`](decisions/) for the 21 ADRs and [`docs/incidents.md`](incidents.md) for the 32 postmortems.
 
 ---
 
@@ -21,8 +21,8 @@ This split is explicit for a reason: a hands-on architect's value comes from shi
 The project value is execution and discipline, layered together:
 
 - **Execution**: the entire repo is working code — Terraform applies cleanly, CI applies to a live AWS organization, the EKS platform bootstraps end-to-end in one workflow dispatch. See the [Phase table in README](../README.md#phases) for what's actually deployed on `main`, not aspirations.
-- 17 [Architecture Decision Records](decisions/) (including several "Design iteration" sections documenting *reversed* decisions honestly)
-- 24 [incident postmortems](incidents.md) (each written after the fact in a consistent format, never softened retroactively)
+- 21 [Architecture Decision Records](decisions/) (including several "Design iteration" sections documenting *reversed* decisions honestly)
+- 32 [incident postmortems](incidents.md) (each written after the fact in a consistent format, never softened retroactively)
 - A 4-workflow CI/CD split shaped by cost profile (not template copy-paste)
 - Runbooks covering both the happy path and the "here is how to debug when it breaks" diagnostic order
 - A config contract that makes the whole landing zone forkable in one YAML file
@@ -95,15 +95,16 @@ Each entry: what was built → where to look in the repo → the kind of questio
 **Built**: three layers of operational writing with explicit rules in [`CLAUDE.md`](../CLAUDE.md):
 - **ADRs** — 19 in [`docs/decisions/`](decisions/), supersede-in-place style ("Design iteration" sections note evolution; ADR-018 §3 has an in-place amendment demonstrating the pattern)
 - **Incidents** — 30 in [`docs/incidents.md`](incidents.md), append-only, standard format
-- **Runbooks** — 4 in [`docs/runbooks/`](runbooks/); CLAUDE.md rule requires AI agents to read the layer's runbook before operating on it
+- **Runbooks** — 5 in [`docs/runbooks/`](runbooks/); CLAUDE.md rule requires AI agents to read the layer's runbook before operating on it
 
 **Where to look**:
 - [`CLAUDE.md`](../CLAUDE.md) — 6 explicit "Rule: AI must..." clauses
-- [`docs/decisions/`](decisions/) — 19 ADRs
-- [`docs/incidents.md`](incidents.md) — 30 postmortems
-- [`docs/runbooks/`](runbooks/) — 4 runbooks
+- [`docs/decisions/`](decisions/) — 21 ADRs
+- [`docs/incidents.md`](incidents.md) — 32 postmortems
+- [`docs/runbooks/`](runbooks/) — 5 runbooks
+- [`docs/principles/`](principles/) — 2 cross-cutting discipline docs (change-review, break-glass-apply)
 
-**Likely questions**: show me a real incident (pick from the 30 in `docs/incidents.md` — Incidents 6, 7, 12, 18, 22, 24, 25, 26 cover the widest angle: CMK recovery, hidden cross-account prerequisites, honest design reversal, asymmetric IAM policy, belt-and-suspenders teardown architecture, Terraform concurrency edge cases, service-specific resource-policy quirks, and ArgoCD-managed-CRD bootstrap race); what does the ADR format give you that code comments don't (ADRs preserve *why* even when *what* is obvious from code); how do you keep this discipline consistent (CLAUDE.md rules + pre-commit hooks + AI reminders — not willpower).
+**Likely questions**: show me a real incident (pick from the 32 in `docs/incidents.md` — Incidents 6, 7, 12, 18, 22, 24, 25, 26 cover the widest angle: CMK recovery, hidden cross-account prerequisites, honest design reversal, asymmetric IAM policy, belt-and-suspenders teardown architecture, Terraform concurrency edge cases, service-specific resource-policy quirks, and ArgoCD-managed-CRD bootstrap race); what does the ADR format give you that code comments don't (ADRs preserve *why* even when *what* is obvious from code); how do you keep this discipline consistent (CLAUDE.md rules + pre-commit hooks + AI reminders — not willpower).
 
 ### 2.7 Cross-repo coordination
 
@@ -199,7 +200,7 @@ Positive statements of what this project demonstrates, paired with explicit stat
 ### What is claimed
 
 - **Cross-cutting architectural design**: composing 10+ AWS services into a working multi-account landing zone with explicit decisions (ADRs) and documented trade-offs.
-- **Operational discipline**: 18 ADRs + 24 incident postmortems + 3 runbooks, each written to a consistent format, never softened retroactively.
+- **Operational discipline**: 21 ADRs + 32 incident postmortems + 5 runbooks + 2 cross-cutting principle docs, each written to a consistent format, never softened retroactively.
 - **Production-shaped patterns** — not production-*hardened* (the lab is single-operator, single-region-primary, no DR-tested, no SOC 2 audit trail). The patterns are transferable to production; the lab itself isn't production.
 - **Reproducibility**: a single `config/landing-zone.yaml` + two shell scripts land the whole foundation in a fresh AWS organization. Fork-and-deploy is not a slogan here; it's tested.
 
@@ -251,8 +252,8 @@ This doc is frame-level. For the actual substance:
 
 | Interest | Open |
 |---|---|
-| "Walk me through the architectural decisions" | [`docs/decisions/`](decisions/) — 13 ADRs |
-| "Show me real failures and what you learned" | [`docs/incidents.md`](incidents.md) — 30 postmortems |
+| "Walk me through the architectural decisions" | [`docs/decisions/`](decisions/) — 21 ADRs |
+| "Show me real failures and what you learned" | [`docs/incidents.md`](incidents.md) — 32 postmortems |
 | "How do I reproduce this?" | [`docs/runbooks/001-bootstrap-aws-account.md`](runbooks/001-bootstrap-aws-account.md) |
 | "How would an AI agent work on this?" | [`CLAUDE.md`](../CLAUDE.md) |
 | "What does the config contract look like?" | [`config/landing-zone.example.yaml`](../config/landing-zone.example.yaml) + [`config/schema.json`](../config/schema.json) + [ADR-004](decisions/004-deployment-configuration-contract.md) |
