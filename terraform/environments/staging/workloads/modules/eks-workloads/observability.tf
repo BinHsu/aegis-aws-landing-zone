@@ -145,6 +145,35 @@ resource "kubectl_manifest" "kube_prometheus_stack" {
             }
 
             # -----------------------------------------------------------------
+            # node-exporter — exclude Fargate nodes (Incident 27)
+            # -----------------------------------------------------------------
+            # The prometheus-node-exporter sub-chart ships a DaemonSet that
+            # mounts host paths (/proc, /sys, /) to export node-level metrics.
+            # Fargate nodes forbid host mounts, so DaemonSet pods scheduled
+            # onto Fargate stay Pending forever. The chart default has no
+            # Fargate-aware affinity — we add it here.
+            #
+            # Karpenter-provisioned EC2 nodes do NOT have the
+            # `eks.amazonaws.com/compute-type=fargate` label, so they match
+            # the NotIn clause and the DaemonSet runs normally on them.
+            # -----------------------------------------------------------------
+            "prometheus-node-exporter" = {
+              affinity = {
+                nodeAffinity = {
+                  requiredDuringSchedulingIgnoredDuringExecution = {
+                    nodeSelectorTerms = [{
+                      matchExpressions = [{
+                        key      = "eks.amazonaws.com/compute-type"
+                        operator = "NotIn"
+                        values   = ["fargate"]
+                      }]
+                    }]
+                  }
+                }
+              }
+            }
+
+            # -----------------------------------------------------------------
             # Custom alert rules — deprecated API detection
             # -----------------------------------------------------------------
             # Per docs/principles/change-review-discipline.md §3.4, alert on

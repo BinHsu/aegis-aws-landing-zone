@@ -70,6 +70,7 @@ See [`001-state-backend-spof.md`](001-state-backend-spof.md) for a fully worked 
 | 007 | SLI / SLO empirical baseline | No ground truth for SLO claims | included in Phase 4 | Phase 4 partial (SLIs collected, no SLO targets yet) |
 | [008](008-workload-multi-region.md) | Workload multi-region DR (active-passive pilot light) | AWS region outage | ~$2 / 90-min session (Mode A, verified 2026-04-20 incl. one teardown retry) or ~$1 / month (Mode B persistent) | Slot pattern validated in real AWS — Session C 2026-04-20 applied length-2 across network + platform + workloads, verified both clusters healthy, torn down after one sweep-retry cycle. 5 bugs surfaced (Incidents 26–30): 4 are pre-existing workload components (cold-apply first-time), 1 is a pre-existing teardown-workflow sweep defect. Fix PR next session. |
 | [009](009-grafana-sso-integration.md) | Grafana SSO integration (disable local admin) | Auth-model consistency, operator identity attribution | ~$0 (reuses Identity Center) + ALB if stable URL added | Not started — PR #78 landed `random_password` foundation |
+| [010](010-guardduty-runtime-agent-fargate-compat.md) | GuardDuty EKS Runtime agent Fargate compat + CrashLoop | Runtime threat detection claim vs reality | ~$0 (config-only change) | Not started — Incident 28 captured root-cause candidates; blocked on live diagnosis |
 
 Entries with file links are written in full. Other numbers are tracked here as placeholder entries and will be expanded using the same template when prioritized.
 
