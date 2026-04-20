@@ -185,6 +185,7 @@ Complete improvement index and reliability map: [`docs/improvements/README.md`](
 | [017](docs/decisions/017-workload-namespace-and-rbac-model.md) | Workload namespace and RBAC model |
 | [018](docs/decisions/018-multi-region-eks-design.md) | Multi-region EKS design (list-driven, pilot light default) |
 | [019](docs/decisions/019-frontend-serving-strategy.md) | Frontend serving strategy — S3 + CloudFront, split subdomain |
+| [020](docs/decisions/020-fis-dr-drill.md) | FIS-based DR drill — primary-region EKS node outage simulation |
 
 ## Runbooks
 
@@ -272,8 +273,10 @@ aegis-aws-landing-zone/
 │       ├── staging/
 │       │   ├── bootstrap/         # Alias, OIDC, ECR, aegis-core CI roles
 │       │   ├── network/           # VPC, subnets, NAT, Flow Logs
-│       │   ├── platform/          # EKS, Karpenter, LBC, ArgoCD, Kyverno
-│       │   └── workloads/         # Namespace, IRSA, NetworkPolicy, observability, GuardDuty
+│       │   ├── platform/          # EKS, Karpenter, LBC, ArgoCD, Kyverno, cert-manager
+│       │   ├── workloads/         # Namespace, IRSA, NetworkPolicy, observability, Argo Rollouts, GuardDuty
+│       │   ├── edge/              # CloudFront + S3 (frontend), Route53 delegated zone, ACM
+│       │   └── fis/               # Fault Injection Simulator DR drill (ADR-020)
 │       └── prod/bootstrap/        # Alias only
 ├── scripts/
 │   ├── configure-backends.sh      # Sync backend.tf from config

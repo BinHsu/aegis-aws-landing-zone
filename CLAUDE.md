@@ -112,6 +112,7 @@ Some Terraservices layers have their own operational contracts — pre-flight ch
   - `docs/runbooks/002-eks-access.md` — EKS operator access (MUST read before any `kubectl`, `aws eks`, or `staging/platform` apply in a session)
   - `docs/runbooks/003-platform-first-verification.md` — end-to-end checklist after `staging/platform` applies; links to Incidents 10–17 for cold-apply gotchas (MUST follow for any fresh apply of the platform layer)
   - `docs/runbooks/004-dns-delegation-cloudflare-to-route53.md` — Cloudflare-side subdomain NS delegation to a Route53 hosted zone; one-time setup + rollback + troubleshooting (MUST read when provisioning `staging/edge/` or any future env's edge Terraservice)
+  - `docs/runbooks/005-fis-dr-drill.md` — FIS DR drill execution (ADR-020); pre-flight checks, experiment start/observe/recover, troubleshooting (MUST read before `aws fis start-experiment` against any env)
 
 - **Rule: When adding a new layer whose operations require their own diagnostic order (e.g., observability, service mesh), add a runbook under `docs/runbooks/` rather than extending this file.** Keeping CLAUDE.md small preserves its discoverability; layer-specific details belong with the layer.
 
@@ -185,7 +186,7 @@ aws-landing-zone-lab/
 │   └── environments/          # Terraservice layers (one state file per directory)
 │       ├── management/{bootstrap,scps}/
 │       ├── shared/{bootstrap,ipam}/   # shared/aft/ committed but not applied (ADR-011)
-│       ├── staging/{bootstrap,network,platform}/   # platform = EKS + Karpenter + ArgoCD
+│       ├── staging/{bootstrap,network,platform,workloads,edge,fis}/   # platform = EKS + Karpenter + ArgoCD + Kyverno + cert-manager; fis = DR drill (ADR-020)
 │       └── prod/bootstrap/    # prod workloads not yet provisioned
 ├── k8s-manifests/             # App-of-apps root (details live in aegis-core repo)
 ├── config/

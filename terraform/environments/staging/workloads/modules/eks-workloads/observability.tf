@@ -203,6 +203,44 @@ resource "kubectl_manifest" "kube_prometheus_stack" {
                   }]
                 }]
               }
+
+              # -----------------------------------------------------------
+              # DR-drill alert — NodeNotReady
+              # -----------------------------------------------------------
+              # Fires when any node enters NotReady state for >1 minute.
+              # The canonical signal for the FIS experiment defined in
+              # staging/fis/ (ADR-020): when FIS stops primary-region
+              # Karpenter-provisioned instances, their nodes flip to
+              # NotReady within 1–2 minutes and this alert fires.
+              #
+              # Visible in Grafana's Alert panel (Grafana alerting reads
+              # PrometheusRule firing state directly, no Alertmanager
+              # required — ADR-015 keeps Alertmanager disabled at lab tier).
+              #
+              # Severity: warning (not critical) — in normal operation a
+              # single NotReady node during Karpenter scale-down is common
+              # and auto-heals within minutes. The FIS drill intentionally
+              # drives this high; monitoring how many nodes fire and for
+              # how long is the demo's core observation.
+              # -----------------------------------------------------------
+              node-not-ready = {
+                groups = [{
+                  name = "dr-drill"
+                  rules = [{
+                    alert = "NodeNotReady"
+                    expr  = "kube_node_status_condition{condition=\"Ready\",status=\"true\"} == 0"
+                    for   = "1m"
+                    labels = {
+                      severity = "warning"
+                      drill    = "fis-primary-outage"
+                    }
+                    annotations = {
+                      summary     = "Node {{ $labels.node }} is NotReady"
+                      description = "Node {{ $labels.node }} has been NotReady for >1 minute. Expected during the FIS primary-outage drill (ADR-020); investigate if no drill is running."
+                    }
+                  }]
+                }]
+              }
             }
           })
         }
