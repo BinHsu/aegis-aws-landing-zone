@@ -93,7 +93,7 @@ output "api_route53_creation_hint" {
   description = "Copy-pasteable shell commands to create the aegis-api ALIAS record post-ArgoCD-sync. The ALB does not exist at edge-layer apply time; the record is a manual one-shot (or future: external-dns). Retrieve via `terraform output -raw api_route53_creation_hint`."
   value       = <<-EOT
     # Run after aws-load-balancer-controller has provisioned the ALB from
-    # aegis-core's gateway Ingress (visible via `kubectl -n aegis get ingress`).
+    # aegis-core's gateway Ingress (kubectl -n aegis get ingress).
     ALB_DNS=$(kubectl -n aegis get ingress aegis-gateway \
       -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
     ALB_ZONE=$(aws elbv2 describe-load-balancers \
