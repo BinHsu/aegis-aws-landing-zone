@@ -23,6 +23,12 @@ locals {
   # TLS cert + CloudFront distribution + Route53 record all reference this.
   frontend_hostname = "aegis-app.staging.${local.config.domain.name}"
 
+  # Hostname for the Aegis gateway API (per cross-repo #101 contract).
+  # TLS cert lives in the regional ACM (eu-central-1), not us-east-1 —
+  # the consumer is an ALB provisioned by aws-load-balancer-controller
+  # from aegis-core's Ingress, and ALB requires a regional ACM cert.
+  api_hostname = "aegis-api.staging.${local.config.domain.name}"
+
   # Delegated zone — Route53 controls this subdomain; parent `binhsu.org` zone
   # is unrelated (likely on Cloudflare per docs/runbooks/004-dns-delegation-
   # cloudflare-to-route53.md).

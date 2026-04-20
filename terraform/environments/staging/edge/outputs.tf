@@ -74,3 +74,36 @@ output "acm_certificate_arn" {
   description = "ACM certificate ARN in us-east-1 for the frontend hostname."
   value       = aws_acm_certificate.frontend.arn
 }
+
+# -----------------------------------------------------------------------------
+# API (gateway ALB) — cross-repo #101
+# -----------------------------------------------------------------------------
+
+output "api_hostname" {
+  description = "Gateway ALB hostname (aegis-api.staging.<domain>). aegis-core gateway Ingress references this in the `alb.ingress.kubernetes.io/host` / rules[].host field."
+  value       = local.api_hostname
+}
+
+output "api_acm_certificate_arn" {
+  description = "ACM certificate ARN in the primary region for the gateway ALB hostname. aegis-core gateway Ingress consumes this in the `alb.ingress.kubernetes.io/certificate-arn` annotation."
+  value       = aws_acm_certificate_validation.api.certificate_arn
+}
+
+output "api_route53_creation_hint" {
+  description = <<-EOT
+    Commands to create the ALIAS record for $api_hostname after ArgoCD has
+    synced aegis-core's gateway Ingress and aws-load-balancer-controller has
+    provisioned the ALB. The ALB does not exist at this layer's apply time,
+    so the record is a manual one-shot (or future: handled by external-dns).
+
+      ALB_DNS=$(kubectl -n aegis get ingress aegis-gateway \
+        -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+      ALB_ZONE=$(aws elbv2 describe-load-balancers \
+        --query "LoadBalancers[?DNSName=='$ALB_DNS'].CanonicalHostedZoneId | [0]" \
+        --output text)
+      aws route53 change-resource-record-sets \
+        --hosted-zone-id ${aws_route53_zone.staging.zone_id} \
+        --change-batch "{\"Changes\":[{\"Action\":\"UPSERT\",\"ResourceRecordSet\":{\"Name\":\"${local.api_hostname}\",\"Type\":\"A\",\"AliasTarget\":{\"HostedZoneId\":\"$ALB_ZONE\",\"DNSName\":\"$ALB_DNS\",\"EvaluateTargetHealth\":false}}}]}"
+  EOT
+  value       = local.api_hostname
+}
