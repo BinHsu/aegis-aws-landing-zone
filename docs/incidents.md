@@ -2362,6 +2362,103 @@ Track as follow-up PR alongside the Incident 26-29 fix PR.
 
 ---
 
+## Incident 31 — ServiceMonitor CRD bootstrap race + break-glass local apply
+
+**Date**: 2026-04-20 (mid-session, post-merge of PRs #106–111, cold-apply validation run)
+**Severity**: S2 (platform apply blocked; recoverable; triggered a break-glass local apply decision that is itself a process-governance issue worth recording)
+**Duration**: ~15 min diagnosis + ~10 min code fix + ~8 min local re-apply ≈ 33 min wall
+
+### Symptom
+
+`terraform-apply-workload.yml` run [24677044105](https://github.com/BinHsu/aegis-aws-landing-zone/actions/runs/24677044105) — the first cold apply after Session C's Incidents-26–30 fixes merged — failed in the `Apply staging/platform` job:
+
+```
+Error: unable to build kubernetes objects from release manifest:
+  resource mapping not found for name: "cert-manager" namespace:
+  "cert-manager" from "": no matches for kind "ServiceMonitor" in
+  version "monitoring.coreos.com/v1"
+
+Error: context deadline exceeded
+```
+
+Network job succeeded; workloads job was `skipped` due to the platform failure. Cluster left in partial state (EKS control plane up, some Helm releases installed, cert-manager half-installed).
+
+### Root cause
+
+**The bug (Symptom-level)**: cert-manager's Helm chart was configured with `prometheus.servicemonitor.enabled = true` in `terraform/environments/staging/platform/modules/eks-cluster/cert-manager-helm.tf`. The chart then templates a `ServiceMonitor` resource. The `ServiceMonitor` CRD belongs to **Prometheus Operator**, which is shipped by `kube-prometheus-stack` in the **workloads** layer — applied *after* platform. Platform's `helm_release` has `wait = true` (default), so Helm failed synchronously on the missing CRD and the platform apply aborted.
+
+**The deeper cause (design-level)**: the ADR-015 §Discovery contract encourages every component to emit metrics via ServiceMonitor for auto-discovery. The pattern was applied to cert-manager + argo-rollouts without tracing the cross-layer CRD dependency. Platform-layer components CANNOT assume Prometheus Operator CRDs exist — the CRDs don't arrive until the workloads layer syncs them.
+
+This is structurally the same class as Incident 26 (Kyverno ClusterPolicy CRD race against ArgoCD-managed chart sync), with a different twist: Incident 26's race was within-cluster (TF vs ArgoCD async). This one is across-layer (platform TF synchronous vs workloads TF synchronous, different order). Same root discipline: **do not reference CRDs whose install layer runs after your layer**.
+
+### Detection
+
+Platform apply job failed cleanly with a clear error chain:
+```
+gh run view --job 72165523013 --log-failed | grep -E "Error:"
+```
+returned the `no matches for kind "ServiceMonitor"` line directly. No state-rm forensics needed.
+
+The secondary `context deadline exceeded` was a symptom of Helm retry timing out — not an independent issue.
+
+### Resolution
+
+**Fix (code)**: disable chart-template-level `ServiceMonitor` creation in both cert-manager (platform) and argo-rollouts (workloads, same race with kube-prometheus-stack via ArgoCD sync ordering):
+
+```hcl
+# cert-manager-helm.tf
+prometheus = {
+  enabled = true
+  servicemonitor = { enabled = false }
+}
+
+# argo-rollouts.tf
+metrics = {
+  enabled = true
+  serviceMonitor = { enabled = false }
+}
+```
+
+Metrics endpoints stay enabled (`/metrics` on the Service). Explicit `ServiceMonitor` resources added in the workloads layer (where kube-prometheus-stack CRDs are already present) is the follow-up.
+
+**Fix (apply path) — **break-glass**: NAT gateway was running ($0.045/hr) and re-triggering the CI workflow would have added ~30–45 min before re-apply could start. The operator (Bin) chose to apply platform locally using AWS SSO credentials:
+
+```bash
+cd terraform/environments/staging/platform
+AWS_PROFILE=aegis-staging-admin terraform init -input=false
+AWS_PROFILE=aegis-staging-admin terraform apply -auto-approve -input=false
+```
+
+A PR containing the same code delta ([#119](https://github.com/BinHsu/aegis-aws-landing-zone/pull/119)) was opened *concurrently with* the local apply, so main branch catches up within the same session via the normal merge path.
+
+### Prevention
+
+**Technical (CRD dependency audit)**: any Helm release in layer N that templates a CRD belonging to a controller that installs in layer N+1 or later is a latent bug of this class. Concrete audit path before future apply-path changes:
+
+```bash
+helm template <chart> <values> | grep -E "^kind: (ServiceMonitor|PodMonitor|PrometheusRule|Certificate|Issuer|Rollout)" 
+```
+
+If the release is in a layer where those CRDs are NOT yet installed, either (a) turn off the chart flag that creates them, or (b) move the release to a layer that runs after the CRD provider, or (c) add an explicit standalone resource in a later layer.
+
+**Process (break-glass discipline)**: this incident triggered a local apply — the first time in this project. The choice itself was defensible (cost + time justified the break-glass pattern), but the project had no documented rule for when break-glass is acceptable and what compensating controls are required. That gap is now closed: [`docs/principles/break-glass-apply.md`](principles/break-glass-apply.md) documents the default-forbidden position, the specific allowed scenarios (CI outage, mid-session cost, security response), the forbidden scenarios ("I want it fast"), and the compensating-control obligations (concurrent PR + main catches up + incident entry referencing the doc).
+
+**Observability follow-up**: once the cluster is up and kube-prometheus-stack is installed, add explicit `ServiceMonitor` resources in `staging/workloads/modules/eks-workloads/` that target cert-manager + argo-rollouts Services. Cross-repo note: aegis-core workloads use the same discovery contract and don't hit this race because their `ServiceMonitor` resources are application-authored, applied after platform+workloads.
+
+### Lessons
+
+- **CRD ownership crosses layer boundaries.** ADR-015's discovery contract says "workload teams can ship ServiceMonitor anywhere and Prometheus Operator picks it up." True. What the contract did *not* explicitly say is that *platform-layer* components cannot ship ServiceMonitors either — their layer runs before the CRD is created. The bootstrap constraint is asymmetric: consumer layers can assume CRDs exist; producer layers (and anything that runs before the producer) cannot.
+
+- **`helm_release wait=true` is load-bearing but also unforgiving.** The flag is the right choice for synchronous CRD handoff (ADR-016 for Kyverno) but turns every missing-CRD edge case into a hard failure. Worth knowing when reading any `helm_release` block: "this is a synchronous fence; a missing dependency stops the layer."
+
+- **The first cold apply after a fix-set PR batch is a high-risk event.** Incidents 26–30 all surfaced on Session C's cold apply; this incident (31) surfaced on the cold apply *after* those fixes merged. Fix batches interact with each other in the first cold-apply on a clean slate — previous session state masks dependency assumptions. Plan for this by not batching more than 3–4 substantive fixes into a single pre-cold-apply merge window, or by doing a cold-apply dry-run on a length-1 config before the length-2 portfolio apply.
+
+- **Break-glass local apply is acceptable but NOT cheap.** The governance cost of this incident is ~1 hour of documentation work (principle doc + this incident + compensating-control PR coordination), comparable to the CI cycle time we saved. Break-glass is strictly worth it only when CI cycle time exceeds the documentation cost AND when the cost multiplier (NAT running, cluster half-applied) exceeds both. Over-using break-glass erodes the repo's "drift is a bug" posture faster than any other pattern — discipline tax is real and must be paid.
+
+- **Concurrent PR is not optional.** The compensating control for break-glass is not "open a PR sometime later" — it is "open a PR concurrent with or before the apply." PR #119 was opened *before* `terraform apply` ran locally. If the PR had been opened *after*, the commit history would have shown "apply happened" → "code landed" rather than "code landed" → "apply happened," and main branch would have represented the wrong state to any observer for the intervening minutes.
+
+---
+
 ## Adding a new incident
 
 Append new sections at the bottom, before this footer, using the format:
