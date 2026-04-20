@@ -1,7 +1,7 @@
 # 016. Admission Control: Kyverno
 
 ## Status
-Accepted
+Accepted (**amended 2026-04-20**: §Consequences gained a "Layer placement and install path" subsection after Incident 26 — Kyverno moves from `staging/workloads/` as an ArgoCD Application to `staging/platform/` as a `helm_release`. Tool selection is unchanged; only deployment layer + install path changed.)
 
 ## Context
 
@@ -21,7 +21,7 @@ Two mature projects dominate the Kubernetes admission control space:
 
 ## Decision
 
-**Kyverno**, deployed as an ArgoCD Application.
+**Kyverno**, deployed via `helm_release` in the platform layer. (An earlier version of this ADR deployed Kyverno as an ArgoCD Application in the workloads layer; amended 2026-04-20 — see §Consequences "Layer placement and install path.")
 
 ### Rationale
 
@@ -59,3 +59,17 @@ Kyverno's webhook intercepts every pod creation in the cluster. If Kyverno's pod
 Kyverno policies are `ClusterPolicy` CRDs (cluster-scoped, not namespace-scoped). Deleting the Kyverno ArgoCD Application cascades to all policies. This is intentional — teardown should be clean.
 
 The `audit` enforcement mode means violations are logged in the Kyverno policy report but pods are not rejected. This is appropriate for initial rollout to avoid breaking existing platform pods (Karpenter, ArgoCD, LBC). After verifying no false positives, switching to `enforce` mode is a one-line change per policy (`validationFailureAction: Enforce`).
+
+### Layer placement and install path (added 2026-04-20 after Incident 26)
+
+Kyverno runs in the `staging/platform/` layer (alongside Karpenter, AWS Load Balancer Controller, and ArgoCD itself), not in `staging/workloads/`. The install path is `helm_release` with `wait = true` (chart default), not an ArgoCD `Application` CRD created via `kubectl_manifest`.
+
+**Reason 1 — failure-mode surface**: admission control is cluster-level infrastructure. If the Kyverno webhook is down or misbehaving, pod admission across the entire cluster is affected. This is the same surface as LBC (if down, no new Ingresses) and Karpenter (if down, no new nodes) — both of which the project already scopes to the platform layer. Observability (kube-prometheus-stack, in the workloads layer) degrades visibility but leaves the cluster running; admission does not.
+
+**Reason 2 — synchronous CRD handoff**: the four `ClusterPolicy` resources above are Terraform-managed (`kubectl_manifest`), and they require the Kyverno CRD (`ClusterPolicy`) to exist in the cluster at apply time. `helm_release` with `wait = true` blocks Terraform until the chart reports Ready, at which point the CRDs are guaranteed present. An ArgoCD Application wrapped in `kubectl_manifest` only guarantees the Application object exists in etcd; chart sync is asynchronous and the CRD can still be absent for 1–3 minutes. That race caused Incident 26 on the first cold apply of the workloads layer after clean teardown.
+
+**What this does NOT change**: tool selection (Kyverno vs Gatekeeper) is unchanged; all four baseline policies are unchanged; `audit` → `enforce` rollout path is unchanged; teardown semantics are unchanged (deleting the Helm release cascades to all policies, same as deleting the ArgoCD Application did).
+
+**What this DOES change**: lifecycle visibility in the ArgoCD UI is lost for Kyverno itself — an operator must now look at `helm_release.kyverno` state / `kubectl -n kyverno get pods` rather than an ArgoCD Application tile. The platform layer's other components (Karpenter, LBC, ArgoCD) share the same tradeoff and it has not caused friction in practice. The ClusterPolicies remain Terraform-managed, so their state is visible via `terraform state list | grep kyverno`.
+
+**Relation to ADR-015**: ADR-015's "Operator Apps via ArgoCD" pattern covers observability (kube-prometheus-stack), where the discovery contract for workload-authored CRDs (ServiceMonitor, PrometheusRule) is the load-bearing reason for ArgoCD-managed lifecycle. Kyverno's policies are platform-authored, not workload-authored — there is no equivalent discovery contract, and the tradeoff tips the other way.

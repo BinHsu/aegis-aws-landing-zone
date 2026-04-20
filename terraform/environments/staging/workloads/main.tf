@@ -5,7 +5,8 @@
 # module.workloads_primary; length-2 also instantiates module.workloads_slave_1.
 # Each instance gets its own provider quad (aws / kubernetes / kubectl)
 # bound to that slot's region + cluster, and its own GuardDuty detector,
-# IRSA role, namespace, NetworkPolicies, Kyverno App, observability App.
+# IRSA role, namespace, NetworkPolicies, observability App. (Kyverno lives
+# in the platform layer per ADR-016 — see Incident 26 for why.)
 # -----------------------------------------------------------------------------
 
 module "workloads_primary" {

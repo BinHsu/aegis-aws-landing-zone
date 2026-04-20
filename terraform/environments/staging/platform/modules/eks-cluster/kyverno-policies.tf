@@ -1,105 +1,18 @@
 # -----------------------------------------------------------------------------
-# Kyverno admission controller — ADR-016
+# Baseline Kyverno ClusterPolicies — ADR-016
 # -----------------------------------------------------------------------------
-# Deployed as an ArgoCD Application (same pattern as kube-prometheus-stack
-# in observability.tf). ArgoCD manages the Helm release; Terraform manages
-# the Application CRD and the ClusterPolicy resources.
+# All policies start in `Audit` mode: violations are logged in Kyverno policy
+# reports but pods are NOT rejected. Switch to `Enforce` after verifying no
+# false positives against platform pods (Karpenter, ArgoCD, LBC, CoreDNS).
 #
-# Kyverno intercepts every pod creation via a mutating/validating webhook.
-# Failure mode: failOpen (default) — if Kyverno is down, pods are admitted
-# without policy checks. Acceptable for a lab; production would use failClose.
+# These are platform-authored policies (per ADR-016 §Policies deployed in
+# Phase 4c), co-located with the Kyverno Helm install so the CRD → policy
+# relationship is obvious and the cross-layer handoff is eliminated.
 #
-# Cost: ~100m CPU, ~200Mi memory on a Karpenter Spot node. Negligible.
-# -----------------------------------------------------------------------------
-
-resource "kubectl_manifest" "kyverno" {
-  provider = kubectl.this
-
-  yaml_body = yamlencode({
-    apiVersion = "argoproj.io/v1alpha1"
-    kind       = "Application"
-    metadata = {
-      name      = "kyverno"
-      namespace = "argocd"
-      finalizers = [
-        "resources-finalizer.argocd.argoproj.io",
-      ]
-    }
-    spec = {
-      project = "default"
-
-      source = {
-        repoURL        = "https://kyverno.github.io/kyverno"
-        targetRevision = "3.4.1"
-        chart          = "kyverno"
-
-        helm = {
-          releaseName = "kyverno"
-          values = yamlencode({
-            admissionController = {
-              replicas = 1
-              resources = {
-                requests = { cpu = "100m", memory = "200Mi" }
-                limits   = { memory = "384Mi" }
-              }
-            }
-
-            backgroundController = {
-              resources = {
-                requests = { cpu = "50m", memory = "64Mi" }
-                limits   = { memory = "128Mi" }
-              }
-            }
-
-            cleanupController = {
-              resources = {
-                requests = { cpu = "50m", memory = "64Mi" }
-                limits   = { memory = "128Mi" }
-              }
-            }
-
-            reportsController = {
-              resources = {
-                requests = { cpu = "50m", memory = "64Mi" }
-                limits   = { memory = "128Mi" }
-              }
-            }
-          })
-        }
-      }
-
-      destination = {
-        server    = "https://kubernetes.default.svc"
-        namespace = "kyverno"
-      }
-
-      syncPolicy = {
-        automated = {
-          prune    = true
-          selfHeal = true
-        }
-        syncOptions = [
-          "CreateNamespace=true",
-          "ServerSideApply=true",
-        ]
-      }
-    }
-  })
-
-  depends_on = [kubernetes_namespace_v1.aegis]
-}
-
-# -----------------------------------------------------------------------------
-# Baseline ClusterPolicies — ADR-016
-# -----------------------------------------------------------------------------
-# All policies start in `Audit` mode: violations are logged in Kyverno
-# policy reports but pods are NOT rejected. Switch to `Enforce` after
-# verifying no false positives against platform pods.
-#
-# These are kubectl_manifest (not kubernetes_manifest) because Kyverno's
-# ClusterPolicy CRD only exists after the Kyverno Helm chart is installed.
-# The kubectl provider's deferred schema validation handles this bootstrap
-# ordering — same pattern as Karpenter NodePool in staging/platform.
+# kubectl_manifest (not kubernetes_manifest) because the ClusterPolicy CRD
+# only exists after the Kyverno Helm chart is installed; the kubectl provider
+# defers schema validation to apply-time, which pairs cleanly with helm_release
+# completing synchronously before these resources plan.
 # -----------------------------------------------------------------------------
 
 resource "kubectl_manifest" "policy_deny_privileged" {
@@ -145,7 +58,7 @@ resource "kubectl_manifest" "policy_deny_privileged" {
     }
   })
 
-  depends_on = [kubectl_manifest.kyverno]
+  depends_on = [helm_release.kyverno]
 }
 
 resource "kubectl_manifest" "policy_deny_host_namespaces" {
@@ -189,7 +102,7 @@ resource "kubectl_manifest" "policy_deny_host_namespaces" {
     }
   })
 
-  depends_on = [kubectl_manifest.kyverno]
+  depends_on = [helm_release.kyverno]
 }
 
 resource "kubectl_manifest" "policy_require_limits" {
@@ -237,7 +150,7 @@ resource "kubectl_manifest" "policy_require_limits" {
     }
   })
 
-  depends_on = [kubectl_manifest.kyverno]
+  depends_on = [helm_release.kyverno]
 }
 
 resource "kubectl_manifest" "policy_require_labels" {
@@ -281,5 +194,5 @@ resource "kubectl_manifest" "policy_require_labels" {
     }
   })
 
-  depends_on = [kubectl_manifest.kyverno]
+  depends_on = [helm_release.kyverno]
 }
