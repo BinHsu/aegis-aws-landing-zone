@@ -63,12 +63,17 @@ resource "kubectl_manifest" "argo_rollouts" {
                 }])
               }
 
-              # Emit Prometheus metrics via the ServiceMonitor CRD (auto-
-              # discovered by the platform Prometheus per ADR-015).
+              # Metrics endpoint enabled; ServiceMonitor CRD auto-creation
+              # disabled. ArgoCD sync order between kube-prometheus-stack
+              # (provides the CRD) and argo-rollouts is not guaranteed;
+              # same pattern / rationale as cert-manager-helm.tf in the
+              # platform layer. Explicit ServiceMonitor resource added
+              # once CRDs are guaranteed present is the workloads-layer
+              # follow-up.
               metrics = {
                 enabled = true
                 serviceMonitor = {
-                  enabled = true
+                  enabled = false
                 }
               }
             }

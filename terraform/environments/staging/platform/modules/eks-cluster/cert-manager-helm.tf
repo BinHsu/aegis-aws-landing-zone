@@ -53,12 +53,18 @@ resource "helm_release" "cert_manager" {
         }
       }
 
-      # Emit Prometheus metrics via the ServiceMonitor CRD. Auto-discovered
-      # by the platform Prometheus (wide-open selectors per ADR-015).
+      # Metrics endpoint enabled; ServiceMonitor CRD auto-creation disabled.
+      # The ServiceMonitor CRD is shipped by Prometheus Operator (kube-
+      # prometheus-stack) which installs in the workloads layer AFTER
+      # platform. helm_release wait=true would fail at apply time with
+      # "no matches for kind ServiceMonitor" if the chart templates one.
+      # Workloads-layer follow-up: add an explicit ServiceMonitor that
+      # targets the cert-manager metrics Service, once Prometheus Operator
+      # CRDs are guaranteed present.
       prometheus = {
         enabled = true
         servicemonitor = {
-          enabled = true
+          enabled = false
         }
       }
     }),
