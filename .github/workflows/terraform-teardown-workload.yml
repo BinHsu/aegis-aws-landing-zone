@@ -250,16 +250,27 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      # Safety-net sweep: delete EKS-auto-created security groups in the
-      # target VPC before Terraform tries to destroy the VPC itself. EKS
-      # creates a cluster SG (tagged aws:eks:cluster-name) that is NOT
-      # managed by any Terraform resource — AWS is supposed to clean it up
-      # when the cluster is deleted, but this can race/fail leaving the
-      # VPC with a DependencyViolation on destroy. Pre-deleting these
-      # orphan SGs lets Terraform's VPC destroy proceed cleanly.
-      # See docs/incidents.md Incident 20.
-      - name: Sweep orphan EKS security groups in target VPC
+      # Safety-net sweep: clear EKS-auto-created network interfaces and
+      # security groups in the target VPC before Terraform tries to destroy
+      # the VPC. EKS creates a cluster SG (tagged aws:eks:cluster-name) and
+      # control-plane ENIs that are NOT managed by any Terraform resource —
+      # AWS releases them asynchronously after the cluster is deleted, and
+      # any ENI still in the `available` state will block SG delete, which
+      # in turn blocks subnet delete with DependencyViolation.
+      #
+      # Order matters: ENIs first, then SGs. Reverse order hits the exact
+      # DependencyViolation that the sweep exists to prevent.
+      #
+      # Fail loudly: if the sweep cannot clear a resource, the step exits
+      # non-zero instead of masking the error with `|| true`. A silent
+      # sweep-failure was the root cause of Incident 30 — the step claimed
+      # success while AWS was rejecting the delete.
+      #
+      # See docs/incidents.md Incidents 20 + 30.
+      - name: Sweep orphan EKS ENIs + security groups in target VPC
         run: |
+          set -eo pipefail
+
           # Filter by component tags rather than by Name tag: PR-c (#84)
           # refactored the VPC name from `<env>-vpc` to `<env>-<region_key>-vpc`
           # (e.g. `staging-primary-vpc`). Matching on Name alone would silently
@@ -276,8 +287,30 @@ jobs:
             echo "::notice::No VPCs tagged for ${{ inputs.env }}/network in this region; nothing to sweep."
             exit 0
           fi
+
           for VPC_ID in $VPC_IDS; do
-            echo "::notice::Sweeping orphan EKS SGs in VPC $VPC_ID"
+            echo "::notice::Sweeping VPC $VPC_ID"
+
+            # Step 1: delete orphan ENIs (status=available). These are the
+            # control-plane ENIs AWS hasn't reclaimed yet after cluster delete.
+            ENI_IDS=$(aws ec2 describe-network-interfaces \
+              --region ${{ env.AWS_REGION }} \
+              --filters "Name=vpc-id,Values=$VPC_ID" \
+                        "Name=status,Values=available" \
+              --query 'NetworkInterfaces[].NetworkInterfaceId' \
+              --output text)
+            for ENI in $ENI_IDS; do
+              echo "::notice::Deleting orphan ENI $ENI"
+              if ! aws ec2 delete-network-interface \
+                     --region ${{ env.AWS_REGION }} \
+                     --network-interface-id "$ENI" 2> /tmp/eni-err.log; then
+                echo "::error::Failed to delete ENI $ENI:"
+                cat /tmp/eni-err.log
+                exit 1
+              fi
+            done
+
+            # Step 2: delete orphan EKS cluster SGs (tagged aws:eks:cluster-name).
             SG_IDS=$(aws ec2 describe-security-groups \
               --region ${{ env.AWS_REGION }} \
               --filters "Name=vpc-id,Values=$VPC_ID" \
@@ -286,8 +319,41 @@ jobs:
               --output text)
             for SG in $SG_IDS; do
               echo "::notice::Deleting orphan EKS SG $SG"
-              aws ec2 delete-security-group --region ${{ env.AWS_REGION }} --group-id "$SG" || true
+              if ! aws ec2 delete-security-group \
+                     --region ${{ env.AWS_REGION }} \
+                     --group-id "$SG" 2> /tmp/sg-err.log; then
+                echo "::error::Failed to delete SG $SG:"
+                cat /tmp/sg-err.log
+                exit 1
+              fi
             done
+
+            # Step 3: verify no available-state ENIs remain before handing off
+            # to terraform destroy. Control-plane ENI reclaim is asynchronous;
+            # poll for up to 5 minutes.
+            echo "::notice::Verifying VPC $VPC_ID is clear of available ENIs"
+            for i in $(seq 1 30); do
+              REMAINING=$(aws ec2 describe-network-interfaces \
+                --region ${{ env.AWS_REGION }} \
+                --filters "Name=vpc-id,Values=$VPC_ID" \
+                          "Name=status,Values=available" \
+                --query 'length(NetworkInterfaces)' --output text)
+              if [ "$REMAINING" = "0" ]; then
+                break
+              fi
+              echo "::notice::$REMAINING ENIs still available in VPC $VPC_ID; waiting 10s (attempt $i/30)"
+              sleep 10
+            done
+            if [ "$REMAINING" != "0" ]; then
+              echo "::error::VPC $VPC_ID still has $REMAINING available ENIs after 5m; aborting teardown"
+              aws ec2 describe-network-interfaces \
+                --region ${{ env.AWS_REGION }} \
+                --filters "Name=vpc-id,Values=$VPC_ID" \
+                          "Name=status,Values=available" \
+                --query 'NetworkInterfaces[].[NetworkInterfaceId,Description,Groups[].GroupName]' \
+                --output text
+              exit 1
+            fi
           done
 
       - name: Check layer exists

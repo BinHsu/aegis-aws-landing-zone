@@ -272,8 +272,8 @@ aegis-aws-landing-zone/
 │       ├── staging/
 │       │   ├── bootstrap/         # Alias, OIDC, ECR, aegis-core CI roles
 │       │   ├── network/           # VPC, subnets, NAT, Flow Logs
-│       │   ├── platform/          # EKS, Karpenter, LBC, ArgoCD
-│       │   └── workloads/         # Namespace, IRSA, NetworkPolicy, observability, Kyverno
+│       │   ├── platform/          # EKS, Karpenter, LBC, ArgoCD, Kyverno
+│       │   └── workloads/         # Namespace, IRSA, NetworkPolicy, observability, GuardDuty
 │       └── prod/bootstrap/        # Alias only
 ├── scripts/
 │   ├── configure-backends.sh      # Sync backend.tf from config
