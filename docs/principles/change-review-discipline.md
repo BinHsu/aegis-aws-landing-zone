@@ -146,7 +146,8 @@ The living inventory of what's deployed and when it expires. Maintained in this 
 | ArgoCD | 7.6.12 (chart) | — | Quarterly review | [ADR-013](../decisions/013-eks-architecture.md) |
 | kube-prometheus-stack | 72.6.2 (chart) | — | Dependabot or manual review | [ADR-015](../decisions/015-observability-tooling.md) |
 | Kyverno | 3.4.1 (chart) | — | Dependabot or manual review | [ADR-016](../decisions/016-admission-control.md) |
-| cert-manager | Not deployed | — | Phase 5 (service mesh + per-pod TLS) | — |
+| cert-manager | v1.16.2 (chart) | — | Dependabot or manual review | aegis-core [ADR-0031](https://github.com/BinHsu/aegis-core/blob/main/docs/adr/0031-mtls-without-service-mesh.md) |
+| Argo Rollouts | 2.37.7 (chart) | — | Dependabot or manual review | aegis-core [ADR-0030](https://github.com/BinHsu/aegis-core/blob/main/docs/adr/0030-progressive-delivery-controller.md) |
 
 ---
 
