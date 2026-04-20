@@ -79,6 +79,13 @@ jobs:
           # -----------------------------------------------------------------
           - env: staging/edge
             account_id: "251774439261"
+          # -----------------------------------------------------------------
+          # staging/fis — FIS DR drill Terraservice (ADR-020). Same pattern
+          # as staging/edge: plan-only in CI, apply manually per runbook 005.
+          # FIS templates cost $0 idle; experiments cost < $0.01 each.
+          # -----------------------------------------------------------------
+          - env: staging/fis
+            account_id: "251774439261"
 
     steps:
       - uses: actions/checkout@v6
