@@ -1,7 +1,7 @@
 # 018. Multi-region EKS design
 
 ## Status
-Accepted (**amended 2026-04-19**: §3 provider alias labels changed from region-based to role-based to comply with CLAUDE.md "zero tolerance for region strings in .tf" rule; renamed the pattern "slot pattern" and clarified the escape hatch to a generation-script approach. Core decisions — sub-module with `configuration_aliases`, single-state-per-layer, K=2 ceiling — unchanged.)
+Accepted (**amended 2026-04-19**: §3 provider alias labels changed from region-based to role-based to comply with CLAUDE.md "zero tolerance for region strings in .tf" rule; renamed the pattern "slot pattern" and clarified the escape hatch to a generation-script approach. Core decisions — sub-module with `configuration_aliases`, single-state-per-layer, K=2 ceiling — unchanged. **Amended 2026-04-20**: §3 K=2 ceiling enforcement extended from two layers to three — `staging/workloads/` adopts the same slot pattern with its own `terraform_data "assert_k2_max"` precondition. Per-cluster observability is independent across slots; multi-cluster fan-out responsibility is on aegis-core per [ADR-015](015-observability-tooling.md) §Consequences.)
 
 ## Context
 
@@ -114,10 +114,10 @@ module "cluster_slave_1" {
 The K=2 ceiling is enforced at three layers so a forker who edits `eks.<env>.regions` to length 3 without reading this ADR cannot accidentally produce broken Terraform:
 
 1. **JSON Schema** — `config/schema.json` declares `maxItems: 2` on `eks.<env>.regions`. `scripts/validate-config.py` catches violations pre-commit.
-2. **Terraform precondition** — `terraform_data "assert_k2_max"` resources in both `staging/network/config.tf` and `staging/platform/config.tf` use `lifecycle.precondition { condition = length(local.eks_regions) <= 2 }`. Unlike the `check` blocks for §2 invariants (warnings, plan continues), `lifecycle.precondition` is a hard error that halts plan. The error message inlines the full eight-step unlock procedure so an operator hitting it mid-session doesn't have to jump between the ADR and the .tf files.
+2. **Terraform precondition** — `terraform_data "assert_k2_max"` resources in `staging/network/config.tf`, `staging/platform/config.tf`, AND `staging/workloads/config.tf` use `lifecycle.precondition { condition = length(local.eks_regions) <= 2 }`. Unlike the `check` blocks for §2 invariants (warnings, plan continues), `lifecycle.precondition` is a hard error that halts plan. The error message inlines the full unlock procedure so an operator hitting it mid-session doesn't have to jump between the ADR and the .tf files. The guard must exist in EVERY layer that participates in the slot pattern; otherwise applying just one layer with K=3 config would let it drift past the ceiling while the others refuse.
 3. **This ADR's Scaling boundary section** (above) — human-readable version with rationale.
 
-The guard is intentionally temporary per slot bump: after amending this §3 and adding a `slave_2` slot + module invocation, the operator bumps both the schema `maxItems` and the precondition threshold to `<= 3` in the same PR. Removing the guard entirely is the migration signal for the escape-hatch generation-script approach.
+The guard is intentionally temporary per slot bump: after amending this §3 and adding a `slave_2` slot + module invocation in BOTH `staging/network/`, `staging/platform/`, AND `staging/workloads/`, the operator bumps the schema `maxItems` and the precondition threshold to `<= 3` in the same PR (three precondition edits, one per layer). Removing the guard entirely is the migration signal for the escape-hatch generation-script approach.
 
 The pattern here is deliberately **pragmatic over clever**: K=2 is what the actual demo needs (primary + DR failover). We do not pre-invest in K=N flexibility that has zero near-term use.
 

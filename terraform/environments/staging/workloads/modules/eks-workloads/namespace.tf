@@ -7,6 +7,8 @@
 # -----------------------------------------------------------------------------
 
 resource "kubernetes_namespace_v1" "aegis" {
+  provider = kubernetes.this
+
   metadata {
     name = "aegis"
 

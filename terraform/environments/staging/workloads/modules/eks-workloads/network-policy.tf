@@ -15,6 +15,8 @@
 # -----------------------------------------------------------------------------
 
 resource "kubernetes_network_policy_v1" "default_deny" {
+  provider = kubernetes.this
+
   metadata {
     name      = "default-deny-all"
     namespace = kubernetes_namespace_v1.aegis.metadata[0].name
@@ -33,6 +35,8 @@ resource "kubernetes_network_policy_v1" "default_deny" {
 # -----------------------------------------------------------------------------
 
 resource "kubernetes_network_policy_v1" "allow_dns" {
+  provider = kubernetes.this
+
   metadata {
     name      = "allow-dns-egress"
     namespace = kubernetes_namespace_v1.aegis.metadata[0].name

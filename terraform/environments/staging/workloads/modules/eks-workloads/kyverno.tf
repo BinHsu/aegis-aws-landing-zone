@@ -13,6 +13,8 @@
 # -----------------------------------------------------------------------------
 
 resource "kubectl_manifest" "kyverno" {
+  provider = kubectl.this
+
   yaml_body = yamlencode({
     apiVersion = "argoproj.io/v1alpha1"
     kind       = "Application"
@@ -101,6 +103,8 @@ resource "kubectl_manifest" "kyverno" {
 # -----------------------------------------------------------------------------
 
 resource "kubectl_manifest" "policy_deny_privileged" {
+  provider = kubectl.this
+
   yaml_body = yamlencode({
     apiVersion = "kyverno.io/v1"
     kind       = "ClusterPolicy"
@@ -145,6 +149,8 @@ resource "kubectl_manifest" "policy_deny_privileged" {
 }
 
 resource "kubectl_manifest" "policy_deny_host_namespaces" {
+  provider = kubectl.this
+
   yaml_body = yamlencode({
     apiVersion = "kyverno.io/v1"
     kind       = "ClusterPolicy"
@@ -187,6 +193,8 @@ resource "kubectl_manifest" "policy_deny_host_namespaces" {
 }
 
 resource "kubectl_manifest" "policy_require_limits" {
+  provider = kubectl.this
+
   yaml_body = yamlencode({
     apiVersion = "kyverno.io/v1"
     kind       = "ClusterPolicy"
@@ -233,6 +241,8 @@ resource "kubectl_manifest" "policy_require_limits" {
 }
 
 resource "kubectl_manifest" "policy_require_labels" {
+  provider = kubectl.this
+
   yaml_body = yamlencode({
     apiVersion = "kyverno.io/v1"
     kind       = "ClusterPolicy"

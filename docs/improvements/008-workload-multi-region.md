@@ -8,8 +8,9 @@
 | IPAM CIDR allocation | ✅ Both `eu-central-1` and `eu-west-1` regional pools provisioned and RAM-shared | From inception |
 | Config schema (`eks.<env>.regions[]` list + invariants) | ✅ Shipped in Session A | Session A (this PR) |
 | Terraform modules (`staging/network`, `staging/platform`) — `for_each(eks.regions)` refactor | ✅ Shipped in Session B (2026-04-19) | PRs [#84](https://github.com/BinHsu/aegis-aws-landing-zone/pull/84) + [#92](https://github.com/BinHsu/aegis-aws-landing-zone/pull/92) |
-| CI plan matrix for length-1 and length-2 | ✅ Shipped in Session B (2026-04-19) | PR [#97](https://github.com/BinHsu/aegis-aws-landing-zone/pull/97) |
-| K=2 slot ceiling hard guard (schema + `terraform_data.assert_k2_max`) | ✅ Shipped in Session B (2026-04-19) | PR [#93](https://github.com/BinHsu/aegis-aws-landing-zone/pull/93) |
+| Terraform module (`staging/workloads`) — slot-pattern refactor (per-cluster GuardDuty + IRSA + namespace + Kyverno + observability) | ✅ Shipped in Session B (2026-04-20) | PR #(pending) |
+| CI plan matrix for length-1 and length-2 | ✅ Shipped in Session B (2026-04-19) — workloads NOT in matrix (same as platform: needs upstream remote_state populated) | PR [#97](https://github.com/BinHsu/aegis-aws-landing-zone/pull/97) |
+| K=2 slot ceiling hard guard (schema + `terraform_data.assert_k2_max`) | ✅ Shipped in Session B — guard now in 3 layers (network + platform + workloads) | PRs [#93](https://github.com/BinHsu/aegis-aws-landing-zone/pull/93) + #(pending) |
 | Deployed workload clusters | 1 (primary only) | Default; forker opts into more via `eks.<env>.regions` list |
 | Route 53 failover configuration | ❌ Not yet provisioned | Session B or C |
 | ECR cross-region replication | ❌ By design — Mode A default | Mode B upgrade path below |
@@ -228,13 +229,14 @@ Both `eu-central-1` and `eu-west-1` are EU regions and satisfy [ADR-002](../deci
 
 ## Lab status
 
-**Partially implemented** (as of Session A):
+**Partially implemented** (as of Session B 2026-04-20):
 
 - ✅ IPAM multi-region (both regional pools, RAM-shared).
 - ✅ Config schema `eks.<env>.regions` list (Session A).
 - ✅ Validation invariants (Session A — Python + schema).
-- ✅ Terraform `for_each(eks.regions)` refactor — **Session B done 2026-04-19** (network, platform sub-module, K=2 slot guard, CI plan matrix length-1 + length-2).
+- ✅ Terraform `for_each(eks.regions)` refactor — **Session B done 2026-04-19** (network, platform sub-module, K=2 slot guard in 2 layers, CI plan matrix length-1 + length-2).
+- ✅ Workloads layer slot-pattern refactor — **Session B closed 2026-04-20** (per-cluster GuardDuty + IRSA + namespace + NetworkPolicies + Kyverno + observability via `modules/eks-workloads`; K=2 guard now in 3 layers; ADR-015 + ADR-018 amended). Cross-repo coordination issue filed on aegis-core for the discovery contract.
 - ⚠️ End-to-end verification apply + teardown (Session C — pending).
 - ❌ Mode B (ECR replication + ApplicationSet + `aegis-core` coordination) — upgrade path documented, not a lab target.
 
-Each demo session chooses 1-region (default, cheap) or 2-region (richer demo, ~$2 increment per 4h).
+Each demo session chooses 1-region (default, cheap) or 2-region (richer demo, ~$2–4 increment per 4h with workloads doubled).

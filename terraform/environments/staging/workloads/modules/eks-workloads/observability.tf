@@ -11,6 +11,11 @@
 # in the Application spec, making them visible in the ArgoCD UI and
 # auditable via git diff on this file.
 #
+# Per-cluster: each slot has its own Prometheus + Grafana. No cross-region
+# federation (deferred to docs/improvements/008 if it ever becomes a
+# portfolio requirement). Operator port-forwards into whichever cluster's
+# Grafana they want to inspect.
+#
 # Access: Grafana is ClusterIP — use `kubectl port-forward` for browser
 # access (same pattern as ArgoCD UI today). ALB + ACM ingress is a
 # follow-up when a Route 53 domain is wired up.
@@ -29,6 +34,10 @@
 # Terraform state — the state backend (S3 + KMS, shared account) is the
 # trust boundary, same as every other secret this stack could conceivably
 # handle short of a proper secret store.
+#
+# Per-cluster: each slot has its own random_password, so primary and
+# slave_1 admin passwords are independent. Output by slot at the parent
+# layer (grafana_admin_password_primary / grafana_admin_password_slave_1).
 # -----------------------------------------------------------------------------
 resource "random_password" "grafana_admin" {
   length           = 32
@@ -37,6 +46,8 @@ resource "random_password" "grafana_admin" {
 }
 
 resource "kubectl_manifest" "kube_prometheus_stack" {
+  provider = kubectl.this
+
   yaml_body = yamlencode({
     apiVersion = "argoproj.io/v1alpha1"
     kind       = "Application"
@@ -79,6 +90,31 @@ resource "kubectl_manifest" "kube_prometheus_stack" {
                     }
                   }
                 }
+
+                # -----------------------------------------------------------
+                # Discovery contract — ADR-015 §Consequences (amended)
+                # -----------------------------------------------------------
+                # Wide-open selectors so aegis-core (and any other workload
+                # team) can ship PrometheusRule / ServiceMonitor / PodMonitor
+                # CRDs in any namespace and have them auto-picked-up by the
+                # Operator. Without these overrides, the chart default
+                # `*NilUsesHelmValues = true` makes Prometheus only select
+                # resources labelled `release=<chart-release>`, which would
+                # require service teams to know the platform-side chart
+                # release name — brittle and leaks an internal detail.
+                #
+                # Documented contract: see ADR-015 §"Discovery contract"
+                # and the cross-repo coordination issue on aegis-core.
+                # -----------------------------------------------------------
+                ruleSelector                            = {}
+                ruleNamespaceSelector                   = {}
+                ruleSelectorNilUsesHelmValues           = false
+                serviceMonitorSelector                  = {}
+                serviceMonitorNamespaceSelector         = {}
+                serviceMonitorSelectorNilUsesHelmValues = false
+                podMonitorSelector                      = {}
+                podMonitorNamespaceSelector             = {}
+                podMonitorSelectorNilUsesHelmValues     = false
               }
             }
 
@@ -115,6 +151,10 @@ resource "kubectl_manifest" "kube_prometheus_stack" {
             # any non-zero value of apiserver_requested_deprecated_apis. This
             # metric is emitted by the API server when a client uses a
             # deprecated API version.
+            #
+            # Platform-level rule — lives with the chart per ADR-015. Service-
+            # level alerts (SLO burn-rate, latency, etc.) are aegis-core's
+            # responsibility and ship as separate PrometheusRule CRDs.
             # -----------------------------------------------------------------
             additionalPrometheusRulesMap = {
               deprecated-apis = {

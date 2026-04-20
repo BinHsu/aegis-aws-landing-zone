@@ -1,7 +1,7 @@
 # 015. Observability Tooling
 
 ## Status
-Accepted
+Accepted (**amended 2026-04-20**: §Decision/Deployment-model fact drift on Application CRD ownership corrected — the Application is created by Terraform in `staging/workloads/observability.tf`, not in aegis-core's `apps/staging/`. §Consequences gained a new "Discovery contract" subsection codifying the wide-open Prometheus Operator selectors that make the responsibility split (platform-level rules in this repo, service-level rules in aegis-core) actually work. No tooling decision changed.)
 
 ## Context
 
@@ -38,7 +38,7 @@ This chart is the de facto standard for single-cluster Kubernetes observability.
 
 ### Deployment model
 
-- **ArgoCD Application** in `apps/staging/` (aegis-core repo) pointing at the `kube-prometheus-stack` Helm chart from the `prometheus-community` repo.
+- **ArgoCD Application** created by Terraform in `staging/workloads/observability.tf` via `kubectl_manifest` (Application CRD), pointing at the `kube-prometheus-stack` Helm chart from the `prometheus-community` repo. Per-cluster: each EKS slot gets its own Application synced by that cluster's ArgoCD instance, per [ADR-018](018-multi-region-eks-design.md) §7. (**Amended 2026-04-20**: an earlier draft of this ADR listed the Application as living in `apps/staging/` of the aegis-core repo. That was a forward-looking sketch that did not survive implementation — the platform owns the chart pin, so the Application CRD is created from this side.)
 - **Namespace**: `monitoring` (created by ArgoCD's `CreateNamespace=true` — no Terraform-managed IRSA or NetworkPolicy dependency for the monitoring namespace, unlike the `aegis` workload namespace).
 - **Grafana Ingress**: AWS Load Balancer Controller provisions an ALB with ACM TLS (same pattern as future aegis-core ingress). Grafana is accessible via browser for the operator.
 - **Prometheus storage**: 20 GB `gp3` PersistentVolumeClaim. Acceptable to lose on teardown — lab metrics have no retention requirement. The PVC is created by Prometheus Operator; Karpenter schedules the pod on a node with EBS access.
@@ -70,10 +70,47 @@ This chart is the de facto standard for single-cluster Kubernetes observability.
 
 The `monitoring` namespace becomes a platform-provided namespace alongside `argocd` and `karpenter`. Unlike `aegis`, it is not Terraform-managed — ArgoCD creates it and owns its lifecycle.
 
-Workload teams (aegis-core) expose metrics by creating `ServiceMonitor` CRDs that target their pods. The Prometheus Operator discovers these monitors automatically. This is a clean contract: the platform provides Prometheus; the workload declares what to scrape.
+Workload teams (aegis-core) expose metrics by creating `ServiceMonitor` CRDs that target their pods. The Prometheus Operator discovers these monitors automatically. This is a clean contract: the platform provides Prometheus; the workload declares what to scrape. See "Discovery contract" below for the specific selector wiring that makes this work.
 
 The `apiserver_requested_deprecated_apis` alert rule (from `docs/principles/change-review-discipline.md` §3.4) can now be implemented as a `PrometheusRule` CRD in the kube-prometheus-stack values. This closes the gap between "we should detect deprecated APIs" and "we actually do."
 
 Grafana dashboards are ephemeral — they are provisioned from the chart's built-in set and any ConfigMap-based custom dashboards. No persistent Grafana database. This is intentional: dashboards-as-code via Helm values is the GitOps-native pattern and avoids the "someone edited a dashboard in the UI and it was lost on restart" anti-pattern.
 
 The 24-hour in-cluster retention means metrics from previous sessions are not available. This is acceptable for a lab. If longer retention becomes useful (e.g., for week-over-week comparison), Thanos sidecar or remote-write to S3 can be added in a future phase without changing the core stack.
+
+### Discovery contract (added 2026-04-20)
+
+The "platform provides Prometheus, workload declares what to scrape" responsibility split only works if the Prometheus Operator's selectors are open enough to pick up workload-team CRDs. The chart default `*NilUsesHelmValues = true` makes Prometheus only select resources labelled `release=<chart-release>` — which would force aegis-core (or any future workload team) to know the platform-side chart release name and label every `PrometheusRule` / `ServiceMonitor` / `PodMonitor` accordingly. That leaks an internal chart detail into the consumer's manifests and is brittle across chart upgrades.
+
+The platform-side fix is to set the selectors to wide-open in `staging/workloads/observability.tf`:
+
+```yaml
+prometheus:
+  prometheusSpec:
+    ruleSelector: {}
+    ruleNamespaceSelector: {}
+    ruleSelectorNilUsesHelmValues: false
+
+    serviceMonitorSelector: {}
+    serviceMonitorNamespaceSelector: {}
+    serviceMonitorSelectorNilUsesHelmValues: false
+
+    podMonitorSelector: {}
+    podMonitorNamespaceSelector: {}
+    podMonitorSelectorNilUsesHelmValues: false
+```
+
+Net effect: any `PrometheusRule` / `ServiceMonitor` / `PodMonitor` in any namespace is auto-discovered by the Operator. Grafana sidecar discovers dashboards from any ConfigMap with label `grafana_dashboard: "1"` (chart default, unchanged).
+
+**Conventions for aegis-core**:
+
+| Resource | Namespace | Labels | Notes |
+|---|---|---|---|
+| `PrometheusRule` | `aegis` | `app.kubernetes.io/part-of: aegis` | Service-level alerts (latency, error rate, SLO burn-rate). |
+| `ServiceMonitor` | `aegis` | same | Prefer over `PodMonitor`. |
+| `PodMonitor` | `aegis` | same | Only when direct pod scrape is needed. |
+| Grafana dashboard | `monitoring` or `aegis` | `grafana_dashboard: "1"` | ConfigMap with dashboard JSON in `data`. |
+
+**Stability commitment**: the wide-open selector configuration is part of the platform-surface contract. Changes that tighten selectors (e.g. moving to label-required scoping for governance) require a `cross-repo/blocking` issue on aegis-core before landing.
+
+**Multi-region (ADR-018 slot pattern)**: each cluster runs its own kube-prometheus-stack with the same wide-open selectors. No cross-region federation in Mode A — the responsibility for fanning aegis-core's manifests across clusters (e.g., ArgoCD ApplicationSet with cluster generator) sits on aegis-core, not on the platform.
