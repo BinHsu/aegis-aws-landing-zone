@@ -4,8 +4,8 @@ output "experiment_template_id" {
 }
 
 output "experiment_template_arn" {
-  description = "FIS Experiment Template ARN."
-  value       = aws_fis_experiment_template.primary_eks_node_outage.arn
+  description = "FIS Experiment Template ARN. Constructed because the AWS provider's aws_fis_experiment_template resource does not export an arn attribute (only id)."
+  value       = "arn:aws:fis:${local.primary_region}:${local.account_id}:experiment-template/${aws_fis_experiment_template.primary_eks_node_outage.id}"
 }
 
 output "fis_service_role_arn" {
