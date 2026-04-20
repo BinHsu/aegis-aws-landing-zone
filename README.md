@@ -150,7 +150,7 @@ Status reflects what exists in `main`, not aspirations. Each "Done" row links to
 **Today (lab baseline)**:
 - Workload data plane: ~3 nines (99.9%) — single-region multi-AZ, `eu-central-1`
 - CI / deployment path: ~2.5 nines (~99.8%) — state bucket is a single-account, single-region SPOF with unbounded worst-case MTTR
-- Multi-region extent: **All three workload-tier layers slot-patterned (network + platform + workloads); CI matrix + K=2 guard in 3 layers; unapplied** (Session B closed 2026-04-20 with workloads refactor PR #100); workload clusters run single-region by default — flipping `eks.<env>.regions` to length-2 spins up primary + DR (with full GuardDuty + Kyverno + observability per cluster) on next apply
+- Multi-region extent: **All three workload-tier layers slot-patterned (network + platform + workloads); CI matrix + K=2 guard in 3 layers; validated against real AWS in Session C 2026-04-20** (applied length-2, verified both clusters healthy, torn down clean in ~75 min at ~$2 cost — see Incidents 26–29 for the 4 cold-apply bugs surfaced and scheduled for fix). Workload clusters run single-region by default; flipping `eks.<env>.regions` to length-2 spins up primary + DR on next apply
 
 **Design target (if productionized)**:
 - Workload: 3.5 nines (99.95%) via active-passive pilot light in `eu-west-1` ([ADR-018](docs/decisions/018-multi-region-eks-design.md))
