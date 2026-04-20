@@ -23,9 +23,11 @@ resource "helm_release" "argocd" {
     yamlencode({
       controller = {
         replicas = 1
+        # Cold-start reconcile peak (3 Applications including kube-prometheus-stack)
+        # routinely exceeds chart-default 512Mi → OOMKilled on bring-up. See Incident 29.
         resources = {
-          requests = { cpu = "100m", memory = "256Mi" }
-          limits   = { cpu = "500m", memory = "512Mi" }
+          requests = { cpu = "100m", memory = "512Mi" }
+          limits   = { cpu = "500m", memory = "1Gi" }
         }
       }
 
