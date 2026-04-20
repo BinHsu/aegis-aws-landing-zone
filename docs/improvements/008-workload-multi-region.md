@@ -229,14 +229,19 @@ Both `eu-central-1` and `eu-west-1` are EU regions and satisfy [ADR-002](../deci
 
 ## Lab status
 
-**Partially implemented** (as of Session B 2026-04-20):
+**Mode A slot pattern validated end-to-end** (Session C closed 2026-04-20):
 
 - ✅ IPAM multi-region (both regional pools, RAM-shared).
 - ✅ Config schema `eks.<env>.regions` list (Session A).
 - ✅ Validation invariants (Session A — Python + schema).
-- ✅ Terraform `for_each(eks.regions)` refactor — **Session B done 2026-04-19** (network, platform sub-module, K=2 slot guard in 2 layers, CI plan matrix length-1 + length-2).
-- ✅ Workloads layer slot-pattern refactor — **Session B closed 2026-04-20** (per-cluster GuardDuty + IRSA + namespace + NetworkPolicies + Kyverno + observability via `modules/eks-workloads`; K=2 guard now in 3 layers; ADR-015 + ADR-018 amended). Cross-repo coordination issue filed on aegis-core for the discovery contract.
-- ⚠️ End-to-end verification apply + teardown (Session C — pending).
+- ✅ Terraform `for_each(eks.regions)` refactor — **Session B done 2026-04-19/20** (network, platform sub-module, workloads sub-module, K=2 slot guard in 3 layers, CI plan matrix length-1 + length-2).
+- ✅ End-to-end apply + verify + teardown against real AWS — **Session C done 2026-04-20**. Length-2 applied to network + platform + workloads; both clusters reached Ready; Runbook 003 §9 checklist passed on core paths; teardown completed after one retry + one manual orphan-cleanup cycle. ~90 min wall including the teardown retry, ~$2 cost (teardown delay did not extend billing — EKS/NAT were already gone before the sweep-related failure). Five bugs surfaced and captured:
+  - Incident 26: Kyverno `ClusterPolicy` CRD race against ArgoCD-managed chart sync (cold-apply)
+  - Incident 27: kube-prometheus-stack node-exporter DaemonSet Pending on Fargate nodes (cold-apply)
+  - Incident 28: GuardDuty EKS Runtime Monitoring agent CrashLoopBackOff (cold-apply; not fully diagnosed)
+  - Incident 29: ArgoCD `application-controller` OOMKilled on cold-start reconcile (primary cluster only — asymmetric by load-ordering)
+  - Incident 30: Teardown sweep step silently masks `DependencyViolation` on orphan EKS cluster SG; `|| true` + no ENI pass leaves VPC stuck
+  None are slot-pattern defects; 26-29 are pre-existing issues in individual workload components that cold-apply surfaced for the first time, 30 is a pre-existing teardown-workflow defect that multi-region exercise made more likely to hit. Each incident has a Prevention section with the fix outline; a follow-up PR will codify them.
 - ❌ Mode B (ECR replication + ApplicationSet + `aegis-core` coordination) — upgrade path documented, not a lab target.
 
-Each demo session chooses 1-region (default, cheap) or 2-region (richer demo, ~$2–4 increment per 4h with workloads doubled).
+Each demo session chooses 1-region (default, cheap) or 2-region (richer demo, ~$2 verified per 75-min Session C).

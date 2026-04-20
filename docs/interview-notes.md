@@ -5,7 +5,7 @@ A reader's guide for recruiters, hiring managers, and technical leadership revie
 
 **Time budget**:
 - Recruiter / HR / hunter: read all of this doc (~10 min).
-- Technical leader / architect peer: skim section 1 (stance), then jump to [`docs/decisions/`](decisions/) for the 13 ADRs and [`docs/incidents.md`](incidents.md) for the 24 postmortems.
+- Technical leader / architect peer: skim section 1 (stance), then jump to [`docs/decisions/`](decisions/) for the 19 ADRs and [`docs/incidents.md`](incidents.md) for the 30 postmortems.
 
 ---
 
@@ -94,16 +94,16 @@ Each entry: what was built → where to look in the repo → the kind of questio
 
 **Built**: three layers of operational writing with explicit rules in [`CLAUDE.md`](../CLAUDE.md):
 - **ADRs** — 19 in [`docs/decisions/`](decisions/), supersede-in-place style ("Design iteration" sections note evolution; ADR-018 §3 has an in-place amendment demonstrating the pattern)
-- **Incidents** — 25 in [`docs/incidents.md`](incidents.md), append-only, standard format
+- **Incidents** — 30 in [`docs/incidents.md`](incidents.md), append-only, standard format
 - **Runbooks** — 4 in [`docs/runbooks/`](runbooks/); CLAUDE.md rule requires AI agents to read the layer's runbook before operating on it
 
 **Where to look**:
 - [`CLAUDE.md`](../CLAUDE.md) — 6 explicit "Rule: AI must..." clauses
 - [`docs/decisions/`](decisions/) — 19 ADRs
-- [`docs/incidents.md`](incidents.md) — 25 postmortems
+- [`docs/incidents.md`](incidents.md) — 30 postmortems
 - [`docs/runbooks/`](runbooks/) — 4 runbooks
 
-**Likely questions**: show me a real incident (pick from the 25 in `docs/incidents.md` — Incidents 6, 7, 12, 18, 22, 24, 25 cover the widest angle: CMK recovery, hidden cross-account prerequisites, honest design reversal, asymmetric IAM policy, belt-and-suspenders teardown architecture, Terraform concurrency edge cases, and service-specific resource-policy quirks); what does the ADR format give you that code comments don't (ADRs preserve *why* even when *what* is obvious from code); how do you keep this discipline consistent (CLAUDE.md rules + pre-commit hooks + AI reminders — not willpower).
+**Likely questions**: show me a real incident (pick from the 30 in `docs/incidents.md` — Incidents 6, 7, 12, 18, 22, 24, 25, 26 cover the widest angle: CMK recovery, hidden cross-account prerequisites, honest design reversal, asymmetric IAM policy, belt-and-suspenders teardown architecture, Terraform concurrency edge cases, service-specific resource-policy quirks, and ArgoCD-managed-CRD bootstrap race); what does the ADR format give you that code comments don't (ADRs preserve *why* even when *what* is obvious from code); how do you keep this discipline consistent (CLAUDE.md rules + pre-commit hooks + AI reminders — not willpower).
 
 ### 2.7 Cross-repo coordination
 
@@ -252,7 +252,7 @@ This doc is frame-level. For the actual substance:
 | Interest | Open |
 |---|---|
 | "Walk me through the architectural decisions" | [`docs/decisions/`](decisions/) — 13 ADRs |
-| "Show me real failures and what you learned" | [`docs/incidents.md`](incidents.md) — 24 postmortems |
+| "Show me real failures and what you learned" | [`docs/incidents.md`](incidents.md) — 30 postmortems |
 | "How do I reproduce this?" | [`docs/runbooks/001-bootstrap-aws-account.md`](runbooks/001-bootstrap-aws-account.md) |
 | "How would an AI agent work on this?" | [`CLAUDE.md`](../CLAUDE.md) |
 | "What does the config contract look like?" | [`config/landing-zone.example.yaml`](../config/landing-zone.example.yaml) + [`config/schema.json`](../config/schema.json) + [ADR-004](decisions/004-deployment-configuration-contract.md) |

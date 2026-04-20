@@ -1926,6 +1926,442 @@ Verified with a local `terraform apply` against live state before committing. Pl
 
 ---
 
+## Incident 26 — Kyverno ClusterPolicy apply fails on cold apply: ArgoCD-managed chart not yet synced
+
+**Date**: 2026-04-20 (Session C first cold-apply after workloads slot-pattern refactor, PR #100)
+**Severity**: S2 (blocks `terraform apply` on the workloads layer; recoverable via retry)
+**Duration**: ~2 minutes to diagnose + ~4 minutes for retry apply to succeed
+
+### Symptom
+
+Fresh `gh workflow run terraform-apply-workload.yml -f env=staging` (both `eks.staging.regions` slots) failed in the `Apply staging/workloads` job with identical errors against both `module.workloads_primary` and `module.workloads_slave_1[0]`:
+
+```
+Error: require-app-labels failed to create kubernetes rest client for update
+  of resource: resource [kyverno.io/v1/ClusterPolicy] isn't valid for
+  cluster, check the APIVersion and Kind fields are valid
+  with module.workloads_<slot>.kubectl_manifest.policy_require_labels,
+  on modules/eks-workloads/kyverno.tf line 243
+```
+
+Other earlier-in-module resources succeeded (namespace, NetworkPolicies, IRSA, GuardDuty detector+features, random_password, both ArgoCD Applications for kyverno + kube-prometheus-stack). Only the four `kubectl_manifest.policy_*` resources failed, in both slots.
+
+### Root cause
+
+Bootstrap race. `modules/eks-workloads/kyverno.tf` installs Kyverno **via an ArgoCD Application** (created by `kubectl_manifest "kyverno"`), not via `helm_release`. The four `kubectl_manifest.policy_*` resources have `depends_on = [kubectl_manifest.kyverno]`, which satisfies Terraform's dependency graph as soon as the Application CRD exists in etcd — but the Kyverno Helm chart itself (which ships the `ClusterPolicy` CRD) is asynchronously synced by the ArgoCD application-controller afterwards.
+
+Between "Application CRD exists" and "ArgoCD has actually installed the chart" is a ~1–3 minute window where the `ClusterPolicy` CRD does not exist in the cluster. Terraform's `kubectl_manifest` tries to apply the `ClusterPolicy` resource during this window, which maps to an API call that the K8s API server rejects with "resource not valid for cluster".
+
+The comment block in `kyverno.tf` claimed "the kubectl provider's deferred plan-time schema validation handles this bootstrap ordering — same pattern as Karpenter NodePool". That analogy is wrong: Karpenter NodePool works because Karpenter is installed via `helm_release` in `staging/platform/karpenter-helm.tf`, which is a **synchronous** install that blocks Terraform until the Helm release reports ready — and the CRDs are part of that release. Kyverno here is installed via ArgoCD Application, which is **asynchronous** with respect to Terraform. The `depends_on` only waits for Terraform's own resource, not for ArgoCD to finish its job.
+
+This race was present since the original workloads layer (PR #68, Phase 4c) but likely never triggered before Session C because: (a) earlier applies may have happened to hit lucky timing, or (b) the workloads layer was never cold-applied after a clean teardown — prior sessions kept state long enough for the CRD to persist across apply attempts, so the race was masked. Session C is the first clean cold apply of the workloads layer ever attempted.
+
+### Detection
+
+Workflow job output showed the error message above for both slots. `kubectl --context primary get crd | grep kyverno` confirmed that at the time the apply retried a few minutes later, all Kyverno CRDs (`cleanuppolicies`, `clusterpolicies`, etc.) did exist — further evidence that the failure was purely timing-based, not configuration-based.
+
+### Resolution
+
+Retry: `gh workflow run terraform-apply-workload.yml -f env=staging` a second time, with the same approval. By the time the retry reaches the `kubectl_manifest.policy_*` resources, ArgoCD has already synced the chart and the CRDs are present. The policies apply cleanly. Network + Platform jobs replan to "0 changes" and pass quickly.
+
+No state cleanup needed — the failing apply left no partial state for `policy_*` (they were never created server-side), so retry creates them normally.
+
+### Prevention
+
+Two fixes, one substantive, one lightweight:
+
+1. **(Preferred) Convert Kyverno from ArgoCD Application to `helm_release`** in `modules/eks-workloads/kyverno.tf`. Same pattern as Karpenter / LB Controller in `staging/platform/`. `helm_release` is synchronous by default (`wait = true`), blocks Terraform until the release reports ready, and the `ClusterPolicy` CRD exists after that. Then `kubectl_manifest.policy_*` can reliably apply. Loses the ArgoCD-visible lifecycle for Kyverno itself; the `ClusterPolicy` resources can optionally move to a separate ArgoCD Application after the chart is up. Tradeoff explicit.
+
+2. **(Lightweight band-aid) Add a `time_sleep` resource** between `kubectl_manifest.kyverno` and `kubectl_manifest.policy_*`:
+
+   ```hcl
+   resource "time_sleep" "wait_for_kyverno_sync" {
+     depends_on      = [kubectl_manifest.kyverno]
+     create_duration = "180s"
+   }
+   ```
+
+   Then each policy does `depends_on = [time_sleep.wait_for_kyverno_sync]`. This is a fragile fix — 180s is a guess, and slower ArgoCD sync on overloaded clusters will still race. Acceptable as a stopgap; not as a final fix.
+
+3. **Correct the comment block in `kyverno.tf`** that claimed the kubectl provider's deferred schema validation handles this. It does not; that claim misled the original author and nearly anyone reading the file. Incident-driven documentation pass on this layer is due.
+
+The same race applies to `kubectl_manifest.kube_prometheus_stack` in `observability.tf` — it also creates an ArgoCD Application, and if any downstream Terraform resource tried to use a kube-prometheus-stack CRD it would hit the same pattern. None do today; the observability Application is terminal in the module. Not yet a bug; flag for future additions.
+
+### Lessons
+
+- **`depends_on` between `kubectl_manifest` + ArgoCD Application is not a real ordering guarantee for anything the Application creates downstream.** The `kubectl_manifest` resource completes as soon as the CRD is in etcd; the Application's own work is asynchronous. If a subsequent Terraform resource requires what the Application creates (CRDs from the chart, namespace objects, webhooks, etc.), the correct tools are either synchronous `helm_release` or `time_sleep` + retry, not `depends_on`.
+
+- **Analogies between "similar patterns in different layers" can be wrong in load-bearing ways.** The Karpenter-NodePool analogy sounded identical but was actually a `helm_release` vs `ArgoCD Application` distinction that carried all the weight. Future patterns derived by analogy should explicitly check the sync semantics of the referenced base pattern, not just the surface shape.
+
+- **Cold-apply testing is load-bearing for first-time assembly.** This bug was structurally always present but never hit because workloads had not been cold-applied against empty state before. Every multi-layer Terraform system accumulates "works if state persists" assumptions that a clean teardown / reapply cycle will expose. Session-C-style full-stack clean applies should be a regular fire drill, not a portfolio-only one-off.
+
+- **The ArgoCD-managed vs Terraform-managed lifecycle for platform dependencies is a recurring design axis.** ADR-015 and ADR-016 both put operator Apps (kube-prometheus-stack, Kyverno) into ArgoCD for lifecycle visibility. But when Terraform needs synchronous handoff (CRDs must exist before a downstream TF resource runs), ArgoCD's async model breaks the handoff. Worth adding to ADR-015 / ADR-016's "Consequences" section as a known tradeoff; candidate future ADR if the pattern recurs.
+
+---
+
+## Incident 27 — kube-prometheus-stack node-exporter DaemonSet stays Pending on Fargate nodes
+
+**Date**: 2026-04-20 (Session C verification after workloads layer apply, PR #100)
+**Severity**: S3 (observability partially degraded — node-exporter missing on Fargate-scheduled nodes; cluster still functional)
+**Duration**: Present on every apply of the workloads layer since Phase 4c; first noticed during Session C
+
+### Symptom
+
+After `staging/workloads` applies, `kubectl get pods -A` on each cluster shows:
+
+```
+monitoring   kube-prometheus-stack-prometheus-node-exporter-wpl7l   0/1   Pending   0   4m30s
+```
+
+`kubectl describe` on the Pending pod surfaces scheduling refusal — the pod tolerates taints but cannot be scheduled on Fargate nodes (EKS Fargate does not support `DaemonSet` pods; it is one-pod-one-microVM and ignores DaemonSet scheduler intent).
+
+In both slots (primary + slave_1) the cluster has 3 Fargate nodes (CoreDNS × 2 + Karpenter controller) and 2 EC2 nodes (Karpenter-provisioned). node-exporter schedules successfully on the 2 EC2 nodes but leaves 1 pod Pending per Fargate node, because the DaemonSet controller keeps trying.
+
+### Root cause
+
+The kube-prometheus-stack Helm chart's `prometheus-node-exporter` sub-chart does not exclude Fargate by default. Its `nodeSelector` / `affinity` / `tolerations` are tuned for standard Kubernetes clusters where every node is capable of running a DaemonSet; on EKS Fargate, the DaemonSet controller schedules a pod per node regardless, and Fargate silently fails to admit it.
+
+The values in `modules/eks-workloads/observability.tf` do not override this. Upstream chart maintainers know about this and the [kube-prometheus-stack README](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack) suggests an affinity override for EKS:
+
+```yaml
+prometheus-node-exporter:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: eks.amazonaws.com/compute-type
+                operator: NotIn
+                values: [fargate]
+```
+
+Our chart values do not yet include this stanza, so the DaemonSet includes Fargate nodes in its scheduling set. Fargate refuses. Pods go Pending.
+
+### Detection
+
+Runbook 003 §9 pod sweep during Session C verification:
+
+```bash
+kubectl --context primary get pods -A | grep -vE "Running|Completed"
+```
+
+Turned up two Pending node-exporter pods (one per Fargate node) per cluster. The crashing pods aged ~4–5 minutes at verification time, matching the monitoring Application's sync lifecycle.
+
+### Resolution
+
+During the session: no action. Partial-coverage node-exporter is better than nothing (EC2 nodes, which carry the actual workload pods, DO get metrics). Functional impact is zero for the failover demo and portfolio narrative.
+
+Long-term fix (next workloads-layer PR): add to `modules/eks-workloads/observability.tf` inside the `kube-prometheus-stack` Helm values:
+
+```yaml
+"prometheus-node-exporter" = {
+  affinity = {
+    nodeAffinity = {
+      requiredDuringSchedulingIgnoredDuringExecution = {
+        nodeSelectorTerms = [{
+          matchExpressions = [{
+            key      = "eks.amazonaws.com/compute-type"
+            operator = "NotIn"
+            values   = ["fargate"]
+          }]
+        }]
+      }
+    }
+  }
+}
+```
+
+### Prevention
+
+- **When installing Helm charts that ship DaemonSets onto EKS Fargate-mixed clusters, review the chart's Fargate affinity stance up front.** kube-prometheus-stack, fluentd, falco, others all ship DaemonSets. EKS Fargate excludes them silently. Default chart values assume homogeneous nodes; EKS mixed compute needs affinity overrides.
+
+- **Make node-exporter coverage explicit in observability posture docs.** `docs/decisions/015-observability-tooling.md` should note that EC2-only node-exporter coverage is accepted for EKS Fargate-mixed clusters. Without the doc, an operator three months from now will diagnose "why are half my node_exporter pods Pending" as a new incident rather than recognize it as established behavior.
+
+### Lessons
+
+- **EKS Fargate DaemonSet refusal is silent and persistent.** Unlike a `NodeAffinity` mismatch (which produces a clear `Unschedulable` event), a Fargate-mode refusal of a DaemonSet pod looks like vanilla `Pending` + pod age grows. Easy to miss in a quick pod sweep; only shows up if the operator knows to look for it.
+
+- **Chart defaults are tuned for non-EKS clusters.** Most Helm charts in the Prometheus / Grafana / OpenTelemetry ecosystems assume vanilla K8s where every node is a peer. EKS Fargate-mixed clusters are a nontrivially different topology. When adopting an upstream chart on EKS mixed, budget an affinity / tolerations pass *before* first apply.
+
+---
+
+## Incident 28 — GuardDuty EKS Runtime Monitoring agent DaemonSet CrashLoopBackOff on both clusters
+
+**Date**: 2026-04-20 (Session C verification after workloads layer apply with GuardDuty `EKS_RUNTIME_MONITORING` feature enabled, PR #100)
+**Severity**: S2 (security posture degraded — runtime threat detection not active; cluster functional; GuardDuty _audit log_ monitoring still works)
+**Duration**: Unresolved at session close. Deferred to a diagnose-and-fix PR in the next session.
+
+### Symptom
+
+After `staging/workloads` applies, each cluster shows the GuardDuty managed addon's DaemonSet pods failing in the `amazon-guardduty` namespace:
+
+```
+amazon-guardduty   aws-guardduty-agent-k2xn6   0/1   CrashLoopBackOff   6 (21s ago)   6m21s
+amazon-guardduty   aws-guardduty-agent-tm2zz   0/1   Pending            0             6m21s
+```
+
+Same pattern on both primary (eu-central-1) and slave_1 (eu-west-1). Restart counts climb; the pods never reach Running.
+
+The pods are created by the GuardDuty-managed EKS addon that the `aws_guardduty_detector_feature.eks_runtime` resource with `additional_configuration { name = "EKS_ADDON_MANAGEMENT"; status = "ENABLED" }` installs. That addon includes a DaemonSet for runtime monitoring.
+
+### Root cause
+
+**Not fully diagnosed at session close.** Candidate causes, in decreasing likelihood:
+
+1. The addon DaemonSet tries to schedule on Fargate nodes (same failure mode as Incident 27 for node-exporter) — and additionally needs node-level access (eBPF, `/sys`, `/proc`) that Fargate forbids. Partial Pending (1 pod per Fargate node) and partial CrashLoopBackOff (on EC2 nodes for a different reason) would fit this split signature.
+2. The EC2 node instance profile / Karpenter NodeClass IAM role lacks the specific GuardDuty runtime agent permissions. The agent needs to call `GuardDuty:*` back to the detector.
+3. A specific EC2 node configuration (kernel version, AMI type) is incompatible with the runtime agent's eBPF program requirements. The current Karpenter NodePool uses AL2023 by default; the runtime agent historically required specific minimum AL2/AL2023 patches.
+
+The CrashLoopBackOff on EC2 nodes and Pending on Fargate nodes suggests a *combination* of #1 and #2 or #3.
+
+### Detection
+
+Runbook 003 §9 pod sweep during Session C verification. `kubectl get pods -A | grep -vE "Running|Completed"` surfaced the failing pods on both clusters; same pattern on both.
+
+Did not dive into `kubectl describe` / `kubectl logs` during the session — teardown was prioritized over per-pod diagnosis to cap AWS spend. The container logs are captured in the earlier `gh run view` output from the failed workflow run; those logs may still be retrievable from the pods before teardown drops the cluster.
+
+### Resolution
+
+During the session: none. Runtime threat detection is a nice-to-have; audit log monitoring (the other GuardDuty EKS feature enabled in the same resource) continues to work. Functional impact on Session C's portfolio goal is zero — slot pattern validation does not depend on GuardDuty agent health.
+
+Tracked for a dedicated diagnose-and-fix PR in the next session. Scope:
+
+1. Reproduce the failure on a single-region apply (simpler environment; less cost).
+2. `kubectl -n amazon-guardduty describe pod aws-guardduty-agent-<id>` to classify: scheduling reason (affinity, resources) vs runtime error (init container exit, main container crash).
+3. `kubectl -n amazon-guardduty logs aws-guardduty-agent-<id> --previous` for the CrashLoopBackOff pods.
+4. Cross-reference [AWS GuardDuty EKS Runtime Monitoring troubleshooting](https://docs.aws.amazon.com/guardduty/latest/ug/runtime-monitoring-troubleshooting.html) for the specific failure signature.
+5. Apply the fix (likely: Fargate exclusion via `nodeSelector` override on the addon configuration, or an IAM policy attached to the Karpenter node role).
+
+### Prevention
+
+- **For any AWS-managed EKS addon, include a day-one smoke check** that the addon's DaemonSet (if any) actually reaches Running on all expected nodes. `kubectl -n <addon-ns> get pods -o wide` as part of post-apply verification would have surfaced this on the first Phase 4c apply, not 48 hours later during Session C.
+
+- **Add an improvements entry** (`010-guardduty-runtime-agent-fargate-compat.md` or similar) once the root cause is known. Tracking the fix as a deliberate improvements item makes the DR story clearer — GuardDuty EKS Runtime Monitoring is *enabled* in the Terraform but *not effective* at lab tier; that is a known gap, not a silent failure.
+
+### Lessons
+
+- **"Enabled via Terraform" ≠ "operationally effective"** for AWS-managed addons whose effectiveness depends on in-cluster workload health. The `aws_guardduty_detector_feature` resource went green (AWS-side enable succeeded). The in-cluster DaemonSet is a separate failure surface that Terraform has no visibility into.
+
+- **Same Fargate DaemonSet trap as Incident 27, different vendor.** The EKS Fargate limitation ("no DaemonSet pods") bites AWS-managed addons the same way it bites upstream Helm charts. Worth adding a one-line check to `docs/decisions/013-eks-architecture.md` Consequences: "Any DaemonSet in the cluster must be configured to skip Fargate nodes."
+
+---
+
+## Incident 29 — ArgoCD application-controller OOMKilled on primary cluster under cold-start reconcile
+
+**Date**: 2026-04-20 (Session C verification, PR #100 workloads slot-pattern refactor; primary cluster only)
+**Severity**: S2 (primary cluster's GitOps loop degraded; slave_1 fine; manual intervention required for the ArgoCD UI to be usable on primary)
+**Duration**: Observed mid-session; not resolved in-session (teardown followed immediately).
+
+### Symptom
+
+In the primary cluster (`eu-central-1`) only, `argocd-application-controller-0` enters `CrashLoopBackOff` with Exit Code 137 within ~2 minutes of ArgoCD's first cold sync:
+
+```
+Last State:     Terminated
+  Reason:       OOMKilled
+  Exit Code:    137
+```
+
+Restart count climbed to 5 within ~8 minutes of cluster bring-up. Slave_1's `argocd-application-controller-0` stayed `Running 1/1` throughout the session with zero restarts despite the same chart version, same Helm values, same cluster size, same list of ArgoCD Applications (`kube-prometheus-stack`, `kyverno`, `root`).
+
+### Root cause
+
+Default ArgoCD Helm chart memory limits are too low for cold-start reconciliation when the controller has to simultaneously:
+
+- Parse the 3 ArgoCD Applications' manifests
+- Compare each against live cluster state
+- Reconcile each — which for `kube-prometheus-stack` means pulling a ~300 MB Helm chart, rendering it, and diff-ing against ~30+ in-cluster objects
+
+The memory peak during this phase exceeds the chart default. After steady state (applications Synced, reconcile loop becomes incremental), memory drops back to well below limit — so the pod stays Running on slave_1 where the bring-up sequence was slightly staggered (slave cluster came up seconds after primary; by the time primary was in reconcile peak, slave was still in `apps-being-registered` phase, then by the time slave hit reconcile peak, primary's earlier crashes had prompted slave to spread the work over more time).
+
+The asymmetric behavior is load-ordering dependent: whichever cluster hits the reconcile storm first, peaks higher. Not a slot-pattern bug — it would affect a single-cluster deploy the same way, it just hasn't been load-tested against cold-start memory.
+
+### Detection
+
+Runbook 003 §9 ArgoCD pod health check:
+
+```bash
+kubectl --context primary -n argocd get pods --no-headers | awk '{print $1, $2, $3}'
+```
+
+Showed `argocd-application-controller-0 0/1 CrashLoopBackOff`. `kubectl describe pod` confirmed `OOMKilled`:
+
+```bash
+kubectl --context primary -n argocd describe pod argocd-application-controller-0 | grep -A3 "Last State:"
+```
+
+Exit code 137 = SIGKILL from OOM killer.
+
+### Resolution
+
+During session: none — taking the controller out of the OOM loop would require editing the StatefulSet in place, which is beyond the scope of a verification-only session. The cluster was functional enough for verification (other ArgoCD components running; applications visible; reconcile just delayed/intermittent).
+
+Long-term fix (next workloads-layer PR or platform-layer PR — depends on where ArgoCD chart values are set; check `staging/platform/argocd.tf`):
+
+```yaml
+controller:
+  resources:
+    limits:
+      memory: 1Gi    # up from chart default (typically 256Mi–512Mi)
+    requests:
+      memory: 512Mi
+```
+
+Alternate: enable ArgoCD controller sharding (`replicas: 2`, shard assignment via `ARGOCD_CONTROLLER_SHARD`) so load distributes across more pods. Shards per-cluster is overkill for a lab but matches production ArgoCD deployments.
+
+### Prevention
+
+- **Size ArgoCD controller memory for cold-start peak, not steady-state.** Helm chart defaults are sized for steady-state reconcile; cold-start with a nontrivial app-of-apps graph (>3 apps, >1 Helm app with a large chart) routinely peaks 2–3× steady-state. Budget 1 Gi limit + 512 Mi requests as a floor for any cluster that will ever cold-start with > 2 ArgoCD apps.
+
+- **Include ArgoCD controller health in the platform-first-verification runbook's §9 checklist** as an explicit item (not just "ArgoCD 6/6"). Specifically look for non-zero restart counts on `argocd-application-controller-0`; any restart count within the first 10 minutes of cluster life is evidence of this class of bug.
+
+- **Consider deferring non-essential ArgoCD Applications to post-bring-up.** If the root app-of-apps synthetically waits 60s before kicking off child Applications, the controller's cold-start work spreads out across time and peak memory drops. Orthogonal to memory limits; complementary.
+
+### Lessons
+
+- **Cold-start OOM is asymmetric and hard to reproduce.** The same chart, same cluster size, same apps can OOM on one cluster and not another depending on microsecond-level ordering. Post-hoc reproduction is flaky; the right response is to raise the memory limit and move on, not to debug which 100 ms sliver of reconcile pushed the controller over.
+
+- **"Same config, different behavior" across slot-pattern clusters is worth flagging.** A forked design would naturally produce identical behavior; the slot pattern does too *for configuration*, but operational behavior can still diverge due to load ordering. Session C validated that the slot pattern pushes the same code to both clusters (correct); it also surfaced that identical code under identical config can still exhibit different runtime health (expected, but worth documenting in the ADR-018 Consequences as "per-cluster observability is independent — including where cluster-specific failures surface").
+
+- **Load-testing for cold start is not just a capacity-planning exercise.** It is also a reliability exercise: cold start is the moment after any disaster (region failover, primary outage, scheduled teardown/re-apply for cost). Under-sizing for cold start is equivalent to under-sizing for recovery. Worth pulling forward into ADR-015 Consequences as "Observability stack capacity must tolerate cold-start peak, not just steady-state."
+
+---
+
+## Incident 30 — Teardown sweep silently fails to clear EKS cluster SG; `|| true` masks the real AWS error
+
+**Date**: 2026-04-20 (Session C teardown, first attempt; the workloads slot-pattern refactor landed earlier the same day in PR #100)
+**Severity**: S2 (blocks VPC destroy; recoverable by manual cleanup + re-trigger)
+**Duration**: ~25 minutes between the failed first teardown and the successful retry, of which ~2 min was actual diagnosis and ~22 min was the first teardown's own protracted destroy of `vpc_slave_1` (unrelated but concurrent)
+
+### Symptom
+
+The `Destroy staging/network` job of `terraform-teardown-workload.yml` run [#24655477762](https://github.com/BinHsu/aegis-aws-landing-zone/actions/runs/24655477762) reported `completed / failure` with:
+
+```
+Error: deleting EC2 Subnet (subnet-00353c54bf635e587): operation error EC2:
+  DeleteSubnet, api error DependencyViolation: The subnet
+  'subnet-00353c54bf635e587' has dependencies and cannot be deleted.
+```
+
+The `Sweep orphan EKS security groups in target VPC` step of the same job had run **before** `terraform destroy` and reported `success` — including explicit notice messages:
+
+```
+notice::Sweeping orphan EKS SGs in VPC vpc-098e0945f1184f89d
+notice::Deleting orphan EKS SG sg-050f60eb1eaf4318a
+```
+
+Yet post-failure AWS CLI inspection showed that `sg-050f60eb1eaf4318a` was **still present** in the VPC, with one `available`-status ENI (`eni-0fae04c9c315ec417`, description `aws-K8S-i-066c223f64bee5662`) still using it in the `Groups` list.
+
+### Root cause
+
+The sweep step silently fails and claims success. Two collaborating defects:
+
+**1. Sweep deletes SGs before ENIs, but ENIs hold the SGs.**
+
+The step's body only targets EKS-cluster-tagged security groups (`tag-key = aws:eks:cluster-name`). It does not look for orphan ENIs at all. But the EKS cluster SG (`eks-cluster-sg-<cluster>-<suffix>`) cannot be deleted while *any* ENI references it. When the platform layer's prior `terraform destroy` tears down the EKS cluster, AWS releases the control-plane-managed ENIs asynchronously — a process that routinely takes several minutes after the cluster's control plane is gone. If the network-layer sweep runs while at least one of those ENIs is still in the `available` state (detached but not yet deleted), the sweep's `delete-security-group` call hits `DependencyViolation` from AWS.
+
+**2. `|| true` on the delete command eats the error.**
+
+The workflow step includes:
+
+```bash
+aws ec2 delete-security-group --region $AWS_REGION --group-id "$SG" || true
+```
+
+The `|| true` is intended to not abort the sweep step on a single SG failure. In effect, it also hides any AWS error (`DependencyViolation`, permission denied, rate limit) — the step exits 0, the workflow considers it green, and `terraform destroy` proceeds assuming the sweep was effective. It was not.
+
+The cascade: platform destroy leaves orphan ENI + SG → network sweep finds SG, tries delete, AWS refuses with DependencyViolation, `|| true` masks → step claims success → Terraform tries to delete subnet → ENI in subnet blocks → DependencyViolation on subnet → job fails.
+
+### Detection
+
+After the workflow reported failure, a post-hoc AWS CLI sweep confirmed:
+
+```bash
+AWS_PROFILE=aegis-staging-admin aws ec2 describe-vpcs --region eu-central-1 \
+  --filters "Name=tag:Project,Values=landing-zone-lab" \
+  --query "Vpcs[].VpcId"
+# returned vpc-098e0945f1184f89d — still there
+
+AWS_PROFILE=aegis-staging-admin aws ec2 describe-network-interfaces --region eu-central-1 \
+  --filters "Name=vpc-id,Values=vpc-098e0945f1184f89d" \
+  --query "NetworkInterfaces[].[NetworkInterfaceId,Status,Description,Groups[].GroupName]"
+# returned eni-0fae04c9c315ec417  available  aws-K8S-i-066c223f64bee5662  [eks-cluster-sg-...]
+```
+
+Cross-checked the sweep step's actual behavior via:
+
+```bash
+gh run view 24655477762 --log | grep -E "Sweep|Deleting orphan"
+```
+
+Which revealed the "Deleting orphan EKS SG sg-050f60eb1eaf4318a" notice — the sweep *tried* and the step *claimed success* but the resource was still there, proving the masked error.
+
+### Resolution
+
+Manual ENI + SG cleanup, then re-trigger teardown:
+
+```bash
+AWS_PROFILE=aegis-staging-admin aws ec2 delete-network-interface \
+  --region eu-central-1 --network-interface-id eni-0fae04c9c315ec417
+
+AWS_PROFILE=aegis-staging-admin aws ec2 delete-security-group \
+  --region eu-central-1 --group-id sg-050f60eb1eaf4318a
+
+gh workflow run terraform-teardown-workload.yml -f env=staging
+# approve when prompted; retry completed all 3 layers green in ~3 min
+```
+
+Important: delete ENI first, then SG. Reverse order produces the same `DependencyViolation` the sweep's own command ate.
+
+### Prevention
+
+Fix the sweep in a dedicated PR. Concrete scope:
+
+1. **Delete orphan ENIs before orphan SGs.** In the same step, add an ENI sweep pass:
+
+   ```bash
+   ENI_IDS=$(aws ec2 describe-network-interfaces \
+     --region $AWS_REGION \
+     --filters "Name=vpc-id,Values=$VPC_ID" \
+               "Name=status,Values=available" \
+     --query 'NetworkInterfaces[].NetworkInterfaceId' --output text)
+   for ENI in $ENI_IDS; do
+     aws ec2 delete-network-interface --region $AWS_REGION --network-interface-id "$ENI"
+   done
+   ```
+
+   Then the existing SG pass. Order matters: ENI must go first.
+
+2. **Drop `|| true`; check the API response.** Rewrite the delete call so a genuine failure surfaces:
+
+   ```bash
+   if ! aws ec2 delete-security-group --region $AWS_REGION --group-id "$SG" 2>err.log; then
+     echo "::error::Failed to delete SG $SG:"
+     cat err.log
+     exit 1
+   fi
+   ```
+
+   A per-SG failure now halts the sweep, fails the step loudly, and forces the operator (or a retry strategy) to look at what AWS actually said. This is strictly better than the silent mask, which produced this exact incident.
+
+3. **Consider a post-sweep wait-for-zero-ENI check.** Before `terraform destroy` runs, the step could poll AWS for `NetworkInterfaces` in the VPC and wait (with timeout) for the count to reach zero. If AWS is still releasing control-plane ENIs, the destroy should wait rather than race.
+
+Track as follow-up PR alongside the Incident 26-29 fix PR.
+
+### Lessons
+
+- **`|| true` is a lie detector.** Whenever a shell step ends with `|| true`, it is declaring that "silent failure here is acceptable." Sometimes that's true (best-effort cleanup where a later step will verify). More often it's a defensive habit that masks real problems. In this case, the sweep existed *specifically* to prevent a known cascade — `|| true` on its own delete was the exact wrong place to declare failure acceptable.
+
+- **Post-destroy AWS state is asynchronous.** EKS cluster teardown releases ENIs *asynchronously* — the control plane itself is gone before the ENIs it attached finish being reclaimed. Any "do X before Y" workflow step that implicitly assumes AWS completed all side effects before it runs needs either a wait loop, a retry, or a read-back verification step. Not a fire-and-forget.
+
+- **Step-success is not a real signal for state-modifying actions.** A green step in GitHub Actions means "the shell exited 0," not "AWS did what I asked." For state-changing sweeps, the step should verify post-condition (target resource gone) before exiting 0. This is the workflow-level analog of the "plan ≠ apply" lesson in Incident 25.
+
+- **Log-to-diagnose requires traceable command output.** The sweep's NOTICE message was `Deleting orphan EKS SG sg-050f60eb1eaf4318a` — it did not include AWS's actual error. Adding `set -x` at the top of the step, or printing the AWS CLI response on failure, would have made the incident 10× faster to diagnose. Also worth considering: run the sweep with `--debug` or capture `--cli-read-timeout` + retry behavior to surface propagation delays in logs.
+
+- **Defense in depth is still fallible if the outer defense lies.** The sweep was added in PR #98 as a belt-and-suspenders fix for exactly this class of orphan-SG-blocks-VPC problem. It lived up to its charter in the happy path. It failed in the edge case where the SG is *not-yet-deletable* rather than *not-found*. Belt-and-suspenders works when both layers fail loudly; when one silently hides failure, it gives false assurance that the other isn't needed. Every redundant safety layer needs the same "fail loudly" discipline — quiet fallbacks reintroduce the exact failure mode the layering was supposed to prevent.
+
+---
+
 ## Adding a new incident
 
 Append new sections at the bottom, before this footer, using the format:
