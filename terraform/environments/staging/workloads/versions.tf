@@ -18,6 +18,9 @@ terraform {
       source  = "gavinbunney/kubectl"
       version = "~> 1.19"
     }
+    # random is used inside modules/eks-workloads/ for the per-cluster
+    # Grafana admin password. Declared here so `terraform init` resolves
+    # it once at the parent layer.
     random = {
       source  = "hashicorp/random"
       version = "~> 3.6"
