@@ -90,20 +90,17 @@ output "api_acm_certificate_arn" {
 }
 
 output "api_route53_creation_hint" {
-  description = <<-EOT
-    Commands to create the ALIAS record for $api_hostname after ArgoCD has
-    synced aegis-core's gateway Ingress and aws-load-balancer-controller has
-    provisioned the ALB. The ALB does not exist at this layer's apply time,
-    so the record is a manual one-shot (or future: handled by external-dns).
-
-      ALB_DNS=$(kubectl -n aegis get ingress aegis-gateway \
-        -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-      ALB_ZONE=$(aws elbv2 describe-load-balancers \
-        --query "LoadBalancers[?DNSName=='$ALB_DNS'].CanonicalHostedZoneId | [0]" \
-        --output text)
-      aws route53 change-resource-record-sets \
-        --hosted-zone-id ${aws_route53_zone.staging.zone_id} \
-        --change-batch "{\"Changes\":[{\"Action\":\"UPSERT\",\"ResourceRecordSet\":{\"Name\":\"${local.api_hostname}\",\"Type\":\"A\",\"AliasTarget\":{\"HostedZoneId\":\"$ALB_ZONE\",\"DNSName\":\"$ALB_DNS\",\"EvaluateTargetHealth\":false}}}]}"
+  description = "Copy-pasteable shell commands to create the aegis-api ALIAS record post-ArgoCD-sync. The ALB does not exist at edge-layer apply time; the record is a manual one-shot (or future: external-dns). Retrieve via `terraform output -raw api_route53_creation_hint`."
+  value       = <<-EOT
+    # Run after aws-load-balancer-controller has provisioned the ALB from
+    # aegis-core's gateway Ingress (visible via `kubectl -n aegis get ingress`).
+    ALB_DNS=$(kubectl -n aegis get ingress aegis-gateway \
+      -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+    ALB_ZONE=$(aws elbv2 describe-load-balancers \
+      --query "LoadBalancers[?DNSName=='$ALB_DNS'].CanonicalHostedZoneId | [0]" \
+      --output text)
+    aws route53 change-resource-record-sets \
+      --hosted-zone-id ${aws_route53_zone.staging.zone_id} \
+      --change-batch "{\"Changes\":[{\"Action\":\"UPSERT\",\"ResourceRecordSet\":{\"Name\":\"${local.api_hostname}\",\"Type\":\"A\",\"AliasTarget\":{\"HostedZoneId\":\"$ALB_ZONE\",\"DNSName\":\"$ALB_DNS\",\"EvaluateTargetHealth\":false}}}]}"
   EOT
-  value       = local.api_hostname
 }
