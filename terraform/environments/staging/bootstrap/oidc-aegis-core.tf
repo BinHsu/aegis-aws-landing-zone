@@ -36,6 +36,22 @@ resource "aws_iam_role" "aegis_core_ecr" {
         }
         StringLike = {
           "token.actions.githubusercontent.com:sub" = "repo:${local.github_org}/${local.github_app_repo}:ref:refs/heads/main"
+
+          # job_workflow_ref pins the role to a single aegis-core workflow file.
+          # Prevents the "merged-PR workflow-injection" attack class: an
+          # attacker landing a new .github/workflows/*.yml on main and reusing
+          # this role would fail STS because the injected file's
+          # job_workflow_ref would not match.
+          #
+          # Per aegis-core #79 Q4 (2026-04-19): the filename is locked to
+          # .github/workflows/release-staging-image.yml — a dedicated workflow
+          # scoped to ECR push only (rest of aegis-core CI stays read-only on
+          # tokens). Refuse any other workflow, including a "Re-run failed
+          # jobs" from a non-main SHA.
+          #
+          # Sibling to the workflow-level `if:` gate aegis-core committed to.
+          # IAM is the enforcement layer; the `if:` is reviewer-visible depth.
+          "token.actions.githubusercontent.com:job_workflow_ref" = "${local.github_org}/${local.github_app_repo}/.github/workflows/release-staging-image.yml@refs/heads/main"
         }
       }
     }]
