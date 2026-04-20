@@ -7,7 +7,7 @@
 # before the first apply.
 #
 # Two EKS-specific features:
-#   - EKS_AUDIT_LOG_MONITORING: anomaly detection on K8s API audit logs
+#   - EKS_AUDIT_LOGS: anomaly detection on K8s API audit logs
 #     (privilege escalation, anonymous auth, suspicious API calls)
 #   - EKS_RUNTIME_MONITORING: container-level runtime agent (crypto mining,
 #     reverse shell, DNS exfiltration, file integrity changes)
@@ -32,7 +32,7 @@ resource "aws_guardduty_detector" "staging" {
 
 resource "aws_guardduty_detector_feature" "eks_audit_log" {
   detector_id = aws_guardduty_detector.staging.id
-  name        = "EKS_AUDIT_LOG_MONITORING"
+  name        = "EKS_AUDIT_LOGS"
   status      = "ENABLED"
 }
 
