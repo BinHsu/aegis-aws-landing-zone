@@ -189,6 +189,7 @@ Complete improvement index and reliability map: [`docs/improvements/README.md`](
 | [021](docs/decisions/021-observability-scaling-path.md) | Observability scaling path (three-rung ladder; amended for ADR-022) |
 | [022](docs/decisions/022-observability-backend-grafana-cloud.md) | Observability backend — Grafana Cloud free tier |
 | [023](docs/decisions/023-observability-responsibility-model.md) | Observability responsibility model (platform vs service domain) |
+| [024](docs/decisions/024-landing-zone-repo-topology.md) | Terraform repo topology — single repo with state/IAM/CI isolation |
 
 ## Runbooks
 
