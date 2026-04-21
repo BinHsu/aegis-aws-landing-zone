@@ -50,7 +50,7 @@ data "grafana_cloud_stack" "this" {
 
   provider = grafana.cloud
 
-  slug = local.grafana_cloud.org_slug
+  slug = try(local.grafana_cloud.org_slug, "")
 }
 
 # -----------------------------------------------------------------------------
@@ -97,7 +97,7 @@ resource "grafana_cloud_stack_service_account" "grafana_operator" {
 
   provider = grafana.cloud
 
-  stack_slug = local.grafana_cloud.org_slug
+  stack_slug = try(local.grafana_cloud.org_slug, "")
   name       = "grafana-operator"
   role       = "Admin"
 }
@@ -107,7 +107,7 @@ resource "grafana_cloud_stack_service_account_token" "grafana_operator" {
 
   provider = grafana.cloud
 
-  stack_slug         = local.grafana_cloud.org_slug
+  stack_slug         = try(local.grafana_cloud.org_slug, "")
   service_account_id = grafana_cloud_stack_service_account.grafana_operator[0].id
   name               = "grafana-operator-terraform"
   # 90 days = 7,776,000 seconds. Matches Alloy's rotation cadence.

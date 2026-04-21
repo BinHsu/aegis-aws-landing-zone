@@ -35,7 +35,7 @@ resource "kubectl_manifest" "grafana" {
     }
     spec = {
       external = {
-        url = "https://${local.grafana_cloud.org_slug}.grafana.net"
+        url = "https://${try(local.grafana_cloud.org_slug, "")}.grafana.net"
         apiKey = {
           name = "grafana-operator-token"
           key  = "token"

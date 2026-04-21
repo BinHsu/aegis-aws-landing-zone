@@ -9,7 +9,7 @@
 
 output "grafana_stack_url" {
   description = "Browser-facing URL of the Grafana Cloud stack. Human login via Google OAuth (Runbook 006 Part 3). Null when observability_enabled=false."
-  value       = local.observability_enabled ? "https://${local.grafana_cloud.org_slug}.grafana.net" : null
+  value       = local.observability_enabled ? "https://${try(local.grafana_cloud.org_slug, "")}.grafana.net" : null
 }
 
 output "grafana_stack_region_slug" {
