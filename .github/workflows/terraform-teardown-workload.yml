@@ -9,7 +9,14 @@ name: Terraform Teardown (Workload)
 #   gh run watch   # approve when prompted in UI
 #
 # Destruction order (reverse of apply):
-#   workloads → platform → network
+#   observability → workloads → platform → network
+#
+# Observability-first ensures grafana-operator finalizers on GrafanaDashboard /
+# GrafanaContactPoint / GrafanaNotificationPolicy* CRDs complete cleanly —
+# finalizers call Grafana Cloud API to remove the remote resources, so
+# skipping this step leaves orphan dashboards + contact points on the GC
+# stack (ADR-022 §Teardown). Destroying grafana-operator's helm_release
+# before CRD deletion would strand the finalizers forever.
 #
 # Preserves bootstrap layer, shared services, all other accounts.
 # Equivalent in scope to scripts/teardown/soft-teardown-workload.sh.
@@ -34,10 +41,122 @@ env:
   AWS_REGION: "eu-central-1"
 
 jobs:
-  destroy-workloads:
-    name: Destroy ${{ inputs.env }}/workloads
+  # Observability first — grafana-operator CRD finalizers must run while the
+  # operator pod is still alive, or else GrafanaDashboard / GrafanaContactPoint
+  # / GrafanaNotificationPolicy* resources leak on the Grafana Cloud side
+  # (ADR-022 §Teardown). Pre-delete step runs kubectl delete + finalizer wait
+  # before terraform destroy removes grafana-operator's helm_release.
+  destroy-observability:
+    name: Destroy ${{ inputs.env }}/observability
     runs-on: ubuntu-latest
     environment: workload-teardown
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Write config
+        run: |
+          mkdir -p config
+          cat <<'EOFCONFIG' > config/landing-zone.yaml
+          ${{ secrets.LANDING_ZONE_CONFIG }}
+          EOFCONFIG
+
+      - name: Resolve target account ID
+        id: acct
+        run: |
+          ACCOUNT_ID=$(python3 -c "
+          import yaml
+          c = yaml.safe_load(open('config/landing-zone.yaml'))
+          print(c['accounts']['${{ inputs.env }}']['id'])
+          ")
+          echo "account_id=${ACCOUNT_ID}" >> "$GITHUB_OUTPUT"
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::${{ steps.acct.outputs.account_id }}:role/github-actions-terraform
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Check layer exists
+        id: exists
+        run: |
+          if [[ -d "terraform/environments/${{ inputs.env }}/observability" ]]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::observability layer does not exist for ${{ inputs.env }} — skipping"
+          fi
+
+      # Pre-delete stage: remove all grafana-operator-managed CRDs first so
+      # finalizers run while the operator pod is still alive. Two-minute wait
+      # matches ADR-022 §Teardown — long enough for Grafana Cloud API calls
+      # to complete, short enough not to stall the teardown if a finalizer
+      # is stuck.
+      #
+      # All commands tolerant of "cluster already gone" / "CRD not found" —
+      # teardown must be idempotent across re-runs after partial failures.
+      - name: Pre-delete grafana-operator CRDs (finalizer flush)
+        if: steps.exists.outputs.exists == 'true'
+        run: |
+          CLUSTER_NAME=$(aws eks list-clusters \
+            --region ${{ env.AWS_REGION }} \
+            --query "clusters[?contains(@, 'primary')] | [0]" \
+            --output text 2>/dev/null || echo "None")
+          if [ "$CLUSTER_NAME" = "None" ] || [ -z "$CLUSTER_NAME" ] || [ "$CLUSTER_NAME" = "null" ]; then
+            echo "::notice::No primary EKS cluster found — skipping CRD pre-delete (cluster may already be gone)."
+            exit 0
+          fi
+          if ! aws eks update-kubeconfig \
+                 --region ${{ env.AWS_REGION }} --name "$CLUSTER_NAME" 2>/dev/null; then
+            echo "::notice::Could not fetch kubeconfig — skipping CRD pre-delete."
+            exit 0
+          fi
+
+          # Delete order: leaf resources first, then the Grafana CRD (target
+          # stack config) last. Mute timings + notification policies can be
+          # gone before dashboards — they're all independently finalized.
+          echo "::notice::Deleting grafana-operator-managed CRs across all namespaces..."
+          for kind in grafanadashboard grafanacontactpoint grafananotificationpolicyroute grafananotificationpolicy grafanamutetiming; do
+            kubectl delete "$kind" --all -A --timeout=2m --ignore-not-found 2>/dev/null || true
+          done
+
+          # Grafana CRD last. Deleting it while dashboards still existed
+          # would race finalizers against the operator's "target stack" state
+          # loss.
+          kubectl delete grafana --all -A --timeout=1m --ignore-not-found 2>/dev/null || true
+
+          # Belt-and-braces: poll for CRD cleanup completion up to 2 minutes.
+          echo "::notice::Waiting for finalizers to flush (up to 2 min)..."
+          for i in $(seq 1 12); do
+            REMAINING=$(kubectl get grafanadashboard,grafanacontactpoint,grafananotificationpolicyroute,grafananotificationpolicy,grafana -A --no-headers 2>/dev/null | wc -l | tr -d ' ')
+            if [ "$REMAINING" = "0" ]; then
+              echo "::notice::All grafana-operator CRs flushed."
+              exit 0
+            fi
+            echo "::notice::$REMAINING CRs still present; waiting 10s (attempt $i/12)"
+            sleep 10
+          done
+          echo "::warning::CRD finalizers did not complete within 2m. Proceeding with teardown — Grafana Cloud side may have orphan resources (remove manually via GC portal)."
+
+      - name: Terraform Init
+        if: steps.exists.outputs.exists == 'true'
+        working-directory: terraform/environments/${{ inputs.env }}/observability
+        run: terraform init -input=false
+
+      - name: Terraform Destroy
+        if: steps.exists.outputs.exists == 'true'
+        working-directory: terraform/environments/${{ inputs.env }}/observability
+        run: terraform destroy -auto-approve -input=false -no-color
+
+  # No `environment:` — approval was granted at destroy-observability.
+  # Subsequent layers run automatically once the session-level gate opens.
+  destroy-workloads:
+    name: Destroy ${{ inputs.env }}/workloads
+    needs: destroy-observability
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v6
@@ -88,7 +207,7 @@ jobs:
         working-directory: terraform/environments/${{ inputs.env }}/workloads
         run: terraform destroy -auto-approve -input=false -no-color
 
-  # No `environment:` — approval was granted at destroy-workloads. Subsequent
+  # No `environment:` — approval was granted at destroy-observability. Subsequent
   # layers run automatically once the session-level gate opens.
   destroy-platform:
     name: Destroy ${{ inputs.env }}/platform
