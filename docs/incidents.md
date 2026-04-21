@@ -2362,6 +2362,189 @@ Track as follow-up PR alongside the Incident 26-29 fix PR.
 
 ---
 
+## Incident 31 — ServiceMonitor CRD bootstrap race + break-glass local apply
+
+**Date**: 2026-04-20 (mid-session, post-merge of PRs #106–111, cold-apply validation run)
+**Severity**: S2 (platform apply blocked; recoverable; triggered a break-glass local apply decision that is itself a process-governance issue worth recording)
+**Duration**: ~15 min diagnosis + ~10 min code fix + ~8 min local re-apply ≈ 33 min wall
+
+### Symptom
+
+`terraform-apply-workload.yml` run [24677044105](https://github.com/BinHsu/aegis-aws-landing-zone/actions/runs/24677044105) — the first cold apply after Session C's Incidents-26–30 fixes merged — failed in the `Apply staging/platform` job:
+
+```
+Error: unable to build kubernetes objects from release manifest:
+  resource mapping not found for name: "cert-manager" namespace:
+  "cert-manager" from "": no matches for kind "ServiceMonitor" in
+  version "monitoring.coreos.com/v1"
+
+Error: context deadline exceeded
+```
+
+Network job succeeded; workloads job was `skipped` due to the platform failure. Cluster left in partial state (EKS control plane up, some Helm releases installed, cert-manager half-installed).
+
+### Root cause
+
+**The bug (Symptom-level)**: cert-manager's Helm chart was configured with `prometheus.servicemonitor.enabled = true` in `terraform/environments/staging/platform/modules/eks-cluster/cert-manager-helm.tf`. The chart then templates a `ServiceMonitor` resource. The `ServiceMonitor` CRD belongs to **Prometheus Operator**, which is shipped by `kube-prometheus-stack` in the **workloads** layer — applied *after* platform. Platform's `helm_release` has `wait = true` (default), so Helm failed synchronously on the missing CRD and the platform apply aborted.
+
+**The deeper cause (design-level)**: the ADR-015 §Discovery contract encourages every component to emit metrics via ServiceMonitor for auto-discovery. The pattern was applied to cert-manager + argo-rollouts without tracing the cross-layer CRD dependency. Platform-layer components CANNOT assume Prometheus Operator CRDs exist — the CRDs don't arrive until the workloads layer syncs them.
+
+This is structurally the same class as Incident 26 (Kyverno ClusterPolicy CRD race against ArgoCD-managed chart sync), with a different twist: Incident 26's race was within-cluster (TF vs ArgoCD async). This one is across-layer (platform TF synchronous vs workloads TF synchronous, different order). Same root discipline: **do not reference CRDs whose install layer runs after your layer**.
+
+### Detection
+
+Platform apply job failed cleanly with a clear error chain:
+```
+gh run view --job 72165523013 --log-failed | grep -E "Error:"
+```
+returned the `no matches for kind "ServiceMonitor"` line directly. No state-rm forensics needed.
+
+The secondary `context deadline exceeded` was a symptom of Helm retry timing out — not an independent issue.
+
+### Resolution
+
+**Fix (code)**: disable chart-template-level `ServiceMonitor` creation in both cert-manager (platform) and argo-rollouts (workloads, same race with kube-prometheus-stack via ArgoCD sync ordering):
+
+```hcl
+# cert-manager-helm.tf
+prometheus = {
+  enabled = true
+  servicemonitor = { enabled = false }
+}
+
+# argo-rollouts.tf
+metrics = {
+  enabled = true
+  serviceMonitor = { enabled = false }
+}
+```
+
+Metrics endpoints stay enabled (`/metrics` on the Service). Explicit `ServiceMonitor` resources added in the workloads layer (where kube-prometheus-stack CRDs are already present) is the follow-up.
+
+**Fix (apply path) — **break-glass**: NAT gateway was running ($0.045/hr) and re-triggering the CI workflow would have added ~30–45 min before re-apply could start. The operator (Bin) chose to apply platform locally using AWS SSO credentials:
+
+```bash
+cd terraform/environments/staging/platform
+AWS_PROFILE=aegis-staging-admin terraform init -input=false
+AWS_PROFILE=aegis-staging-admin terraform apply -auto-approve -input=false
+```
+
+A PR containing the same code delta ([#119](https://github.com/BinHsu/aegis-aws-landing-zone/pull/119)) was opened *concurrently with* the local apply, so main branch catches up within the same session via the normal merge path.
+
+### Prevention
+
+**Technical (CRD dependency audit)**: any Helm release in layer N that templates a CRD belonging to a controller that installs in layer N+1 or later is a latent bug of this class. Concrete audit path before future apply-path changes:
+
+```bash
+helm template <chart> <values> | grep -E "^kind: (ServiceMonitor|PodMonitor|PrometheusRule|Certificate|Issuer|Rollout)" 
+```
+
+If the release is in a layer where those CRDs are NOT yet installed, either (a) turn off the chart flag that creates them, or (b) move the release to a layer that runs after the CRD provider, or (c) add an explicit standalone resource in a later layer.
+
+**Process (break-glass discipline)**: this incident triggered a local apply — the first time in this project. The choice itself was defensible (cost + time justified the break-glass pattern), but the project had no documented rule for when break-glass is acceptable and what compensating controls are required. That gap is now closed: [`docs/principles/break-glass-apply.md`](principles/break-glass-apply.md) documents the default-forbidden position, the specific allowed scenarios (CI outage, mid-session cost, security response), the forbidden scenarios ("I want it fast"), and the compensating-control obligations (concurrent PR + main catches up + incident entry referencing the doc).
+
+**Observability follow-up**: once the cluster is up and kube-prometheus-stack is installed, add explicit `ServiceMonitor` resources in `staging/workloads/modules/eks-workloads/` that target cert-manager + argo-rollouts Services. Cross-repo note: aegis-core workloads use the same discovery contract and don't hit this race because their `ServiceMonitor` resources are application-authored, applied after platform+workloads.
+
+### Lessons
+
+- **CRD ownership crosses layer boundaries.** ADR-015's discovery contract says "workload teams can ship ServiceMonitor anywhere and Prometheus Operator picks it up." True. What the contract did *not* explicitly say is that *platform-layer* components cannot ship ServiceMonitors either — their layer runs before the CRD is created. The bootstrap constraint is asymmetric: consumer layers can assume CRDs exist; producer layers (and anything that runs before the producer) cannot.
+
+- **`helm_release wait=true` is load-bearing but also unforgiving.** The flag is the right choice for synchronous CRD handoff (ADR-016 for Kyverno) but turns every missing-CRD edge case into a hard failure. Worth knowing when reading any `helm_release` block: "this is a synchronous fence; a missing dependency stops the layer."
+
+- **The first cold apply after a fix-set PR batch is a high-risk event.** Incidents 26–30 all surfaced on Session C's cold apply; this incident (31) surfaced on the cold apply *after* those fixes merged. Fix batches interact with each other in the first cold-apply on a clean slate — previous session state masks dependency assumptions. Plan for this by not batching more than 3–4 substantive fixes into a single pre-cold-apply merge window, or by doing a cold-apply dry-run on a length-1 config before the length-2 portfolio apply.
+
+- **Break-glass local apply is acceptable but NOT cheap.** The governance cost of this incident is ~1 hour of documentation work (principle doc + this incident + compensating-control PR coordination), comparable to the CI cycle time we saved. Break-glass is strictly worth it only when CI cycle time exceeds the documentation cost AND when the cost multiplier (NAT running, cluster half-applied) exceeds both. Over-using break-glass erodes the repo's "drift is a bug" posture faster than any other pattern — discipline tax is real and must be paid.
+
+- **Concurrent PR is not optional.** The compensating control for break-glass is not "open a PR sometime later" — it is "open a PR concurrent with or before the apply." PR #119 was opened *before* `terraform apply` ran locally. If the PR had been opened *after*, the commit history would have shown "apply happened" → "code landed" rather than "code landed" → "apply happened," and main branch would have represented the wrong state to any observer for the intervening minutes.
+
+---
+
+## Incident 32 — Break-glass cascade: four local applies + stuck destroy after one "simple" recovery
+
+**Date**: 2026-04-20 (continuation of the same session as Incident 31)
+**Severity**: S2 (cost: ~$0.29/hr AWS burn for ~45 min; discipline: violated the principle doc written 30 min before its own violation)
+**Duration**: ~1.5h elapsed from "first break-glass looked simple" to "stop, teardown via CI-only"
+
+### Symptom
+
+The single-event break-glass apply from Incident 31 — intended as one targeted fix — cascaded into **four** local `terraform apply` runs as one edge case revealed another:
+
+1. **Apply #1** (fix ServiceMonitor) — partially succeeded; `helm_release.cert_manager` and `helm_release.argocd` timed out on post-install wait because Karpenter's NodePool `limits.cpu=4` kept picking tiny instances (t3.micro 1GB RAM) that couldn't fit ArgoCD controller's 1Gi memory request (raised in PR #106)
+2. **Apply #2** (after `kubectl delete node` of the t3.micro forced Karpenter to repack to m5.large) — hit the same ServiceMonitor error because the local repo was on the wrong branch (`docs/break-glass-discipline-plus-incident-31` instead of `fix/disable-operator-servicemonitors-platform-bootstrap`)
+3. **Apply #3** (on correct branch) — saw `helm_release.kyverno` marked *tainted* from Apply #1 (terraform's treatment of helm_release that timed out during a failed parallel install) and attempted destroy-replace; `helm uninstall` hung for 5 min because Kyverno chart marks CRDs with `helm.sh/resource-policy: keep`, blocking uninstall completion
+4. **Apply #4** (after `terraform untaint` on both helm_release.kyverno entries) — succeeded at updating the helm releases but failed trying to create ClusterPolicies because cluster state had drifted
+
+Then the **teardown** workflow, when triggered via CI, failed too — `helm_release.kyverno` hung on destroy (same resource-policy: keep issue) and blocked platform-destroy.
+
+### Root cause
+
+Three interlocking causes, each innocuous alone; catastrophic in combination:
+
+**Cause 1 — NodePool capacity was tight enough that cold-start was a coin flip**. `limits.cpu = 4` plus `instance-cpu = ["2", "4"]` (no memory floor) meant Karpenter's cheapest-spot selector could pick t3.micro (1GB), which can't fit modern controller images at their request size. When all operator Helm charts install concurrently during cold apply, this is not a rare edge — it's the default.
+
+**Cause 2 — Kyverno chart marks CRDs with `helm.sh/resource-policy: keep`**. This is the chart's way of preventing accidental CRD deletion during upgrade (which would cascade-delete all policies). But combined with `helm_release.wait = true`, destroy hangs: helm "deletes" the release but leaves CRDs behind, then waits for "all resources gone" which never becomes true.
+
+**Cause 3 — terraform helm_release taints the resource on timeout without distinguishing "install failed" from "wait failed but install is fine"**. The physical helm release was fine (pods Running), but terraform's state said "failed, must replace." Replacing a fine release means destroy + re-create, which re-triggered Cause 2.
+
+The first break-glass looked isolated (fix ServiceMonitor + re-apply). The second was "just" fixing a branch mistake. The third was "just" `terraform untaint`. Each was one line of justification that disguised the fact we were *accumulating* exceptional actions instead of resolving them.
+
+### Detection
+
+The break-glass *count* only became obvious when Bin asked "we keep doing local terraform apply?" mid-session. Nothing in the workflow alerted on it — the principle doc was written 30 minutes before the cascade but not yet operationalized as an actual check. A human caught it; tooling didn't.
+
+Cost detection: `aws eks list-clusters` + `aws ec2 describe-nat-gateways` after the cascade showed 2 EKS clusters + 2 NAT gateways still running despite multiple teardown attempts. That was the concrete signal that break-glass had become an anti-pattern in this session.
+
+### Resolution
+
+Discipline-correct recovery:
+
+```bash
+# 1. Cut losses — do NOT attempt a 5th local apply
+# 2. Trigger teardown via CI (terraform-teardown-workload.yml)
+gh workflow run terraform-teardown-workload.yml -f env=staging
+# 3. When platform destroy hangs on helm_release.kyverno, state-rm it:
+cd terraform/environments/staging/platform
+AWS_PROFILE=aegis-staging-admin terraform state rm \
+  module.cluster_primary.helm_release.kyverno \
+  'module.cluster_slave_1[0].helm_release.kyverno'
+# 4. Re-trigger teardown workflow
+gh workflow run terraform-teardown-workload.yml -f env=staging
+# 5. Verify AWS resources are clean:
+AWS_PROFILE=aegis-staging-admin aws eks list-clusters --region eu-central-1
+AWS_PROFILE=aegis-staging-admin aws ec2 describe-nat-gateways \
+  --region eu-central-1 --filter "Name=state,Values=available"
+```
+
+State-rm is the correct tool for "terraform thinks it owns a resource it can't actually manage right now." Once state says "not my problem," destroy can proceed past kyverno and take down the EKS cluster, which cascades K8s resources (including orphaned kyverno pods + CRDs) into oblivion.
+
+### Prevention
+
+Structural (land as separate PRs, not all this session):
+
+1. **NodePool capacity floor** (PR #122): raise `limits.cpu` 4 → 8, add `instance-memory > 3800 MiB` to exclude tiny-RAM instances. Makes Cause 1 impossible.
+2. **helm_release Kyverno handling**: either (a) set `skip_crds = false` and manage CRDs out-of-band, (b) add `provisioner "local-exec" { when = destroy }` that runs `kubectl delete crd` for Kyverno CRDs before the helm destroy, or (c) use `lifecycle { ignore_changes = [...] }` patterns that work around the resource-policy-keep interaction. All three are open-ended; tracked as an `improvements/` entry.
+3. **ArgoCD sync-waves** for Kyverno CRDs vs policies (cross-check against PR #107 Kyverno-as-platform decision).
+
+Process (this is the bigger win):
+
+1. **Operationalize the break-glass count**: if a session has > 1 local apply, STOP. Do not proceed to apply #2 without first writing the Incident-32-equivalent post-hoc — the act of writing forces the question "is this still one event or are we looping?"
+2. **CI-only teardown as the escape hatch**: even mid-cascade, teardown via CI + OIDC is the discipline-correct exit. Cost is "today's session is a draft; next session is the real run."
+3. **No partial apply demos**: a Grafana screenshot taken on a half-messed cluster is worth less than the discipline cost of getting it.
+
+### Lessons
+
+- **Break-glass is not a mode; it's an event**. The principle doc (`docs/principles/break-glass-apply.md`, committed in PR #121) was written clearly enough that a reviewer reading it in isolation would know the rule. But the *operator* of the project (me) violated it within 30 minutes of writing it by treating "just one more local apply to unstuck this" as outside the principle's scope. It is not outside. Every local apply is a break-glass event, and **N break-glasses in a session is an anti-pattern** regardless of how each one was individually justified. This is the most important lesson of this session: rules have to survive the operator's own "but this one's different" reasoning.
+
+- **terraform's helm_release failure semantics are not fine-grained enough for this class of chart**. `wait = true` bundles "install completed" and "post-install hooks reached Ready" into a single pass/fail signal. For charts with long post-install waits (admission controllers, anything with initContainers that need a specific K8s resource provisioned), this pattern is structurally fragile on cold-start. The fix isn't `wait = false` (which masks real failures) but a separate "health check" resource that Terraform can wait on independently of the chart's installation path.
+
+- **"`kubectl delete node`" on Karpenter is cleaner than touching `terraform`**. The one non-terraform action in the cascade (deleting the t3.micro to force Karpenter repack) was the only action that was both fast and discipline-neutral — it manipulated cluster state without touching terraform state. If Karpenter were an in-cluster concern only and terraform just managed the NodePool spec, many cascade paths would not exist. Worth thinking about at future module boundaries.
+
+- **A principle's first stress test is whether it survives the day it was committed**. This is a reliability property of the principle, not a separate bug. "Break-glass is rare" is operational folklore; "break-glass is *counted, logged, and capped per session*" is engineering. The project needs the latter — PR #121's principle doc is incomplete without at least a (manual or automated) per-session counter.
+
+- **Rolling back gracefully is its own operational muscle.** state-rm + retry-workflow is the kind of thing that reads as "obvious once you know it" and is "terrifyingly opaque under stress." Future runbook should include the state-rm flow for stuck helm_release as a named recipe, not folklore passed between sessions.
+
+---
+
 ## Adding a new incident
 
 Append new sections at the bottom, before this footer, using the format:
