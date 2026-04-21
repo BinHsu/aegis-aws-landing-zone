@@ -82,6 +82,17 @@ resource "kubectl_manifest" "karpenter_default_nodepool" {
               operator = "In"
               values   = ["2", "4"]
             },
+            # Memory floor — exclude tiny RAM instances (t3.micro 1GB,
+            # t3.small 2GB). Incident 31: Karpenter picked a t3.micro that
+            # could not fit ArgoCD controller's 1Gi memory request after
+            # PR #106 raised the limit, triggering the helm_release cascade.
+            # 3800 MiB ≈ "strictly more than 4GB target", accepting
+            # t3.medium (4GB), t3.large (8GB), m5.large (8GB), c5.large (4GB).
+            {
+              key      = "karpenter.k8s.aws/instance-memory"
+              operator = "Gt"
+              values   = ["3800"]
+            },
             {
               key      = "kubernetes.io/arch"
               operator = "In"
@@ -113,8 +124,15 @@ resource "kubectl_manifest" "karpenter_default_nodepool" {
         consolidateAfter    = "30s"
       }
 
+      # NodePool capacity envelope. Raised from 4 → 8 in Incident 31's
+      # aftermath: the prior cap was tight enough that a single-node outage
+      # (t3.micro replacement) could not accommodate the operator stack's
+      # concurrent cold-start (cert-manager + argocd + kyverno Helm installs
+      # all needed capacity at once + aegis-core workloads). 8 vCPU gives
+      # two m5.large-class nodes or one m5.xlarge, enough headroom for
+      # operator stack + workload + Fargate-evicted burst.
       limits = {
-        cpu    = "4"
+        cpu    = "8"
         memory = "16Gi"
       }
     }
