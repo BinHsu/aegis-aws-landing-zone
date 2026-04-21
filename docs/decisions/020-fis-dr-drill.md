@@ -1,7 +1,7 @@
 # 020. Fault Injection Simulator (FIS) for DR drills
 
 ## Status
-Accepted
+Accepted (amended 2026-04-21: observation path mechanism updated per [ADR-022](022-observability-backend-grafana-cloud.md); alert rule itself unchanged)
 
 ## Context
 
@@ -40,7 +40,7 @@ The FIS layer is a new Terraservice at `terraform/environments/staging/fis/`, wi
 
 ### What the drill demonstrates
 
-- **Observability signal path**: `NodeNotReady` PrometheusRule (added in `staging/workloads/modules/eks-workloads/observability.tf`) fires within 1–2 minutes of node stop, visible in Grafana's Alert panel without Alertmanager.
+- **Observability signal path**: `NodeNotReady` PrometheusRule (originally authored in `staging/workloads/modules/eks-workloads/observability.tf` for the kube-prometheus-stack era; now forwarded by Alloy to Grafana Cloud Mimir ruler for server-side evaluation per [ADR-022](022-observability-backend-grafana-cloud.md)) fires within 1–2 minutes of node stop, visible in Grafana Cloud's Alert panel.
 - **Recovery path**: Karpenter detects the instances returning, re-onboards them to the node pool, pods reschedule. Full recovery within 2–3 minutes of experiment end.
 - **Governance plumbing**: the stop-condition alarm is the demonstrable mechanism that the drill itself is monitored — if something goes wrong, FIS aborts and restarts the instances.
 
@@ -111,7 +111,7 @@ The explicit ADR + runbook + Terraform-defined experiment closes the loop on ADR
 ## Related
 
 - [ADR-005](005-compliance-framework-iso-27001.md) — ISO 27001 posture; A.5.30 ICT readiness maps to this drill
-- [ADR-015](015-observability-tooling.md) — Prometheus + Grafana; the signal path the drill exercises
+- [ADR-015](015-observability-tooling.md) (superseded 2026-04-21 by [ADR-022](022-observability-backend-grafana-cloud.md)) — signal path the drill exercises
 - [ADR-018](018-multi-region-eks-design.md) — multi-region EKS slot pattern; this drill is its dynamic counterpart
 - `docs/runbooks/005-fis-dr-drill.md` — execution runbook (pre-flight, start, observe, post-check)
 - `docs/improvements/008-workload-multi-region.md` — Mode A / Mode B operational modes; the drill applies to both

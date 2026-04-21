@@ -27,7 +27,7 @@ flowchart TB
   end
 
   subgraph Work["OU: Workloads"]
-    Stg["aegis-staging<br/><br/>EKS 1.32 · Karpenter · ArgoCD<br/>kube-prometheus-stack · Kyverno<br/>GuardDuty · ECR"]
+    Stg["aegis-staging<br/><br/>EKS 1.32 · Karpenter · ArgoCD<br/>Grafana Alloy · grafana-operator (primary) · Kyverno<br/>GuardDuty · ECR"]
     Prd["aegis-prod<br/><br/>(not yet provisioned)"]
   end
 

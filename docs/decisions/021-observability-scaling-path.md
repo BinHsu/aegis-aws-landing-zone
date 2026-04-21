@@ -1,7 +1,7 @@
 # 021. Observability scaling path
 
 ## Status
-Accepted
+Accepted (amended 2026-04-21: rung 1 redefined per ADR-022; § "Not on the ladder" section split; SAML trigger added to rung 3)
 
 ## Context
 
@@ -26,22 +26,25 @@ At this scale, **any** observability stack more elaborate than in-cluster kube-p
 
 Three-tier scaling ladder. Each rung has an explicit trigger for moving up; none of the rungs are "always use the next one." The lab sits on **rung 1**. The ladder is the design document, not an instruction to climb.
 
-### Rung 1 — In-cluster per-cluster (where the lab lives)
+### Rung 1 — Single-stack observability (where the lab lives)
 
-- **Stack**: `kube-prometheus-stack` Helm chart in each cluster's `monitoring` namespace
-- **Retention**: 24h in-cluster PVC
-- **Grafana**: port-forward; no Ingress, no SSO
-- **Alertmanager**: disabled (no routing targets in the lab)
-- **Operational cost**: \$0.25/session
-- **Skill-portability**: 100% — same stack runs on GKE, AKS, bare-metal
+- **Stack**: Grafana Cloud free tier + Grafana Alloy + grafana-operator + prometheus-operator-crds
+- **Retention**: 14 days in Grafana Cloud
+- **Grafana**: Google OAuth via Grafana Cloud workspace
+- **Alertmanager**: Grafana Cloud managed (via grafana-operator CRDs)
+- **Operational cost**: \$0/session in steady state (free tier; no EBS PVC, no compute pods)
+- **Skill-portability**: reduced somewhat from in-cluster ~100% — Alloy is Grafana Labs-specific; PrometheusRule / ServiceMonitor CRDs remain portable
 
-**When this is the right answer**: single cluster, single operator or tiny team (1–3 engineers), no compliance SLA on metric retention beyond 24h, teardown cadence is per-session.
+**When this is the right answer**: single cluster, single operator or tiny team (1–3 engineers), no SAML SSO requirement, no compliance SLA on >14-day metric retention, teardown cadence per-session, cost budget < \$10/month.
 
 **When this stops being the right answer** (triggers to move up):
-- Cluster count ≥ 3 AND operators want a unified view
-- Any single metric needs retention > 7 days for debugging / compliance
-- \> 10 viewers routinely looking at dashboards (forking per-cluster dashboards becomes painful)
-- Multi-region with cross-region latency comparisons (per-cluster Prometheus cannot join across regions without federation)
+- Cluster count ≥ 3 AND operators want unified view
+- Metric retention > 14 days for debugging / compliance
+- \> 10 viewers routinely looking at dashboards
+- Multi-region with cross-region latency comparisons (already covered today)
+- **Need SAML SSO for human access — free tier supports only Google/GitHub OAuth**
+
+> Historical instantiation: this rung was originally defined in terms of kube-prometheus-stack in-cluster ([ADR-015](015-observability-tooling.md)); redefined 2026-04-21 per [ADR-022](022-observability-backend-grafana-cloud.md). See ADR-022 §Context for the reversal rationale.
 
 ### Rung 2 — Central self-hosted (shared observability account)
 
@@ -80,17 +83,32 @@ Three-tier scaling ladder. Each rung has an explicit trigger for moving up; none
 - Zero tolerance for observability operator headaches — AWS operates Grafana/Prometheus for you
 - Grafana Cloud is rejected because data must stay in AWS VPC (compliance)
 - Seat count is bounded (< 100 users) so per-seat pricing is tractable
+- Need SAML SSO (free tier is Google OAuth only; Pro tier SAML is manual setup; AMG SAML via AWS IAM Identity Center is one-click native)
 
 **When this stops being the right answer** (triggers to move back to rung 2):
 - Seat count crosses ~100 users — linear seat cost starts beating Thanos's fixed-cost curve
 - Metric ingestion crosses ~\$1k/month on AMP — at that volume, self-hosted Mimir becomes cheaper
 - Custom recording rules, multi-tenant dashboard permissions, or non-AWS data sources become daily needs — AMG's customization ceiling gets hit
 
-### Not on the ladder: SaaS-only (Grafana Cloud, Datadog, New Relic)
+### Not a single rung, but related SaaS paths
 
-Already rejected in [ADR-015](015-observability-tooling.md) §Alternatives for this lab; re-rejected here as a production path for the same reasons (SaaS vendor lock, per-metric pricing volatility, data-leaves-VPC compliance concern, skill portability reduced further than AMG).
+#### Managed SaaS free tier (Grafana Cloud free tier)
 
-If an org explicitly values "we never self-operate observability" over every other axis, Datadog is the right answer — but for an org that chose AWS as its primary cloud and values AWS-native controls, AMG + AMP already covers the SaaS-desire better.
+This IS now rung 1. Previously rejected in the original version of this ADR based on ADR-015's "opt in to Prometheus operations" framing; rationale reconsidered in ADR-022.
+
+#### Managed SaaS paid tier (Grafana Cloud Pro)
+
+NOT a standalone ladder rung, but lives as an EDGE CASE between rung 1 and rung 3: when SAML SSO becomes necessary (operator headcount growth, audit requirements) but seat count is still <10 so AMG's per-seat economics doesn't yet win, Pro is the defensible interim.
+
+#### Full vendor SaaS (Datadog, New Relic, etc.)
+
+STILL rejected. Reasons unchanged: per-host / per-metric pricing volatility, data-leaves-VPC compliance concern, skill portability reduced further than AMG (vendor-specific APM paradigms don't transfer to CNCF stacks).
+
+> **Original framing (superseded inside this section):**
+>
+> > Already rejected in [ADR-015](015-observability-tooling.md) §Alternatives for this lab; re-rejected here as a production path for the same reasons (SaaS vendor lock, per-metric pricing volatility, data-leaves-VPC compliance concern, skill portability reduced further than AMG).
+> >
+> > If an org explicitly values "we never self-operate observability" over every other axis, Datadog is the right answer — but for an org that chose AWS as its primary cloud and values AWS-native controls, AMG + AMP already covers the SaaS-desire better.
 
 ## Alternatives Considered
 
@@ -135,7 +153,7 @@ This is a maturity signal — the project is not claiming its observability post
 
 When a reviewer asks "how does your observability scale?", the answer is:
 
-> "The lab is rung 1 — in-cluster kube-prometheus-stack per cluster. I stay on rung 1 until one of four triggers fires: cluster count ≥ 3 with cross-cluster dashboard need, retention beyond 7 days, > 10 viewers, or cross-region latency analysis. Rung 2 is central self-hosted Thanos/Mimir in a dedicated account — it's the default for scale-ups with a platform team that can run 0.3 FTE worth of Thanos operations. Rung 3 is AMG + AMP — it's the default for 100-person startups with 5 platform engineers, where seat count is bounded and the ops tax on Thanos isn't worth it. I'd pick rung 3 over rung 2 specifically for that kind of shape because 5 PE already have too much to do for Thanos compactor pages."
+> "The lab is rung 1 — Grafana Cloud free tier + Alloy + grafana-operator, with PrometheusRule / ServiceMonitor CRDs staying portable. I stay on rung 1 until one of five triggers fires: cluster count ≥ 3 with unified-view need, retention beyond 14 days, > 10 viewers, cross-region latency analysis beyond what's already there, or a SAML SSO requirement that free-tier Google/GitHub OAuth can't serve. Rung 2 is central self-hosted Thanos/Mimir in a dedicated account — it's the default for scale-ups with a platform team that can run 0.3 FTE worth of Thanos operations. Rung 3 is AMG + AMP — it's the default for 100-person startups with 5 platform engineers, where seat count is bounded, SAML-via-IAM-Identity-Center is one-click native, and the ops tax on Thanos isn't worth it. I'd pick rung 3 over rung 2 specifically for that kind of shape because 5 PE already have too much to do for Thanos compactor pages."
 
 The answer flexes to the interviewer's context:
 - Enterprise SRE interviewer → emphasize rung 2 operational detail (Compactor downsampling, Store gateway caching)

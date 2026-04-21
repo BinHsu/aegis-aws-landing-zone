@@ -1,7 +1,7 @@
 # 016. Admission Control: Kyverno
 
 ## Status
-Accepted (**amended 2026-04-20**: §Consequences gained a "Layer placement and install path" subsection after Incident 26 — Kyverno moves from `staging/workloads/` as an ArgoCD Application to `staging/platform/` as a `helm_release`. Tool selection is unchanged; only deployment layer + install path changed.)
+Accepted (**amended 2026-04-20**: §Consequences gained a "Layer placement and install path" subsection after Incident 26 — Kyverno moves from `staging/workloads/` as an ArgoCD Application to `staging/platform/` as a `helm_release`. Tool selection is unchanged; only deployment layer + install path changed. **Amended 2026-04-21**: §Consequences "Relation to ADR-015" updated to reflect ADR-015 supersession by [ADR-022](022-observability-backend-grafana-cloud.md).)
 
 ## Context
 
@@ -72,4 +72,4 @@ Kyverno runs in the `staging/platform/` layer (alongside Karpenter, AWS Load Bal
 
 **What this DOES change**: lifecycle visibility in the ArgoCD UI is lost for Kyverno itself — an operator must now look at `helm_release.kyverno` state / `kubectl -n kyverno get pods` rather than an ArgoCD Application tile. The platform layer's other components (Karpenter, LBC, ArgoCD) share the same tradeoff and it has not caused friction in practice. The ClusterPolicies remain Terraform-managed, so their state is visible via `terraform state list | grep kyverno`.
 
-**Relation to ADR-015**: ADR-015's "Operator Apps via ArgoCD" pattern covers observability (kube-prometheus-stack), where the discovery contract for workload-authored CRDs (ServiceMonitor, PrometheusRule) is the load-bearing reason for ArgoCD-managed lifecycle. Kyverno's policies are platform-authored, not workload-authored — there is no equivalent discovery contract, and the tradeoff tips the other way.
+**Relation to ADR-015**: [ADR-015](015-observability-tooling.md) (superseded 2026-04-21 by [ADR-022](022-observability-backend-grafana-cloud.md))'s "Operator Apps via ArgoCD" pattern covers observability (kube-prometheus-stack), where the discovery contract for workload-authored CRDs (ServiceMonitor, PrometheusRule) is the load-bearing reason for ArgoCD-managed lifecycle. Kyverno's policies are platform-authored, not workload-authored — there is no equivalent discovery contract, and the tradeoff tips the other way.

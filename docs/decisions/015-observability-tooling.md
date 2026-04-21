@@ -1,7 +1,15 @@
 # 015. Observability Tooling
 
 ## Status
-Accepted (**amended 2026-04-20**: §Decision/Deployment-model fact drift on Application CRD ownership corrected — the Application is created by Terraform in `staging/workloads/observability.tf`, not in aegis-core's `apps/staging/`. §Consequences gained a new "Discovery contract" subsection codifying the wide-open Prometheus Operator selectors that make the responsibility split (platform-level rules in this repo, service-level rules in aegis-core) actually work. No tooling decision changed.)
+Superseded by [ADR-022](022-observability-backend-grafana-cloud.md) (2026-04-21). Previously Accepted (**amended 2026-04-20**: §Decision/Deployment-model fact drift on Application CRD ownership corrected — the Application is created by Terraform in `staging/workloads/observability.tf`, not in aegis-core's `apps/staging/`. §Consequences gained a new "Discovery contract" subsection codifying the wide-open Prometheus Operator selectors that make the responsibility split (platform-level rules in this repo, service-level rules in aegis-core) actually work. No tooling decision changed.) — content preserved as historical record.
+
+## Supersession note
+
+This ADR chose kube-prometheus-stack deployed in-cluster. On 2026-04-21, [ADR-022](022-observability-backend-grafana-cloud.md) superseded this decision, moving to Grafana Cloud free tier + Alloy + grafana-operator.
+
+The ADR-015 rationale ("opt in to Prometheus operations as a portfolio artifact") was reconsidered after realizing the signal was CV-redundant for the operator and the stronger portfolio artifact is the backend-agnostic contract now documented in [ADR-023](023-observability-responsibility-model.md).
+
+Content below is preserved as historical record — this was the live decision from Phase 4b (2026-04-15) through Session D (2026-04-20).
 
 ## Context
 

@@ -1,5 +1,17 @@
-<!-- session-close-review: Grafana auth status (local admin only vs SSO wired) + referenced runbook existence still accurate -->
+<!-- session-close-review: obsoleted 2026-04-21 — marker kept for historical discoverability only -->
 # 009. Grafana SSO integration
+
+## Obsolete (2026-04-21)
+
+This improvement entry is **Obsoleted by [ADR-022](../decisions/022-observability-backend-grafana-cloud.md)**.
+
+The SAML-via-AWS-IAM-Identity-Center proposal below assumed Grafana was self-hosted in-cluster (ADR-015 era). ADR-022 moved the observability backend to Grafana Cloud, which has its own auth story:
+
+- **Lab / free tier**: Google OAuth (native, zero-install) — handles current single-operator posture without any of the work described below
+- **SAML requirement**: becomes relevant at Grafana Cloud Pro tier or beyond, per [ADR-021 rung transitions](../decisions/021-observability-scaling-path.md)
+- **AWS IAM Identity Center integration**: available in Grafana Cloud Pro as manual SAML setup; available in AMG as one-click native. Both are rung-3-adjacent concerns, not current work.
+
+Content below is preserved as historical record of what this improvement WOULD have looked like in the self-hosted world.
 
 ## Current state
 

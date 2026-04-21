@@ -1,7 +1,7 @@
 # 018. Multi-region EKS design
 
 ## Status
-Accepted (**amended 2026-04-19**: §3 provider alias labels changed from region-based to role-based to comply with CLAUDE.md "zero tolerance for region strings in .tf" rule; renamed the pattern "slot pattern" and clarified the escape hatch to a generation-script approach. Core decisions — sub-module with `configuration_aliases`, single-state-per-layer, K=2 ceiling — unchanged. **Amended 2026-04-20**: §3 K=2 ceiling enforcement extended from two layers to three — `staging/workloads/` adopts the same slot pattern with its own `terraform_data "assert_k2_max"` precondition. Per-cluster observability is independent across slots; multi-cluster fan-out responsibility is on aegis-core per [ADR-015](015-observability-tooling.md) §Consequences.)
+Accepted (**amended 2026-04-19**: §3 provider alias labels changed from region-based to role-based to comply with CLAUDE.md "zero tolerance for region strings in .tf" rule; renamed the pattern "slot pattern" and clarified the escape hatch to a generation-script approach. Core decisions — sub-module with `configuration_aliases`, single-state-per-layer, K=2 ceiling — unchanged. **Amended 2026-04-20**: §3 K=2 ceiling enforcement extended from two layers to three — `staging/workloads/` adopts the same slot pattern with its own `terraform_data "assert_k2_max"` precondition. Per-cluster observability is independent across slots; multi-cluster fan-out responsibility is on aegis-core per [ADR-015](015-observability-tooling.md) §Consequences. **Amended 2026-04-21**: §7 per-cluster observability semantics updated to reflect [ADR-022](022-observability-backend-grafana-cloud.md) (Alloy on both clusters; grafana-operator on primary only). ADR-018 slot pattern itself is unchanged.)
 
 ## Context
 
@@ -156,6 +156,8 @@ Each EKS cluster gets its own ArgoCD Helm release. All ArgoCDs point at the same
 This avoids ArgoCD becoming a new SPOF. A central ArgoCD in the primary region would fail exactly when you need it most — during a primary region outage.
 
 Trade-off: each cluster has its own admin password and requires operator access separately. Acceptable for a single-operator lab. Team-scale deployments with proper ArgoCD HA can revisit.
+
+**Multi-region observability topology (amended 2026-04-21 per [ADR-022](022-observability-backend-grafana-cloud.md))**: both slots run Alloy + `prometheus-operator-crds` + External Secrets Operator — they are data-plane participants pushing metrics + rules to Grafana Cloud Mimir. Only `cluster_primary` runs grafana-operator (single Grafana Cloud stack control-plane ownership; two reconcilers writing to the same stack would race). See ADR-022 §Multi-region for rationale. The ArgoCD per-cluster pattern in this section is unaffected — each cluster's ArgoCD still manages its own Application set.
 
 ## Alternatives Considered
 

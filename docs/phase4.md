@@ -89,19 +89,28 @@ Neither is obvious without measuring. The ADR should evaluate both against the s
 
 ---
 
-### Phase 4b — Observability stack
+### Phase 4b — Observability stack (Grafana Cloud free tier)
 
-**What this delivers**: Prometheus + Grafana on the cluster, scraping both platform and workload metrics. An operator can see node utilization, pod health, Karpenter provisioning decisions, and aegis-core application metrics from a single Grafana URL.
+**What this delivers**: Grafana Cloud free tier (eu-central Frankfurt) as backend; in-cluster agents (Grafana Alloy + prometheus-operator-crds) push metrics + CRDs; grafana-operator reconciles dashboards / alert routing as K8s CRDs per [ADR-023](decisions/023-observability-responsibility-model.md) responsibility model. An operator can see node utilization, pod health, Karpenter provisioning decisions, and aegis-core application metrics from a single Grafana Cloud URL — without running a Prometheus server or Grafana pod in the cluster.
 
-**Approach**: `kube-prometheus-stack` Helm chart via ArgoCD (app-of-apps pattern). This is the community standard for single-cluster observability — Prometheus Operator, Grafana, node-exporter, kube-state-metrics, and default dashboards in one chart.
+**Approach**: four-layer stack per [ADR-022](decisions/022-observability-backend-grafana-cloud.md):
+
+- **Grafana Alloy** (DaemonSet + Deployment) — scrape cluster + workload metrics via native ServiceMonitor / PodMonitor / PrometheusRule discovery and `remote_write` to Grafana Cloud Mimir.
+- **prometheus-operator-crds** — CRD definitions only (ServiceMonitor, PodMonitor, PrometheusRule). No Prometheus Operator controller, no Prometheus server.
+- **grafana-operator** — reconciles Kubernetes `Grafana*` CRDs (GrafanaDashboard, GrafanaContactPoint, GrafanaNotificationPolicy*, GrafanaMuteTiming) against the Grafana Cloud API. Runs on the primary cluster only (single-writer constraint — see ADR-022 § Multi-region).
+- **External Secrets Operator** — brings Grafana Cloud tokens from SSM Parameter Store into K8s Secrets via IRSA.
+
+The responsibility split between platform and service teams (who owns which CRD, how leaf routes attach to the platform's root notification policy, team-webhooks Secret plumbing) is defined in [ADR-023](decisions/023-observability-responsibility-model.md).
 
 **Resources**:
 
 | Resource | Purpose | Notes |
 |---|---|---|
-| `kube-prometheus-stack` Helm release | Prometheus + Grafana + dashboards | ArgoCD-managed via app-of-apps |
-| Grafana Ingress (ALB) | Browser access to dashboards | ACM cert, same domain pattern as Phase 3 |
-| PersistentVolumeClaim for Prometheus | Retain metrics across pod restarts | gp3 EBS, 20 GB, Karpenter-managed node |
+| Grafana Alloy `helm_release` | Per-cluster scrape + remote_write to Mimir | ArgoCD-managed |
+| prometheus-operator-crds `helm_release` | CRD definitions (ServiceMonitor, PrometheusRule, PodMonitor) | ArgoCD-managed |
+| grafana-operator `helm_release` | Reconciles Grafana* CRDs to Grafana Cloud | ArgoCD-managed, primary cluster only |
+| External Secrets Operator `helm_release` | SSM PS → K8s Secret plumbing | ArgoCD-managed |
+| Grafana Cloud stack (external) | Metrics storage + Grafana UI + managed Alertmanager | Out-of-repo; provisioned via [runbook 006](runbooks/006-grafana-cloud-onboarding.md) |
 | ServiceMonitor CRDs | Scrape targets for aegis-core pods | aegis-core manifests expose `/metrics` |
 | CloudWatch log group retention | EKS control plane logs (already on) | Verify 365-day retention from Phase 3 |
 
@@ -112,11 +121,9 @@ Neither is obvious without measuring. The ADR should evaluate both against the s
 | VPC Flow Log → S3 in `aegis-logarchive` | Network audit trail | `staging/network` |
 | S3 lifecycle rule (90-day transition to IA) | Cost control on flow log storage | `logarchive/bootstrap` |
 
-**ADR candidate**: observability tooling — why kube-prometheus-stack over CloudWatch Container Insights, Datadog, or Grafana Cloud. Cost, portability, and operational surface are the three axes.
-
 **kubent / pluto CI integration**: wire into `checkov.yml` or a new workflow step. `pluto detect-files -d k8s-manifests/` runs in <5 seconds and catches deprecated API usage before merge. Already recommended in [`docs/principles/change-review-discipline.md`](principles/change-review-discipline.md); Phase 4b is when it becomes real.
 
-**Cost increment**: ~$1–2/session extra (Prometheus + Grafana pods need ~1 vCPU + 2 GB RAM on Spot; 20 GB gp3 EBS = $0.08/GB/month = $1.60/month if persistent). VPC Flow Logs: negligible at lab traffic volume (~$0.50/month).
+**Cost increment**: $0/session in steady state (Grafana Cloud free tier; no in-cluster Prometheus or Grafana pods). VPC Flow Logs unchanged: negligible at lab traffic volume (~$0.50/month).
 
 ---
 
@@ -131,7 +138,7 @@ Neither is obvious without measuring. The ADR should evaluate both against the s
 | GuardDuty EKS Runtime Monitoring | Container-level threat detection (crypto mining, reverse shell, privilege escalation) | `staging/platform` or `security/guardduty` |
 | GuardDuty EKS Audit Log Monitoring | API audit trail anomaly detection | Same |
 | Kyverno or OPA Gatekeeper | Admission policies (deny privileged, require labels, enforce resource limits) | ArgoCD-managed |
-| `apiserver_requested_deprecated_apis` alert | Prometheus alert rule on deprecated API usage (see principles doc §3.4) | kube-prometheus-stack values |
+| `apiserver_requested_deprecated_apis` alert | Prometheus alert rule on deprecated API usage (see principles doc §3.4) | PrometheusRule CRD (forwarded by Alloy to Mimir ruler for server-side evaluation) |
 
 **Scope discipline**: Phase 4c is the *minimum credible* cluster security for a portfolio project. It is NOT:
 - A full SOC 2 control set (explicitly NOT claimed in interview-notes §4)
@@ -150,16 +157,16 @@ Neither is obvious without measuring. The ADR should evaluate both against the s
 |---|---|---|
 | Phase 3 baseline (EKS + NAT + Karpenter Fargate) | ~$1.20 | ~$4.80 |
 | Phase 4a ALB (workload ingress) | ~$0.02 | ~$0.08 |
-| Phase 4b Prometheus + Grafana (Spot node capacity) | ~$0.10 | ~$0.40 |
+| Phase 4b Alloy + prometheus-operator-crds + grafana-operator (Spot node capacity) | ~$0.05 | ~$0.20 |
 | Phase 4b Flow Logs | negligible | negligible |
 | Phase 4c GuardDuty | ~$0.06 | ~$0.25 |
-| **Total** | **~$1.38** | **~$5.53** |
+| **Total** | **~$1.33** | **~$5.33** |
 
 Within the $5–10/session budget. No change to the teardown requirement — `gh workflow run terraform-teardown-workload.yml` at session end remains mandatory.
 
 **Persistent costs** (running even when torn down):
-- EBS volume for Prometheus (if not destroyed): $1.60/month. Consider destroying on teardown and accepting metric loss between sessions; lab data has no retention requirement.
 - Flow Logs S3 storage: <$0.50/month.
+- Grafana Cloud free tier: $0/month (no in-cluster Prometheus EBS volume to manage).
 
 ---
 
@@ -168,9 +175,11 @@ Within the $5–10/session budget. No change to the teardown requirement — `gh
 | # | Topic | Trigger |
 |---|---|---|
 | 014 | ALB session affinity for gRPC workloads | Phase 4a — cookie vs client-IP, ALB vs NLB for gRPC |
-| 015 | Observability tooling: kube-prometheus-stack | Phase 4b — why not Container Insights or managed Grafana |
+| 015 (superseded) | Observability tooling: kube-prometheus-stack | Phase 4b — original choice; superseded 2026-04-21 by ADR-022 |
 | 016 | Admission control: Kyverno vs OPA Gatekeeper | Phase 4c — single-operator simplicity vs ecosystem breadth |
 | 017 | Workload namespace and RBAC model | Phase 4a — single namespace vs per-component, ArgoCD-managed vs Terraform-managed |
+| 022 | Observability backend: Grafana Cloud free tier | Phase 4b — reversal of ADR-015 rationale; $0/session SaaS vs in-cluster Prometheus |
+| 023 | Observability responsibility model (platform vs service domain) | Phase 4b — backend-agnostic 5-CRD contract preserved across future backend swaps |
 
 ADR numbering continues from 013 (current last). Write each ADR BEFORE implementing its topic — [CLAUDE.md](../CLAUDE.md) requires ADR-first for significant design choices.
 
@@ -224,12 +233,12 @@ LANDING-ZONE TRACK (no aegis-core dependency)
   │     └── Update #54 platform contract
   │
   ├── Phase 4b (observability) — can start immediately after 4a'
-  │     ├── ADR-015 (kube-prometheus-stack rationale)
-  │     ├── ArgoCD app: kube-prometheus-stack Helm
-  │     ├── Grafana Ingress + ACM cert
+  │     ├── ADR-022 (Grafana Cloud free tier rationale) + ADR-023 (responsibility model)
+  │     ├── ArgoCD apps: Grafana Alloy + prometheus-operator-crds + grafana-operator + External Secrets Operator
+  │     ├── External Grafana Cloud stack (see runbook 006 for onboarding)
   │     ├── VPC Flow Logs (Terraform: staging/network)
   │     ├── kubent / pluto CI step
-  │     └── Verify: Grafana dashboards load, cluster metrics present
+  │     └── Verify: metrics reach Grafana Cloud (see runbook 006 Part 5)
   │
   └── Phase 4c (cluster security) — can overlap with 4b
         ├── ADR-016 (Kyverno vs Gatekeeper)

@@ -1,4 +1,4 @@
-<!-- session-close-review: recruiter-facing narrative, ADR/incident counts, phase status in §5, version table in §3 -->
+<!-- session-close-review: recruiter-facing narrative; ADR/incident/runbook counts in §2.6 must agree with footer; phase status in §2.x + §5; version table in §3 -->
 # Interview Notes
 
 A reader's guide for recruiters, hiring managers, and technical leadership reviewing this project as a portfolio artifact. Different from the rest of the repo, this document is written *about* the project rather than *inside* it — its job is to frame scope, stance, and what a conversation could productively cover.
@@ -93,15 +93,15 @@ Each entry: what was built → where to look in the repo → the kind of questio
 ### 2.6 Operational discipline (ADRs, incidents, runbooks)
 
 **Built**: three layers of operational writing with explicit rules in [`CLAUDE.md`](../CLAUDE.md):
-- **ADRs** — 19 in [`docs/decisions/`](decisions/), supersede-in-place style ("Design iteration" sections note evolution; ADR-018 §3 has an in-place amendment demonstrating the pattern)
-- **Incidents** — 30 in [`docs/incidents.md`](incidents.md), append-only, standard format
-- **Runbooks** — 5 in [`docs/runbooks/`](runbooks/); CLAUDE.md rule requires AI agents to read the layer's runbook before operating on it
+- **ADRs** — 23 in [`docs/decisions/`](decisions/), supersede-in-place style ("Design iteration" sections note evolution; ADR-018 §3 has an in-place amendment demonstrating the pattern; ADR-015 superseded by ADR-022 demonstrates the supersede-with-history pattern)
+- **Incidents** — 32 in [`docs/incidents.md`](incidents.md), append-only, standard format
+- **Runbooks** — 6 in [`docs/runbooks/`](runbooks/); CLAUDE.md rule requires AI agents to read the layer's runbook before operating on it
 
 **Where to look**:
 - [`CLAUDE.md`](../CLAUDE.md) — 6 explicit "Rule: AI must..." clauses
-- [`docs/decisions/`](decisions/) — 21 ADRs
+- [`docs/decisions/`](decisions/) — 23 ADRs
 - [`docs/incidents.md`](incidents.md) — 32 postmortems
-- [`docs/runbooks/`](runbooks/) — 5 runbooks
+- [`docs/runbooks/`](runbooks/) — 6 runbooks
 - [`docs/principles/`](principles/) — 2 cross-cutting discipline docs (change-review, break-glass-apply)
 
 **Likely questions**: show me a real incident (pick from the 32 in `docs/incidents.md` — Incidents 6, 7, 12, 18, 22, 24, 25, 26 cover the widest angle: CMK recovery, hidden cross-account prerequisites, honest design reversal, asymmetric IAM policy, belt-and-suspenders teardown architecture, Terraform concurrency edge cases, service-specific resource-policy quirks, and ArgoCD-managed-CRD bootstrap race); what does the ADR format give you that code comments don't (ADRs preserve *why* even when *what* is obvious from code); how do you keep this discipline consistent (CLAUDE.md rules + pre-commit hooks + AI reminders — not willpower).
@@ -211,7 +211,7 @@ Positive statements of what this project demonstrates, paired with explicit stat
 - **Karpenter / ArgoCD internals as a specialty.** Install + configure + diagnose connectivity; I do not claim to know what changed internally between Karpenter v0.37 → v1.0 beyond what the release notes say.
 - **Algorithm-level optimization.** When a teardown takes 20 minutes due to IPAM release lag ([ADR-004 Consequences](decisions/004-deployment-configuration-contract.md)), the answer is "live with it, document it, adjust timeouts." A specialist might investigate whether there's a faster release path; that investigation is not in scope for a hands-on architect whose job is shipping the cross-cutting system.
 - **Network deep-dive.** VPC design (subnets, NAT, Gateway endpoints) follows public reference architectures. Deep questions about BGP, IPv6 dual-stack, Transit Gateway attachment routing, or MTU tuning are outside the scope of this project.
-- **Production observability at scale.** Phase 4b ships kube-prometheus-stack (Prometheus + Grafana + node-exporter + kube-state-metrics) for single-cluster observability. Multi-cluster federation (Thanos/Mimir), long-term metric storage, and managed APM (Datadog, Grafana Cloud) are out of scope.
+- **Production observability at scale.** Phase 4b ships Grafana Cloud free tier as backend + Grafana Alloy + prometheus-operator-crds + grafana-operator in-cluster. Per-cluster Thanos / Mimir self-host and full vendor APM (Datadog) are out of scope; scaling path to Thanos-in-shared-account or AMP+AMG documented in ADR-021.
 - **DR testing.** Control Tower governs two regions (eu-central-1 primary, eu-west-1 DR), but no DR failover has been tested end-to-end. The DR region is set up for future work.
 - **Compliance audit readiness.** ISO 27001 alignment is the guardrail ([ADR-005](decisions/005-compliance-framework-iso-27001.md)). Phase 4c adds runtime enforcement (GuardDuty EKS for threat detection, Kyverno for admission control) but this is not a SOC 2 / PCI / HIPAA audit-ready posture. The lab demonstrates the *patterns* — baseline policies, deny-privileged, require-limits — not the completeness of a production control set.
 
@@ -239,7 +239,7 @@ Three incremental PRs for core features (#39 EKS core, #42 Karpenter, #43 LB Con
 Two incidents caught during a Dependabot maintenance sweep after the Phase 3c rollout, both fixed via PRs #63 and #64: **Incident 23** — Dependabot PRs run in a separate secret namespace from Actions, so `scripts/configure-github.sh` now populates both; **Incident 24** — S3 native state locking is strictly FCFS with no queue, default `-lock-timeout=0` stampedes under bulk rebase, `terraform-plan.yml` now specifies `-lock-timeout=10m`. Same session also enabled GitHub Secret Scanning + push protection + Dependabot vulnerability alerts (free on public repos; directly validate the "zero static credentials by design" stance) and bumped the AWS Terraform provider v5.100 → v6.40 across all six Terraservices with baseline apply success on every leg.
 
 ### Phase 4 — Observability + cluster security (done 2026-04-17)
-Three sub-phases shipped in PRs #67–#69: **4a'** (docking station — `aegis` namespace, IRSA skeleton, default-deny NetworkPolicy, ADR-017); **4b** (kube-prometheus-stack via ArgoCD with deprecated-API alert rule, VPC Flow Logs to S3 in Parquet, ADR-015); **4c** (GuardDuty EKS Runtime + Audit Log Monitoring, Kyverno admission controller with 4 baseline policies in Audit mode, ADR-016). Cross-repo coordination protocol ([#54](https://github.com/BinHsu/aegis-aws-landing-zone/issues/54), [#11](https://github.com/BinHsu/aegis-core/issues/11)) exercised live during the session. Phase 4a'' (actual workload deployment) gates on aegis-core shipping OCI images.
+Three sub-phases shipped in PRs #67–#69: **4a'** (docking station — `aegis` namespace, IRSA skeleton, default-deny NetworkPolicy, ADR-017); **4b** (kube-prometheus-stack via ArgoCD with deprecated-API alert rule, VPC Flow Logs to S3 in Parquet, ADR-015) (observability backend reversed 2026-04-21 per ADR-022; see ADR-022 §Context for rationale); **4c** (GuardDuty EKS Runtime + Audit Log Monitoring, Kyverno admission controller with 4 baseline policies in Audit mode, ADR-016). Cross-repo coordination protocol ([#54](https://github.com/BinHsu/aegis-aws-landing-zone/issues/54), [#11](https://github.com/BinHsu/aegis-core/issues/11)) exercised live during the session. Phase 4a'' (actual workload deployment) gates on aegis-core shipping OCI images.
 
 ### Phase 5 — Service mesh + per-pod TLS (not started)
 cert-manager, service mesh mTLS, private endpoints, EKS Pod Identity migration.
@@ -261,7 +261,9 @@ This doc is frame-level. For the actual substance:
 
 ---
 
-*Last updated: 2026-04-20 — Multi-region slot pattern now covers all three workload-tier layers (network + platform + workloads); ADR-015 amended (Discovery contract for PrometheusRule / ServiceMonitor / Grafana dashboard discovery, fixing fact drift on Application CRD ownership); ADR-018 §3 amended (K=2 ceiling guard now in 3 layers, not 2). ADR count unchanged at 19; only amendments.*
+*Last updated: 2026-04-21 — Observability backend reversed: ADR-015 (kube-prometheus-stack) superseded by ADR-022 (Grafana Cloud free tier + Alloy + grafana-operator) + ADR-023 (backend-agnostic responsibility model). Runbook 006 added for Grafana Cloud onboarding. ADR-021 rung 1 redefined accordingly. ADR count 21 → 23.*
+
+*Previous: 2026-04-20 — Multi-region slot pattern now covers all three workload-tier layers (network + platform + workloads); ADR-015 amended (Discovery contract for PrometheusRule / ServiceMonitor / Grafana dashboard discovery, fixing fact drift on Application CRD ownership); ADR-018 §3 amended (K=2 ceiling guard now in 3 layers, not 2). ADR count unchanged at 19; only amendments.*
 
 *Previous: 2026-04-19 — Multi-region EKS design ratified (ADR-018); `docs/improvements/` directory established for productionization roadmap (state backend cross-account replica, workload multi-region DR); ADR count 17→18.*
 
