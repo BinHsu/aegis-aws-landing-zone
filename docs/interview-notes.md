@@ -93,13 +93,13 @@ Each entry: what was built → where to look in the repo → the kind of questio
 ### 2.6 Operational discipline (ADRs, incidents, runbooks)
 
 **Built**: three layers of operational writing with explicit rules in [`CLAUDE.md`](../CLAUDE.md):
-- **ADRs** — 23 in [`docs/decisions/`](decisions/), supersede-in-place style ("Design iteration" sections note evolution; ADR-018 §3 has an in-place amendment demonstrating the pattern; ADR-015 superseded by ADR-022 demonstrates the supersede-with-history pattern)
+- **ADRs** — 24 in [`docs/decisions/`](decisions/), supersede-in-place style ("Design iteration" sections note evolution; ADR-018 §3 has an in-place amendment demonstrating the pattern; ADR-015 superseded by ADR-022 demonstrates the supersede-with-history pattern)
 - **Incidents** — 32 in [`docs/incidents.md`](incidents.md), append-only, standard format
 - **Runbooks** — 6 in [`docs/runbooks/`](runbooks/); CLAUDE.md rule requires AI agents to read the layer's runbook before operating on it
 
 **Where to look**:
 - [`CLAUDE.md`](../CLAUDE.md) — 6 explicit "Rule: AI must..." clauses
-- [`docs/decisions/`](decisions/) — 23 ADRs
+- [`docs/decisions/`](decisions/) — 24 ADRs
 - [`docs/incidents.md`](incidents.md) — 32 postmortems
 - [`docs/runbooks/`](runbooks/) — 6 runbooks
 - [`docs/principles/`](principles/) — 2 cross-cutting discipline docs (change-review, break-glass-apply)
@@ -261,9 +261,11 @@ This doc is frame-level. For the actual substance:
 
 ---
 
-*Last updated: 2026-04-21 — Observability backend reversed: ADR-015 (kube-prometheus-stack) superseded by ADR-022 (Grafana Cloud free tier + Alloy + grafana-operator) + ADR-023 (backend-agnostic responsibility model). Runbook 006 added for Grafana Cloud onboarding. ADR-021 rung 1 redefined accordingly. ADR count 21 → 23.*
+*Last updated: 2026-04-21 (PM) — ADR-022 implementation shipped as 4 PRs (platform-layer ESO + prometheus-operator-crds + kube-state-metrics + Grafana Alloy; new `staging/observability/` peer layer with grafana-operator + GC tokens; kube-prometheus-stack removed from workloads; teardown workflow CRD pre-delete). Observability backend now lives in Grafana Cloud; in-cluster Prometheus + Grafana are gone. ADR count unchanged at 24; incidents unchanged at 32 (code-only session, no cold-apply).*
 
-*Previous: 2026-04-20 — Multi-region slot pattern now covers all three workload-tier layers (network + platform + workloads); ADR-015 amended (Discovery contract for PrometheusRule / ServiceMonitor / Grafana dashboard discovery, fixing fact drift on Application CRD ownership); ADR-018 §3 amended (K=2 ceiling guard now in 3 layers, not 2). ADR count unchanged at 19; only amendments.*
+*Previous: 2026-04-21 (AM) — Observability backend reversed: ADR-015 (kube-prometheus-stack) superseded by ADR-022 (Grafana Cloud free tier + Alloy + grafana-operator) + ADR-023 (backend-agnostic responsibility model). ADR-024 added (landing-zone repo topology). Runbook 006 added for Grafana Cloud onboarding. ADR-021 rung 1 redefined. ADR count 21 → 24.*
+
+*Earlier: 2026-04-20 — Multi-region slot pattern now covers all three workload-tier layers (network + platform + workloads); ADR-015 amended (Discovery contract for PrometheusRule / ServiceMonitor / Grafana dashboard discovery, fixing fact drift on Application CRD ownership); ADR-018 §3 amended (K=2 ceiling guard now in 3 layers, not 2). ADR count unchanged at 19; only amendments.*
 
 *Previous: 2026-04-19 — Multi-region EKS design ratified (ADR-018); `docs/improvements/` directory established for productionization roadmap (state backend cross-account replica, workload multi-region DR); ADR count 17→18.*
 

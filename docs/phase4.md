@@ -181,7 +181,7 @@ Within the $5–10/session budget. No change to the teardown requirement — `gh
 | 022 | Observability backend: Grafana Cloud free tier | Phase 4b — reversal of ADR-015 rationale; $0/session SaaS vs in-cluster Prometheus |
 | 023 | Observability responsibility model (platform vs service domain) | Phase 4b — backend-agnostic 5-CRD contract preserved across future backend swaps |
 
-ADR numbering continues from 013 (current last). Write each ADR BEFORE implementing its topic — [CLAUDE.md](../CLAUDE.md) requires ADR-first for significant design choices.
+ADR numbering continues from 024 (current last). Write each ADR BEFORE implementing its topic — [CLAUDE.md](../CLAUDE.md) requires ADR-first for significant design choices.
 
 ---
 
