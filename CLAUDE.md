@@ -211,7 +211,7 @@ aws-landing-zone-lab/
     ├── architecture.md             # Mermaid diagrams (account topology, CI/CD, IPAM, etc.)
     ├── design-narrative.md         # 2-minute pitch + key decisions + war stories
     ├── interview-notes.md          # Reader's guide for recruiters / architect peers
-    ├── incidents.md                # Append-only postmortems (32 as of 2026-04-20)
+    ├── incidents.md                # Append-only postmortems (32 as of 2026-04-21; unchanged this session)
     ├── decisions/                  # 23 ADRs (NNN-<topic>.md)
     ├── runbooks/                   # 6 per-layer operational runbooks
     ├── principles/                 # Cross-cutting discipline docs (change-review, break-glass-apply)

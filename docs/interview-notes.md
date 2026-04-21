@@ -1,4 +1,4 @@
-<!-- session-close-review: recruiter-facing narrative, ADR/incident counts, phase status in §5, version table in §3 -->
+<!-- session-close-review: recruiter-facing narrative; ADR/incident/runbook counts in §2.6 must agree with footer; phase status in §2.x + §5; version table in §3 -->
 # Interview Notes
 
 A reader's guide for recruiters, hiring managers, and technical leadership reviewing this project as a portfolio artifact. Different from the rest of the repo, this document is written *about* the project rather than *inside* it — its job is to frame scope, stance, and what a conversation could productively cover.
@@ -93,15 +93,15 @@ Each entry: what was built → where to look in the repo → the kind of questio
 ### 2.6 Operational discipline (ADRs, incidents, runbooks)
 
 **Built**: three layers of operational writing with explicit rules in [`CLAUDE.md`](../CLAUDE.md):
-- **ADRs** — 19 in [`docs/decisions/`](decisions/), supersede-in-place style ("Design iteration" sections note evolution; ADR-018 §3 has an in-place amendment demonstrating the pattern)
-- **Incidents** — 30 in [`docs/incidents.md`](incidents.md), append-only, standard format
-- **Runbooks** — 5 in [`docs/runbooks/`](runbooks/); CLAUDE.md rule requires AI agents to read the layer's runbook before operating on it
+- **ADRs** — 23 in [`docs/decisions/`](decisions/), supersede-in-place style ("Design iteration" sections note evolution; ADR-018 §3 has an in-place amendment demonstrating the pattern; ADR-015 superseded by ADR-022 demonstrates the supersede-with-history pattern)
+- **Incidents** — 32 in [`docs/incidents.md`](incidents.md), append-only, standard format
+- **Runbooks** — 6 in [`docs/runbooks/`](runbooks/); CLAUDE.md rule requires AI agents to read the layer's runbook before operating on it
 
 **Where to look**:
 - [`CLAUDE.md`](../CLAUDE.md) — 6 explicit "Rule: AI must..." clauses
-- [`docs/decisions/`](decisions/) — 21 ADRs
+- [`docs/decisions/`](decisions/) — 23 ADRs
 - [`docs/incidents.md`](incidents.md) — 32 postmortems
-- [`docs/runbooks/`](runbooks/) — 5 runbooks
+- [`docs/runbooks/`](runbooks/) — 6 runbooks
 - [`docs/principles/`](principles/) — 2 cross-cutting discipline docs (change-review, break-glass-apply)
 
 **Likely questions**: show me a real incident (pick from the 32 in `docs/incidents.md` — Incidents 6, 7, 12, 18, 22, 24, 25, 26 cover the widest angle: CMK recovery, hidden cross-account prerequisites, honest design reversal, asymmetric IAM policy, belt-and-suspenders teardown architecture, Terraform concurrency edge cases, service-specific resource-policy quirks, and ArgoCD-managed-CRD bootstrap race); what does the ADR format give you that code comments don't (ADRs preserve *why* even when *what* is obvious from code); how do you keep this discipline consistent (CLAUDE.md rules + pre-commit hooks + AI reminders — not willpower).
