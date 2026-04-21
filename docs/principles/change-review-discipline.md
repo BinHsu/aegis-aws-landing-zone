@@ -144,7 +144,9 @@ The living inventory of what's deployed and when it expires. Maintained in this 
 | Karpenter | v1.0.8 | v0.x deprecated; on v1 | Hold on v1.x until v2 stabilizes | [ADR-013](../decisions/013-eks-architecture.md) |
 | AWS Load Balancer Controller | v2.8.2 | — | Bump with EKS minor | [ADR-013](../decisions/013-eks-architecture.md) |
 | ArgoCD | 7.6.12 (chart) | — | Quarterly review | [ADR-013](../decisions/013-eks-architecture.md) |
-| kube-prometheus-stack | 72.6.2 (chart) | — | Dependabot or manual review | [ADR-015](../decisions/015-observability-tooling.md) |
+| Grafana Alloy | pinned in workloads layer | Grafana Labs release notes | Manual review on major upgrade | [ADR-022](../decisions/022-observability-backend-grafana-cloud.md) |
+| prometheus-operator-crds | pinned in workloads layer | upstream CRD schema changes | Manual review | [ADR-022](../decisions/022-observability-backend-grafana-cloud.md) |
+| grafana-operator | pinned; primary cluster only | upstream release notes | Manual review | [ADR-022](../decisions/022-observability-backend-grafana-cloud.md) |
 | Kyverno | 3.4.1 (chart) | — | Dependabot or manual review | [ADR-016](../decisions/016-admission-control.md) |
 | cert-manager | v1.16.2 (chart) | — | Dependabot or manual review | aegis-core [ADR-0031](https://github.com/BinHsu/aegis-core/blob/main/docs/adr/0031-mtls-without-service-mesh.md) |
 | Argo Rollouts | 2.37.7 (chart) | — | Dependabot or manual review | aegis-core [ADR-0030](https://github.com/BinHsu/aegis-core/blob/main/docs/adr/0030-progressive-delivery-controller.md) |

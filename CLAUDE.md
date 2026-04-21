@@ -212,8 +212,8 @@ aws-landing-zone-lab/
     ├── design-narrative.md         # 2-minute pitch + key decisions + war stories
     ├── interview-notes.md          # Reader's guide for recruiters / architect peers
     ├── incidents.md                # Append-only postmortems (32 as of 2026-04-20)
-    ├── decisions/                  # 21 ADRs (NNN-<topic>.md)
-    ├── runbooks/                   # 5 per-layer operational runbooks
+    ├── decisions/                  # 23 ADRs (NNN-<topic>.md)
+    ├── runbooks/                   # 6 per-layer operational runbooks
     ├── principles/                 # Cross-cutting discipline docs (change-review, break-glass-apply)
     └── personal/                   # Gitignored — private portfolio brief
 ```
@@ -232,6 +232,26 @@ aws-landing-zone-lab/
   Fallback if CI unavailable: `./scripts/teardown/soft-teardown-workload.sh <env>` (same effect locally). Not optional — a session that applied workload layers and ends without a teardown reminder is a cost incident waiting to happen.
 - **Rule: Workload layers are NOT auto-applied on merge to main.** Baseline layers (bootstrap, scps, ipam) apply automatically via `terraform-apply-baseline.yml`. Cost-incurring layers (network, platform, workloads) require explicit `gh workflow run terraform-apply-workload.yml -f env=<env>` with human approval. Changing this without an ADR is a design regression.
 - **Rule: AI must check whether a cost-incurring resource is about to be created** (NAT Gateway, EKS cluster, EC2, ALB, RDS, etc.) and explicitly note the hourly/monthly cost before proceeding to `terraform apply`. "Cost-incurring" means anything that bills while idle; storage and request-based pricing are lower-priority reminders.
+
+## Main agent vs subagent: a decision, not a default
+
+**Rule**: The main conversation thread is the human's point of contact — it drives dialog, decisions, and edits. Delegate to subagents only when delegation is net-cheaper than inline execution.
+
+**Delegate when:**
+- Output is a summary/answer (human won't read raw tool output)
+- Scope is wide: >5 files, cross-directory scans, multi-round grep
+- Work is independent of the next conversational turn (use `run_in_background`)
+- Investigation is pure recon with no downstream edit dependency
+
+**Stay inline when:**
+- <5 tool calls total
+- Raw content will be quoted, edited, or referenced verbatim
+- Result feeds directly into the next edit (no parallelism gain)
+- Human is watching and wants to see each step
+
+**Signal you mis-delegated**: Subagent returns a summary but you have to re-read the files anyway to make the edit. Next time: inline.
+
+**Signal you mis-inlined**: Main thread hit ~30% context on tool output before you even started the real work. Next time: delegate.
 
 ## Workflow with AI
 
