@@ -136,17 +136,20 @@ The living inventory of what's deployed and when it expires. Maintained in this 
 
 > **Update rule**: whenever a platform component version changes (Terraform apply merged to main, Helm chart bumped, EKS upgrade performed), update this table in the same PR. Out-of-date version tracking is worse than no tracking.
 
-| Component | Version (as of 2026-04-20) | Upstream EOL / deprecation | Our migration trigger | ADR |
+| Component | Version (as of 2026-04-21) | Upstream EOL / deprecation | Our migration trigger | ADR |
 |---|---|---|---|---|
 | Terraform CLI | 1.14.8 | — | — | [ADR-003](../decisions/003-terraform-backend-bootstrap.md) |
 | AWS provider | 6.41.0 (all layers since workloads bump 2026-04-20, PR #99) | v6 EOL TBD | Dependabot PR when v7 releases | — |
+| grafana/grafana Terraform provider | ~> 4.31 (observability layer) | v3 EOL; currently on v4 line | Dependabot PR when v5 releases | [ADR-022](../decisions/022-observability-backend-grafana-cloud.md) |
 | EKS Kubernetes | 1.32 | ~14 months from GA | Three releases before EOL | [ADR-013](../decisions/013-eks-architecture.md) |
 | Karpenter | v1.0.8 | v0.x deprecated; on v1 | Hold on v1.x until v2 stabilizes | [ADR-013](../decisions/013-eks-architecture.md) |
 | AWS Load Balancer Controller | v2.8.2 | — | Bump with EKS minor | [ADR-013](../decisions/013-eks-architecture.md) |
 | ArgoCD | 7.6.12 (chart) | — | Quarterly review | [ADR-013](../decisions/013-eks-architecture.md) |
-| Grafana Alloy | pinned in workloads layer | Grafana Labs release notes | Manual review on major upgrade | [ADR-022](../decisions/022-observability-backend-grafana-cloud.md) |
-| prometheus-operator-crds | pinned in workloads layer | upstream CRD schema changes | Manual review | [ADR-022](../decisions/022-observability-backend-grafana-cloud.md) |
-| grafana-operator | pinned; primary cluster only | upstream release notes | Manual review | [ADR-022](../decisions/022-observability-backend-grafana-cloud.md) |
+| Grafana Alloy | 0.9.2 (chart, platform layer per-cluster) | Grafana Labs release notes | Manual review on major upgrade | [ADR-022](../decisions/022-observability-backend-grafana-cloud.md) |
+| prometheus-operator-crds | 16.0.1 (chart, platform layer per-cluster) | upstream CRD schema changes | Manual review | [ADR-022](../decisions/022-observability-backend-grafana-cloud.md) |
+| kube-state-metrics | 5.25.1 (chart, platform layer per-cluster) | upstream release notes | Manual review | [ADR-022](../decisions/022-observability-backend-grafana-cloud.md) |
+| External Secrets Operator | 0.10.4 (chart, platform layer per-cluster) | v0.9 EOL; on v0.10 | Manual review when v1 releases | [ADR-022](../decisions/022-observability-backend-grafana-cloud.md) |
+| grafana-operator | v5.22.2 (chart, observability layer, primary-only) | upstream release notes | Manual review | [ADR-022](../decisions/022-observability-backend-grafana-cloud.md) |
 | Kyverno | 3.4.1 (chart) | — | Dependabot or manual review | [ADR-016](../decisions/016-admission-control.md) |
 | cert-manager | v1.16.2 (chart) | — | Dependabot or manual review | aegis-core [ADR-0031](https://github.com/BinHsu/aegis-core/blob/main/docs/adr/0031-mtls-without-service-mesh.md) |
 | Argo Rollouts | 2.37.7 (chart) | — | Dependabot or manual review | aegis-core [ADR-0030](https://github.com/BinHsu/aegis-core/blob/main/docs/adr/0030-progressive-delivery-controller.md) |
