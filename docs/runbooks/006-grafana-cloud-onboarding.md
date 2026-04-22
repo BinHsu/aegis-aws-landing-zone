@@ -32,10 +32,12 @@ Related: [ADR-022](../decisions/022-observability-backend-grafana-cloud.md) (bac
 4. Create stack:
    - Stack URL slug: `aegis-staging` (must match `config/landing-zone.yaml` `grafana_cloud.org_slug`)
    - Region: `eu-central` (Frankfurt) — **REGION IS LOCKED once set**; changing requires a new stack and full re-ingest
-5. Record stack endpoints (needed later):
+5. Record stack endpoints (needed later). Find them under Portal → Stacks → your stack → Details:
    - Grafana URL: `https://<slug>.grafana.net`
-   - Mimir URL: `https://prometheus-prod-<N>-eu-west-<N>.grafana.net/api/prom`
+   - Mimir URL: `https://prometheus-prod-<N>-<mimir-region>-<N>.grafana.net/api/prom`
    - Loki URL: (informational; not yet used)
+
+   Note: the Mimir backend region (`<mimir-region>`, e.g. `eu-west`) can differ from the stack region (`eu-central`) selected in step 4 — this is historical Grafana Cloud behavior where Mimir/Loki/Tempo backends are provisioned on their own regional fleets and are not strictly co-located with the Grafana front-end. Both `<N>` placeholders are auto-assigned during stack creation and are visible in the Details page. Do NOT guess these — copy them verbatim.
 
 ---
 
@@ -97,32 +99,37 @@ If SAML SSO (AWS IAM Identity Center integration) is needed: upgrade to Grafana 
 
 ---
 
-## Part 4 — Terraform provisions downstream tokens
+## Part 4 — Terraform provisions downstream tokens (via CI)
 
-Once the bootstrap token is in SSM PS, Terraform takes over. No further manual token creation.
+Once the bootstrap token is in SSM PS, Terraform takes over. No further manual token creation. Apply goes through the CI workflow — **do NOT run `terraform apply` locally**. Local apply is break-glass only (see [`docs/principles/break-glass-apply.md`](../principles/break-glass-apply.md)); the standard path is the dispatched workflow, which assumes the GitHub OIDC role and records an audit trail.
+
+Per PR #128, the `apply-observability` job in `.github/workflows/terraform-apply-workload.yml` applies the observability layer as the last stage of the standard cold-apply pipeline:
 
 ```bash
-cd terraform/environments/staging/observability
-terraform init
-terraform apply
+gh workflow run terraform-apply-workload.yml -f env=staging
+gh run watch   # approve when GitHub prompts
 ```
 
-This creates (via the `grafana/grafana` Terraform provider):
+If you want to smoke the observability layer in isolation (e.g. right after creating the bootstrap token, before a full workload cycle), re-run the same command — the earlier layers (`apply-network`, `apply-platform`, `apply-workloads`) are idempotent and the observability layer is gated on `observability_enabled` in config, so applying with no `grafana_cloud` block in `config/landing-zone.yaml` plans to zero resources.
+
+On success, the `apply-observability` job creates (via the `grafana/grafana` Terraform provider):
 
 - Cloud Access Policy `aegis-staging-alloy` (scopes: `metrics:write`, `logs:write`) → token stored at `/aegis/staging/grafana-cloud/alloy-token`
 - Grafana Service Account `grafana-operator` (role: Admin) → token stored at `/aegis/staging/grafana-cloud/grafana-operator-token`
 
-If Terraform fails at the `grafana_*` resources:
+If the `apply-observability` job fails at the `grafana_*` resources:
 
 - Check the bootstrap token has not expired (30-day limit)
 - Check scope completeness (see Part 2 step 2)
-- Re-run after fixing
+- Re-dispatch the workflow after fixing
 
 ---
 
 ## Part 5 — Verify scope isolation
 
 One-time sanity check that tokens are scope-limited as intended.
+
+**Before running the curl commands below**, find your stack slug and Mimir URL from Grafana Cloud Portal → Stacks → your stack → Details. Substitute them into the `<stack-slug>` and `<N>` placeholders (the two `<N>` values in the Mimir URL are both auto-assigned by Grafana Cloud and differ from the stack region; see Part 1 step 5).
 
 Alloy token should NOT work on Grafana admin API:
 
