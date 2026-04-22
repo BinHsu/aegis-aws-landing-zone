@@ -23,9 +23,5 @@ terraform {
       version               = "~> 1.19"
       configuration_aliases = [kubectl.this]
     }
-    random = {
-      source  = "hashicorp/random"
-      version = "~> 3.6"
-    }
   }
 }
