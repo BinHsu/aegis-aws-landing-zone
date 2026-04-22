@@ -79,3 +79,35 @@ variable "argocd_apps_path" {
   type        = string
   default     = "apps/staging"
 }
+
+# -----------------------------------------------------------------------------
+# Observability stack inputs (ADR-022)
+# -----------------------------------------------------------------------------
+
+variable "observability_enabled" {
+  description = "Gate for the platform observability stack (ESO + prometheus-operator-crds + kube-state-metrics + Alloy). Driven by config.grafana_cloud presence at the parent layer. When false, none of these four Helm releases are created."
+  type        = bool
+  default     = false
+}
+
+variable "primary_region" {
+  description = "Primary AWS region (from config.regions[].role=primary). Per ADR-022 §Multi-region, the Grafana Cloud SSM PS parameters live only in the primary region; slave clusters' ESO reads cross-region. Used in the ESO IRSA policy's resource ARNs + kms:ViaService condition."
+  type        = string
+  default     = ""
+}
+
+variable "secrets_kms_key_arn" {
+  description = "ARN of alias/aegis-staging-secrets (created in staging/bootstrap/kms-secrets.tf). Used in the ESO IRSA policy's kms:Decrypt statement. Empty string when observability_enabled=false."
+  type        = string
+  default     = ""
+}
+
+variable "grafana_cloud" {
+  description = "Grafana Cloud stack endpoints (ADR-022). Consumed by Alloy remote_write config. Null when observability_enabled=false."
+  type = object({
+    org_slug      = string
+    mimir_url     = string
+    mimir_user_id = string
+  })
+  default = null
+}
