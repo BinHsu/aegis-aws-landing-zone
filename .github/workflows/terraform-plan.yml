@@ -86,6 +86,16 @@ jobs:
           # -----------------------------------------------------------------
           - env: staging/fis
             account_id: "251774439261"
+          # -----------------------------------------------------------------
+          # staging/observability — new layer shipped in ADR-022 PR-2.
+          # Provisions Grafana Cloud downstream identities + grafana-operator
+          # (primary-only) + platform Grafana* + PrometheusRule CRDs.
+          # Plan against live state should show "no changes" once applied.
+          # Catches future drift on Grafana Cloud resources, SSM PS paths,
+          # or grafana-operator chart version bumps.
+          # -----------------------------------------------------------------
+          - env: staging/observability
+            account_id: "251774439261"
 
     steps:
       - uses: actions/checkout@v6

@@ -9,6 +9,17 @@ locals {
   primary_region = [for r in local.config.regions : r.name if r.role == "primary"][0]
 
   # -----------------------------------------------------------------------------
+  # Grafana Cloud observability — optional per ADR-022
+  # -----------------------------------------------------------------------------
+  # Presence of config.grafana_cloud gates the whole platform observability
+  # stack (ESO, prometheus-operator-crds, kube-state-metrics, Alloy). A forker
+  # can omit this block and deploy the EKS platform without observability;
+  # re-applying with grafana_cloud populated adds the stack idempotently.
+  # -----------------------------------------------------------------------------
+  grafana_cloud         = try(local.config.grafana_cloud, null)
+  observability_enabled = local.grafana_cloud != null
+
+  # -----------------------------------------------------------------------------
   # EKS compute footprint — drives per-cluster module instantiation
   # -----------------------------------------------------------------------------
   eks_regions = try(
@@ -122,6 +133,32 @@ data "terraform_remote_state" "staging_network" {
 }
 
 data "aws_caller_identity" "current" {}
+
+# -----------------------------------------------------------------------------
+# SSM PS SecureString encryption key — created in staging/bootstrap (ADR-022)
+# -----------------------------------------------------------------------------
+# Looked up by alias rather than via terraform_remote_state so platform
+# state does not depend on bootstrap state at plan time. Alias is a stable
+# contract (`alias/aegis-staging-secrets`) owned by staging/bootstrap/
+# kms-secrets.tf; the check block below produces a readable error if a
+# forker applies platform before bootstrap.
+# -----------------------------------------------------------------------------
+
+data "aws_kms_alias" "secrets" {
+  count = local.observability_enabled ? 1 : 0
+
+  name = "alias/aegis-staging-secrets"
+}
+
+check "secrets_kms_key_exists" {
+  assert {
+    condition = (
+      !local.observability_enabled
+      || try(data.aws_kms_alias.secrets[0].target_key_arn, "") != ""
+    )
+    error_message = "config.grafana_cloud is set but KMS alias 'alias/aegis-staging-secrets' is missing. Apply staging/bootstrap first (baseline layer, auto-applied on PR merge — see staging/bootstrap/kms-secrets.tf)."
+  }
+}
 
 check "network_layer_applied" {
   assert {

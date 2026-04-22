@@ -8,12 +8,6 @@ output "engine_irsa_role_arn" {
   value       = aws_iam_role.aegis_engine.arn
 }
 
-output "grafana_admin_password" {
-  description = "Grafana admin password for this cluster — BREAK-GLASS USE ONLY. See parent layer outputs.tf for the documented retrieval pattern."
-  value       = random_password.grafana_admin.result
-  sensitive   = true
-}
-
 output "guardduty_detector_id" {
   description = "GuardDuty detector ID for this cluster's region"
   value       = aws_guardduty_detector.staging.id

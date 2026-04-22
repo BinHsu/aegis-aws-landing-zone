@@ -51,6 +51,12 @@ module "cluster_primary" {
   ci_role_arn     = local.ci_role_arn
   github_org      = local.config.github.org
   github_app_repo = local.config.github.app_repo
+
+  # Observability — ADR-022 (conditional on config.grafana_cloud presence)
+  observability_enabled = local.observability_enabled
+  primary_region        = local.primary_region
+  secrets_kms_key_arn   = try(data.aws_kms_alias.secrets[0].target_key_arn, "")
+  grafana_cloud         = local.grafana_cloud
 }
 
 module "cluster_slave_1" {
@@ -82,4 +88,10 @@ module "cluster_slave_1" {
   ci_role_arn     = local.ci_role_arn
   github_org      = local.config.github.org
   github_app_repo = local.config.github.app_repo
+
+  # Observability — ADR-022 (conditional on config.grafana_cloud presence)
+  observability_enabled = local.observability_enabled
+  primary_region        = local.primary_region
+  secrets_kms_key_arn   = try(data.aws_kms_alias.secrets[0].target_key_arn, "")
+  grafana_cloud         = local.grafana_cloud
 }

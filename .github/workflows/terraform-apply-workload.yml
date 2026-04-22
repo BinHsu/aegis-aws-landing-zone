@@ -205,3 +205,64 @@ jobs:
         if: steps.exists.outputs.exists == 'true'
         working-directory: terraform/environments/${{ inputs.env }}/workloads
         run: terraform apply -auto-approve -input=false -no-color
+
+  # Observability layer — Grafana Cloud downstream identities + grafana-operator
+  # (primary-only) + platform Grafana*/PrometheusRule CRDs. ADR-022 PR-2.
+  # Runs after workloads because team-webhooks ExternalSecret targets the
+  # `aegis` namespace, which is created by workloads.
+  # No `environment:` — approval was granted at apply-network. If config does
+  # not include a grafana_cloud block, the whole layer plans to zero resources
+  # (observability_enabled gate in config.tf).
+  apply-observability:
+    name: Apply ${{ inputs.env }}/observability
+    needs: apply-workloads
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Write config
+        run: |
+          mkdir -p config
+          cat <<'EOFCONFIG' > config/landing-zone.yaml
+          ${{ secrets.LANDING_ZONE_CONFIG }}
+          EOFCONFIG
+
+      - name: Resolve target account ID
+        id: acct
+        run: |
+          ACCOUNT_ID=$(python3 -c "
+          import yaml
+          c = yaml.safe_load(open('config/landing-zone.yaml'))
+          print(c['accounts']['${{ inputs.env }}']['id'])
+          ")
+          echo "account_id=${ACCOUNT_ID}" >> "$GITHUB_OUTPUT"
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::${{ steps.acct.outputs.account_id }}:role/github-actions-terraform
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Check layer exists
+        id: exists
+        run: |
+          if [[ -d "terraform/environments/${{ inputs.env }}/observability" ]]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::observability layer does not exist for ${{ inputs.env }} — nothing to apply"
+          fi
+
+      - name: Terraform Init
+        if: steps.exists.outputs.exists == 'true'
+        working-directory: terraform/environments/${{ inputs.env }}/observability
+        run: terraform init -input=false
+
+      - name: Terraform Apply
+        if: steps.exists.outputs.exists == 'true'
+        working-directory: terraform/environments/${{ inputs.env }}/observability
+        run: terraform apply -auto-approve -input=false -no-color

@@ -234,6 +234,28 @@
         }
       }
     },
+    "grafana_cloud": {
+      "type": "object",
+      "description": "Grafana Cloud free tier observability backend (ADR-022). Optional — present this block to enable the platform observability stack (ESO, prometheus-operator-crds, kube-state-metrics, Grafana Alloy). Omit to deploy the EKS platform without observability. Runbook 006 documents the one-time signup producing these values.",
+      "required": ["org_slug", "mimir_url", "mimir_user_id"],
+      "additionalProperties": false,
+      "properties": {
+        "org_slug": {
+          "type": "string",
+          "description": "Grafana Cloud stack slug (matches URL path at <slug>.grafana.net)"
+        },
+        "mimir_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Mimir Prometheus remote_write endpoint from stack details page. NOT derivable from org_slug — hostname varies by stack provisioning region."
+        },
+        "mimir_user_id": {
+          "type": "string",
+          "pattern": "^[0-9]+$",
+          "description": "Numeric user ID for Mimir HTTP basic auth, from stack details page"
+        }
+      }
+    },
     "eks": {
       "type": "object",
       "description": "EKS platform configuration keyed by workload environment name (e.g. staging, prod). Optional — only environments that deploy a platform layer need an entry.",
