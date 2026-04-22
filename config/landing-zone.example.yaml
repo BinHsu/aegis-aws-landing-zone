@@ -147,3 +147,20 @@ eks:
   #     - region: eu-central-1
   #       role: primary
   #       mode: active
+
+# Grafana Cloud free tier — observability backend (ADR-022).
+# Optional: present this block to enable the platform observability stack
+# (External Secrets Operator, prometheus-operator-crds, kube-state-metrics,
+# Grafana Alloy). Omit to deploy the EKS platform without observability.
+# Runbook 006 documents the one-time Grafana Cloud signup that produces the
+# values below.
+# grafana_cloud:
+#   org_slug: aegis-staging
+#   # Mimir Prometheus remote_write endpoint — copy from Grafana Cloud stack
+#   # details page ("Prometheus" tile → "Details" → "URL"). NOT derivable from
+#   # org_slug alone; the hostname varies by stack provisioning region.
+#   mimir_url: "https://prometheus-prod-NN-prod-eu-west-N.grafana.net/api/prom/push"
+#   # Numeric user ID for Mimir HTTP basic auth — copy from same stack details
+#   # page ("Username / Instance ID" field). Password is the alloy-token
+#   # provisioned by Terraform in staging/observability/ (PR-2).
+#   mimir_user_id: "1234567"

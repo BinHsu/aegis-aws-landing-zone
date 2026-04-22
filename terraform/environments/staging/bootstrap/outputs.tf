@@ -56,3 +56,18 @@ output "bazel_cache_bucket_arn" {
   description = "S3 bucket ARN for Bazel remote cache"
   value       = aws_s3_bucket.bazel_cache.arn
 }
+
+# -----------------------------------------------------------------------------
+# SSM PS SecureString encryption key — consumed by staging/platform
+# (ESO IRSA policy) and staging/observability (aws_ssm_parameter.key_id).
+# -----------------------------------------------------------------------------
+
+output "secrets_kms_key_arn" {
+  description = "KMS key ARN for /aegis/staging/grafana-cloud/* SSM PS SecureString encryption (ADR-022)"
+  value       = aws_kms_key.secrets.arn
+}
+
+output "secrets_kms_key_alias" {
+  description = "KMS key alias (alias/aegis-staging-secrets) — matches Runbook 006 Part 2 step 5"
+  value       = aws_kms_alias.secrets.name
+}
