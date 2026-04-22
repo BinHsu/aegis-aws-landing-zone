@@ -10,27 +10,26 @@
 | Layer | Required state | How to verify |
 |---|---|---|
 | `staging/network` | applied, VPC + NAT up | `gh workflow run terraform-apply-workload.yml` path |
-| `staging/platform` | applied, EKS cluster Ready | `kubectl --context aegis-staging-primary get nodes` → ≥1 node Ready |
-| `staging/workloads` | applied, observability stack synced | `kubectl -n monitoring get pods` → all Running; kube-prometheus-stack ArgoCD App Synced + Healthy |
+| `staging/platform` | applied, EKS cluster Ready, Alloy Running | `kubectl --context aegis-staging-primary get nodes` → ≥1 node Ready; `kubectl -n monitoring get pods -l app.kubernetes.io/name=alloy` → Running |
+| `staging/workloads` | applied, aegis namespace + GuardDuty present | `kubectl -n aegis get all` shows workload Services; `aws guardduty list-detectors --region eu-central-1` returns the staging detector |
+| `staging/observability` | applied, grafana-operator Running | `kubectl -n observability get pods -l app.kubernetes.io/name=grafana-operator` → Running |
 | `staging/fis` | applied, experiment template exists | `terraform -chdir=terraform/environments/staging/fis output experiment_template_id` returns an ID |
 
 If any row fails, the drill cannot produce useful signal. Apply missing layers before continuing.
 
 ### 1. Verify observability can see the cluster
 
-```bash
-kubectl --context aegis-staging-primary port-forward -n monitoring svc/kube-prometheus-stack-grafana 3000:80
-```
+Open `https://<org_slug>.grafana.net` in a browser and sign in via Google OAuth (per Runbook 006 Part 3 break-glass admin). Org slug is `config.grafana_cloud.org_slug` — `aegis-staging` by default.
 
-In a browser, open `http://localhost:3000`. Log in (admin / retrieve password via `terraform -chdir=terraform/environments/staging/workloads output -raw grafana_admin_password_primary`).
+Open **Dashboards → Kubernetes / Compute Resources / Cluster** (platform dashboard shipped by staging/observability/platform-dashboards.tf). You should see CPU + memory series for both cluster nodes, with the `cluster` label populated (value `primary` or `slave_1` per ADR-022 §External label). If series are flat at zero or the `cluster` label is missing, Alloy is not remote-writing — fix before drilling.
 
-Open **Dashboards → Kubernetes / Compute Resources / Cluster**. You should see CPU + memory series for both cluster nodes. If the series are flat at zero, node-exporter has not reached all nodes — fix before drilling. (Incident 27 is the known offender; post-PR #110 fix, this should be clean.)
+Under ADR-022, `node-exporter` is no longer a separate DaemonSet. Node-level metrics come from kubelet's cAdvisor + kube-state-metrics (both scraped by Alloy via ServiceMonitors). Incident 27's Fargate-affinity pattern no longer applies.
 
 ### 2. Verify the `NodeNotReady` alert rule is loaded
 
-In Grafana: **Alerting → Alert rules**. Filter by label `drill=fis-primary-outage`. You should see one rule: `NodeNotReady`, state = Normal.
+In Grafana Cloud: **Alerting → Alert rules**. Filter by label `drill=fis-primary-outage`. You should see one rule: `NodeNotReady`, state = Normal.
 
-If the rule is missing, the `staging/workloads` layer hasn't applied with the dr-drill alert block yet — re-apply before continuing.
+Rule is platform-owned and ships from `staging/observability/platform-alerts.tf`. If missing, re-apply the observability layer.
 
 ### 3. Verify the stop-condition alarm is NOT in ALARM state
 
@@ -140,10 +139,9 @@ Expected: empty output (or the two DaemonSet pods that are known to not schedule
 
 ### 3. Verify alert resolved
 
-```bash
-kubectl --context aegis-staging-primary port-forward -n monitoring svc/kube-prometheus-stack-prometheus 9090:9090
-# Browse to http://localhost:9090/alerts → NodeNotReady should be Inactive
-```
+In Grafana Cloud: **Alerting → Alert rules**. Filter by label `drill=fis-primary-outage`. The `NodeNotReady` rule should be state = Normal again.
+
+Under ADR-022, Prometheus is no longer in-cluster — there is no `kube-prometheus-stack-prometheus` Service to port-forward. Alert rule evaluation happens server-side at Grafana Cloud Mimir ruler.
 
 ### 4. Record the drill
 
