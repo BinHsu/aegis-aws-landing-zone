@@ -113,6 +113,8 @@ Some Terraservices layers have their own operational contracts — pre-flight ch
   - `docs/runbooks/003-platform-first-verification.md` — end-to-end checklist after `staging/platform` applies; links to Incidents 10–17 for cold-apply gotchas (MUST follow for any fresh apply of the platform layer)
   - `docs/runbooks/004-dns-delegation-cloudflare-to-route53.md` — Cloudflare-side subdomain NS delegation to a Route53 hosted zone; one-time setup + rollback + troubleshooting (MUST read when provisioning `staging/edge/` or any future env's edge Terraservice)
   - `docs/runbooks/005-fis-dr-drill.md` — FIS DR drill execution (ADR-020); pre-flight checks, experiment start/observe/recover, troubleshooting (MUST read before `aws fis start-experiment` against any env)
+  - `docs/runbooks/006-grafana-cloud-onboarding.md` — Grafana Cloud free tier signup, bootstrap/downstream token rotation, scope-isolation verification (MUST read when provisioning a fresh stack, rotating any token, or migrating regions)
+  - `docs/runbooks/007-qdrant-cloud-onboarding.md` — Qdrant Cloud free tier signup, API key rotation, manual SSM PS credential stash ahead of TF scaffolding per ADR-025 (MUST read when provisioning a fresh cluster or rotating the API key)
 
 - **Rule: When adding a new layer whose operations require their own diagnostic order (e.g., observability, service mesh), add a runbook under `docs/runbooks/` rather than extending this file.** Keeping CLAUDE.md small preserves its discoverability; layer-specific details belong with the layer.
 
