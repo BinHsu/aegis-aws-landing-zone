@@ -180,8 +180,9 @@ Within the $5–10/session budget. No change to the teardown requirement — `gh
 | 017 | Workload namespace and RBAC model | Phase 4a — single namespace vs per-component, ArgoCD-managed vs Terraform-managed |
 | 022 | Observability backend: Grafana Cloud free tier | Phase 4b — reversal of ADR-015 rationale; $0/session SaaS vs in-cluster Prometheus |
 | 023 | Observability responsibility model (platform vs service domain) | Phase 4b — backend-agnostic 5-CRD contract preserved across future backend swaps |
+| 025 | Qdrant backend: Cloud free tier | Phase 4c — aegis-core RAG backend; $0/mo managed, zero engine refactor, portfolio-scope GDPR caveat acknowledged |
 
-ADR numbering continues from 024 (current last). Write each ADR BEFORE implementing its topic — [CLAUDE.md](../CLAUDE.md) requires ADR-first for significant design choices.
+ADR numbering continues from 025 (current last). Write each ADR BEFORE implementing its topic — [CLAUDE.md](../CLAUDE.md) requires ADR-first for significant design choices.
 
 ---
 
