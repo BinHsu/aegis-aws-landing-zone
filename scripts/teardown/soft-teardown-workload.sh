@@ -28,7 +28,21 @@ ENV="${1:-}"
 
 # Workload layers in destruction order (reverse of apply order).
 # Bootstrap is intentionally NOT in this list.
-LAYERS=(workloads platform network)
+#
+# Order rationale:
+#   observability — first, so grafana-operator finalizers on GrafanaDashboard /
+#                   GrafanaContactPoint / GrafanaNotificationPolicy* CRDs run
+#                   while the operator pod is alive. Skipping this step leaves
+#                   orphan dashboards / contact points on the Grafana Cloud
+#                   stack (ADR-022 §Teardown). The layer loop below invokes
+#                   the CRD pre-delete helper before `terraform destroy` when
+#                   the current layer is observability.
+#   workloads      — second, provides the `aegis` namespace that observability
+#                   pulls the team-webhooks Secret into.
+#   platform       — third, tears down EKS + Karpenter (see Karpenter quiesce
+#                   logic below).
+#   network        — last, removes VPC after ENIs are reclaimed.
+LAYERS=(observability workloads platform network)
 
 # --- Validation ---
 
@@ -133,6 +147,46 @@ fi
 
 # --- Destruction ---
 
+# Pre-delete grafana-operator-managed CRDs. Same contract as the CI workflow
+# (see .github/workflows/terraform-teardown-workload.yml step "Pre-delete
+# grafana-operator CRDs"). Tolerant of "cluster already gone" / "CRD not
+# found" — soft teardown must be re-runnable after partial failures.
+grafana_operator_pre_delete() {
+  local cluster_name
+  cluster_name=$(aws eks list-clusters \
+    --region eu-central-1 \
+    --query "clusters[?contains(@, 'primary')] | [0]" \
+    --output text 2>/dev/null || echo "None")
+  if [[ "${cluster_name}" == "None" || -z "${cluster_name}" || "${cluster_name}" == "null" ]]; then
+    echo "  (no primary EKS cluster found — skipping CRD pre-delete)"
+    return 0
+  fi
+  if ! aws eks update-kubeconfig \
+         --region eu-central-1 --name "${cluster_name}" >/dev/null 2>&1; then
+    echo "  (could not fetch kubeconfig — skipping CRD pre-delete)"
+    return 0
+  fi
+
+  echo "  Deleting grafana-operator-managed CRs (2m timeout per kind)..."
+  for kind in grafanadashboard grafanacontactpoint grafananotificationpolicyroute grafananotificationpolicy grafanamutetiming; do
+    kubectl delete "${kind}" --all -A --timeout=2m --ignore-not-found 2>/dev/null || true
+  done
+  kubectl delete grafana --all -A --timeout=1m --ignore-not-found 2>/dev/null || true
+
+  echo "  Waiting for finalizers to flush (up to 2 min)..."
+  local i remaining
+  for i in $(seq 1 12); do
+    remaining=$(kubectl get grafanadashboard,grafanacontactpoint,grafananotificationpolicyroute,grafananotificationpolicy,grafana -A --no-headers 2>/dev/null | wc -l | tr -d ' ')
+    if [[ "${remaining}" == "0" ]]; then
+      echo "  All grafana-operator CRs flushed."
+      return 0
+    fi
+    echo "  ${remaining} CRs still present; waiting 10s (attempt ${i}/12)"
+    sleep 10
+  done
+  echo "  WARNING: finalizers did not complete in 2m. Proceeding — remove any orphan resources manually via the Grafana Cloud portal."
+}
+
 echo ""
 for LAYER in "${LAYERS[@]}"; do
   LAYER_DIR="${REPO_ROOT}/terraform/environments/${ENV}/${LAYER}"
@@ -144,6 +198,10 @@ for LAYER in "${LAYERS[@]}"; do
   echo "------------------------------------------------------------------------"
   echo "Destroying ${ENV}/${LAYER}..."
   echo "------------------------------------------------------------------------"
+
+  if [[ "${LAYER}" == "observability" ]]; then
+    grafana_operator_pre_delete
+  fi
 
   cd "${LAYER_DIR}"
   terraform init -input=false -upgrade
