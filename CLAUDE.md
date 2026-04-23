@@ -214,7 +214,7 @@ aws-landing-zone-lab/
     ├── design-narrative.md         # 2-minute pitch + key decisions + war stories
     ├── interview-notes.md          # Reader's guide for recruiters / architect peers
     ├── incidents.md                # Append-only postmortems (32 as of 2026-04-21; unchanged this session)
-    ├── decisions/                  # 25 ADRs (NNN-<topic>.md)
+    ├── decisions/                  # 26 ADRs (NNN-<topic>.md)
     ├── runbooks/                   # 6 per-layer operational runbooks
     ├── principles/                 # Cross-cutting discipline docs (change-review, break-glass-apply)
     └── personal/                   # Gitignored — private portfolio brief

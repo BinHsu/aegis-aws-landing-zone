@@ -182,7 +182,7 @@ Within the $5–10/session budget. No change to the teardown requirement — `gh
 | 023 | Observability responsibility model (platform vs service domain) | Phase 4b — backend-agnostic 5-CRD contract preserved across future backend swaps |
 | 025 | Qdrant backend: Cloud free tier | Phase 4c — aegis-core RAG backend; $0/mo managed, zero engine refactor, portfolio-scope GDPR caveat acknowledged |
 
-ADR numbering continues from 025 (current last). Write each ADR BEFORE implementing its topic — [CLAUDE.md](../CLAUDE.md) requires ADR-first for significant design choices.
+ADR numbering continues from 026 (current last). Write each ADR BEFORE implementing its topic — [CLAUDE.md](../CLAUDE.md) requires ADR-first for significant design choices.
 
 ---
 
