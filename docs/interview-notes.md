@@ -93,13 +93,13 @@ Each entry: what was built → where to look in the repo → the kind of questio
 ### 2.6 Operational discipline (ADRs, incidents, runbooks)
 
 **Built**: three layers of operational writing with explicit rules in [`CLAUDE.md`](../CLAUDE.md):
-- **ADRs** — 25 in [`docs/decisions/`](decisions/), supersede-in-place style ("Design iteration" sections note evolution; ADR-018 §3 has an in-place amendment demonstrating the pattern; ADR-015 superseded by ADR-022 demonstrates the supersede-with-history pattern)
+- **ADRs** — 26 in [`docs/decisions/`](decisions/), supersede-in-place style ("Design iteration" sections note evolution; ADR-018 §3 has an in-place amendment demonstrating the pattern; ADR-015 superseded by ADR-022 demonstrates the supersede-with-history pattern)
 - **Incidents** — 32 in [`docs/incidents.md`](incidents.md), append-only, standard format
 - **Runbooks** — 7 in [`docs/runbooks/`](runbooks/); CLAUDE.md rule requires AI agents to read the layer's runbook before operating on it
 
 **Where to look**:
 - [`CLAUDE.md`](../CLAUDE.md) — 6 explicit "Rule: AI must..." clauses
-- [`docs/decisions/`](decisions/) — 25 ADRs
+- [`docs/decisions/`](decisions/) — 26 ADRs
 - [`docs/incidents.md`](incidents.md) — 32 postmortems
 - [`docs/runbooks/`](runbooks/) — 7 runbooks
 - [`docs/principles/`](principles/) — 2 cross-cutting discipline docs (change-review, break-glass-apply)
