@@ -20,7 +20,7 @@ Related: [ADR-025](../decisions/025-qdrant-backend-cloud-free-tier.md) (backend 
 - 20–30 minutes for first-time setup; 10 minutes for rotation
 - No payment method required for free tier
 - Do NOT attach a credit card — keeps overage behavior on ingest-throttle, not auto-upgrade. Same free-tier discipline as Runbook 006.
-- GDPR caveat acknowledged: free tier cluster placement is effectively US-region on Qdrant Cloud today. The lab's corpus is non-PII Taiwan documentation by design (see [ADR-025](../decisions/025-qdrant-backend-cloud-free-tier.md) §GDPR region caveat). If your scope ever expands beyond the non-PII corpus, migrate to the paid tier's `eu-central-1` selector before ingesting.
+- GDPR posture: Qdrant Cloud free tier **offers AWS `eu-central-1` (Frankfurt)** — confirmed 2026-04-23. Pick Frankfurt unless operating from a non-EU locale. See [ADR-025](../decisions/025-qdrant-backend-cloud-free-tier.md) §GDPR region posture for the full rationale and upgrade path.
 
 ---
 
@@ -33,7 +33,7 @@ Related: [ADR-025](../decisions/025-qdrant-backend-cloud-free-tier.md) (backend 
 5. Create cluster:
    - Tier: **Free**
    - Cloud provider: **AWS** (Qdrant Cloud also offers GCP and Azure; AWS aligns with the lab's existing posture)
-   - Region: the **free tier offers a limited set of regions** (see [ADR-025](../decisions/025-qdrant-backend-cloud-free-tier.md) §GDPR region caveat — EU regions may not be offered on free tier; a US region is expected). Pick the closest option available; do NOT upgrade to paid purely for region choice unless the corpus scope has changed to include PII.
+   - Region: **`eu-central-1` (Frankfurt)** — available on free tier as confirmed 2026-04-23. Pick Frankfurt if deploying from Germany / EU; other EU regions may also be available. If Qdrant Cloud ever narrows free-tier region selection in future, re-consult [ADR-025](../decisions/025-qdrant-backend-cloud-free-tier.md) §GDPR region posture.
    - Cluster name: `aegis-staging-vectors` (or your preferred name — this is not load-bearing; the engine reads the URL from SSM PS, not the cluster name)
 6. Click **Create**. Cluster provisioning takes ~1–2 minutes.
 7. Once the cluster shows as `Healthy` in the Clusters menu, click into it to see the **Cluster Detail** page.
@@ -65,6 +65,8 @@ Auth header for later verification: Qdrant Cloud accepts **both** `api-key: <key
 ---
 
 ## Part 3 — Stash credentials in SSM Parameter Store (manual, pre-Terraform)
+
+> ⚠️ **Credentials go in SSM Parameter Store — never in `config/landing-zone.yaml`.** The `config.yaml` file holds deployment-shape metadata (account IDs, emails, CIDRs) per CLAUDE.md §Security; API keys and session tokens are categorically distinct and must land in SSM PS SecureString with the KMS alias `alias/aegis-staging-secrets`. This rule applies even though `config.yaml` is gitignored — the repo's "zero static credentials by design" posture draws the line at file type, not at git-tracked vs. local.
 
 **IMPORTANT**: per [ADR-025](../decisions/025-qdrant-backend-cloud-free-tier.md) §"Landing-zone implementation is deferred pending aegis-core Secret-contract issue", this repo has intentionally NOT yet shipped Terraform `aws_ssm_parameter` resources for the Qdrant Cloud credentials. The Secret shape (key names, env-var mappings, extra config like collection name / embedding dimension / distance metric) is aegis-core's call and will arrive as a cross-repo issue.
 

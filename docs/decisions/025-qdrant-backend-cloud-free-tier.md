@@ -59,11 +59,13 @@ The aegis-core issue should arrive as `cross-repo` (non-blocking for now — the
 
 Until the issue arrives, we do not speculate on the Secret shape; this repo has already paid the cost of guessing at cross-repo contracts (see CLAUDE.md "Wait for cross-repo issue before implementing").
 
-### GDPR region caveat is acknowledged, not resolved
+### GDPR region posture
 
-Qdrant Cloud's free tier is effectively US-region-only as of this writing; the paid tier offers AWS `eu-central-1` and `eu-west-1`. Bin is based in Germany and GDPR applies broadly to his professional context — but the lab's corpus is **non-PII Taiwan documentation**, deliberately chosen to avoid PII handling inside the portfolio. For the scope this ADR covers, US residency of vector embeddings of a public document corpus is acceptable.
+Qdrant Cloud free tier **offers AWS `eu-central-1` (Frankfurt)** — confirmed during first-time operator signup on 2026-04-23. This is strictly better than the earlier assumption (baked into the first drafts of this ADR and Runbook 007) that free tier was effectively US-only. Cluster placement in Frankfurt is compatible with GDPR obligations that apply broadly to Bin's professional context.
 
-If scope ever expands — real user queries, user-identifying metadata attached to vectors, or a demo reframed around a European corpus — the migration path is a config change (region selector at Qdrant Cloud level + new API key) plus a paid-tier billing attachment. It is not a re-architecture. This caveat is recorded here so the next operator does not have to rediscover it.
+The lab's corpus remains **non-PII Taiwan documentation** by design, so Frankfurt placement is a better-than-required posture rather than a compliance requirement. The repo retains full flexibility to scale the corpus or re-frame the demo without triggering a region migration.
+
+If scope ever expands beyond portfolio ceilings — real user queries, user-identifying metadata attached to vectors, or data volumes past the free tier's 1 GB / 1 M vector caps — the paid tier is a clean upgrade on the same `eu-central-1` region plus a DPA signature for real user data. It is a config change plus billing attachment, not a re-architecture.
 
 ### No engine refactor burden on aegis-core
 
@@ -80,7 +82,7 @@ The portfolio narrative instead carries "chose a managed backend on cost-discipl
 Revisit this ADR when any of the following fires:
 
 - **Corpus scope changes**: crosses 1 M vectors or 1 GB stored embeddings → Qdrant Cloud paid tier (same client, same contract) or option A if ops budget has expanded.
-- **GDPR scope changes**: real user data enters the vector store → paid tier with `eu-central-1` region selector + DPA signature.
+- **GDPR scope changes**: real user data enters the vector store → paid tier upgrade on the same `eu-central-1` region + DPA signature.
 - **Vendor risk materialises**: Qdrant Labs service deterioration, pricing model change, or acquisition affecting free-tier terms → option A becomes the escape hatch (same client code).
 - **Multi-tenant or per-team vector isolation**: if future workloads need isolated vector namespaces with separate quotas → option A with per-namespace StatefulSets, or paid-tier multi-cluster Qdrant Cloud.
 

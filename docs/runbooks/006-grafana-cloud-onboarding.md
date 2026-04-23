@@ -28,10 +28,10 @@ Related: [ADR-022](../decisions/022-observability-backend-grafana-cloud.md) (bac
 
 1. Navigate to `https://grafana.com/signup`
 2. Sign up with email. Note: this email is the account root and is difficult to change later. Lab uses `pcpunkhades@gmail.com`.
-3. Create organization — suggested name: `aegis-lab`
-4. Create stack:
-   - Stack URL slug: `aegis-staging` (must match `config/landing-zone.yaml` `grafana_cloud.org_slug`)
-   - Region: `eu-central` (Frankfurt) — **REGION IS LOCKED once set**; changing requires a new stack and full re-ingest
+3. Most Grafana Cloud signup flows auto-create both an organization and a stack matching your account name (the lab's live signup on 2026-04-23 produced org `aegis` + stack slug `aegis`). Skip this step if you are happy with the auto-created org; otherwise manually create one (suggested name: `aegis-lab`).
+4. Create stack — **skip if signup auto-created one you want to keep**. Otherwise:
+   - Stack URL slug: your choice. Update `config/landing-zone.yaml` `grafana_cloud.org_slug` to match your **actual** slug — the `aegis-staging` example appearing elsewhere in this repo is a suggestion, not a contract. If the auto-created slug (typically equal to your org name) is fine, record that value and move on.
+   - Region: `eu-central` (Frankfurt) — **REGION IS LOCKED once set**; changing requires a new stack and full re-ingest. Availability confirmed on free tier 2026-04-23.
 5. Record stack endpoints (needed later). Find them under Portal → Stacks → your stack → Details:
    - Grafana URL: `https://<slug>.grafana.net`
    - Mimir URL: `https://prometheus-prod-<N>-<mimir-region>-<N>.grafana.net/api/prom`
@@ -54,9 +54,9 @@ This is the single manual step. Terraform provisions all downstream tokens after
      - `accesspolicies:read`
      - `accesspolicies:write`
      - `stacks:read`
-     - `stack-service-accounts:read`
      - `stack-service-accounts:write`
      - `stack-api-keys:write`
+   - Note on missing `:read` rows: Grafana Cloud Portal UI (verified 2026-04-23) offers only `:write` for `stack-service-accounts` and `stack-api-keys` — no separate `:read` checkbox exists. This follows Grafana's convention that write-scopes for create-mostly resources implicitly grant the read needed by the Terraform provider to list existing items before create. If a future Terraform apply fails with 403 on SA/API-key list operations, widen the policy with whatever additional scope the error references and amend this runbook.
    - Do NOT grant: `billing:*`, `stacks:write`, `stacks:delete` — these are the "delete the stack" scopes
 3. Click "Add token":
    - Name: `bootstrap-<YYYYMMDD>`
@@ -79,20 +79,20 @@ AWS_PROFILE=aegis-staging-admin aws ssm put-parameter \
 
 Free tier does NOT support SAML. If the `grafana-operator` service account token breaks, a human must recover manually. This admin user is that recovery path.
 
-Auth options on free tier (pick one — Google OAuth recommended):
+The goal is **any human-level OAuth login that is independent of service-account tokens**. Which OAuth provider you use is secondary.
 
-- Google OAuth (recommended — aligns with lab operator's existing Gmail)
-- GitHub OAuth
-- Email + password (last resort; requires password manager)
+- **If you signed up via Google or GitHub OAuth at Part 1**: you already have a human-level OAuth path — your signup identity IS the break-glass. Verify once by opening the workspace URL in a private window and completing the OAuth flow from scratch to confirm it works independently of any in-progress session. Part 3 is effectively complete after this verification (no second user needed for a single-operator lab).
+- **If you signed up via email + password**: add a secondary OAuth identity (Google or GitHub) now — email+password alone is not an acceptable break-glass because it collapses into a single password-manager dependency.
+- **Belt-and-suspenders option (enterprise / multi-operator scope)**: even if signed up via OAuth, invite a second independent OAuth identity so recovery does not depend on a single provider account (e.g. GitHub SSO + Google OAuth as orthogonal recovery paths). Overkill for a single-operator portfolio lab; warranted for production.
 
-Steps (Google OAuth path):
+Steps for adding a secondary OAuth identity (only if the signup path did not cover it):
 
 1. Open the workspace URL: `https://<stack-slug>.grafana.net`
 2. Navigate: Administration → Users and access → Users → Invite new user
 3. Fill in:
-   - Email: operator's Gmail
+   - Email: the operator's Google- or GitHub-linked email
    - Role: Admin
-4. User receives invitation email → accept → "Sign in with Google"
+4. User receives invitation email → accept → "Sign in with Google" (or "Sign in with GitHub")
 5. Verify login works BEFORE proceeding — confirm browser-based admin access, independent of any machine token
 
 If SAML SSO (AWS IAM Identity Center integration) is needed: upgrade to Grafana Cloud Pro. See [ADR-022](../decisions/022-observability-backend-grafana-cloud.md) §Known limitations and [ADR-021](../decisions/021-observability-scaling-path.md) rung transitions.
