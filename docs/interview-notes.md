@@ -5,7 +5,7 @@ A reader's guide for recruiters, hiring managers, and technical leadership revie
 
 **Time budget**:
 - Recruiter / HR / hunter: read all of this doc (~10 min).
-- Technical leader / architect peer: skim section 1 (stance), then jump to [`docs/decisions/`](decisions/) for the 21 ADRs and [`docs/incidents.md`](incidents.md) for the 32 postmortems.
+- Technical leader / architect peer: skim section 1 (stance), then jump to [`docs/decisions/`](decisions/) for the 26 ADRs and [`docs/incidents.md`](incidents.md) for the 32 postmortems.
 
 ---
 
@@ -95,13 +95,13 @@ Each entry: what was built → where to look in the repo → the kind of questio
 **Built**: three layers of operational writing with explicit rules in [`CLAUDE.md`](../CLAUDE.md):
 - **ADRs** — 26 in [`docs/decisions/`](decisions/), supersede-in-place style ("Design iteration" sections note evolution; ADR-018 §3 has an in-place amendment demonstrating the pattern; ADR-015 superseded by ADR-022 demonstrates the supersede-with-history pattern)
 - **Incidents** — 32 in [`docs/incidents.md`](incidents.md), append-only, standard format
-- **Runbooks** — 7 in [`docs/runbooks/`](runbooks/); CLAUDE.md rule requires AI agents to read the layer's runbook before operating on it
+- **Runbooks** — 8 in [`docs/runbooks/`](runbooks/); CLAUDE.md rule requires AI agents to read the layer's runbook before operating on it
 
 **Where to look**:
 - [`CLAUDE.md`](../CLAUDE.md) — 6 explicit "Rule: AI must..." clauses
 - [`docs/decisions/`](decisions/) — 26 ADRs
 - [`docs/incidents.md`](incidents.md) — 32 postmortems
-- [`docs/runbooks/`](runbooks/) — 7 runbooks
+- [`docs/runbooks/`](runbooks/) — 8 runbooks
 - [`docs/principles/`](principles/) — 2 cross-cutting discipline docs (change-review, break-glass-apply)
 
 **Likely questions**: show me a real incident (pick from the 32 in `docs/incidents.md` — Incidents 6, 7, 12, 18, 22, 24, 25, 26 cover the widest angle: CMK recovery, hidden cross-account prerequisites, honest design reversal, asymmetric IAM policy, belt-and-suspenders teardown architecture, Terraform concurrency edge cases, service-specific resource-policy quirks, and ArgoCD-managed-CRD bootstrap race); what does the ADR format give you that code comments don't (ADRs preserve *why* even when *what* is obvious from code); how do you keep this discipline consistent (CLAUDE.md rules + pre-commit hooks + AI reminders — not willpower).
@@ -200,7 +200,7 @@ Positive statements of what this project demonstrates, paired with explicit stat
 ### What is claimed
 
 - **Cross-cutting architectural design**: composing 10+ AWS services into a working multi-account landing zone with explicit decisions (ADRs) and documented trade-offs.
-- **Operational discipline**: 21 ADRs + 32 incident postmortems + 5 runbooks + 2 cross-cutting principle docs, each written to a consistent format, never softened retroactively.
+- **Operational discipline**: 26 ADRs + 32 incident postmortems + 8 runbooks + 2 cross-cutting principle docs, each written to a consistent format, never softened retroactively.
 - **Production-shaped patterns** — not production-*hardened* (the lab is single-operator, single-region-primary, no DR-tested, no SOC 2 audit trail). The patterns are transferable to production; the lab itself isn't production.
 - **Reproducibility**: a single `config/landing-zone.yaml` + two shell scripts land the whole foundation in a fresh AWS organization. Fork-and-deploy is not a slogan here; it's tested.
 
@@ -252,7 +252,7 @@ This doc is frame-level. For the actual substance:
 
 | Interest | Open |
 |---|---|
-| "Walk me through the architectural decisions" | [`docs/decisions/`](decisions/) — 21 ADRs |
+| "Walk me through the architectural decisions" | [`docs/decisions/`](decisions/) — 26 ADRs |
 | "Show me real failures and what you learned" | [`docs/incidents.md`](incidents.md) — 32 postmortems |
 | "How do I reproduce this?" | [`docs/runbooks/001-bootstrap-aws-account.md`](runbooks/001-bootstrap-aws-account.md) |
 | "How would an AI agent work on this?" | [`CLAUDE.md`](../CLAUDE.md) |
@@ -261,7 +261,9 @@ This doc is frame-level. For the actual substance:
 
 ---
 
-*Last updated: 2026-04-21 (PM) — ADR-022 implementation shipped as 4 PRs (platform-layer ESO + prometheus-operator-crds + kube-state-metrics + Grafana Alloy; new `staging/observability/` peer layer with grafana-operator + GC tokens; kube-prometheus-stack removed from workloads; teardown workflow CRD pre-delete). Observability backend now lives in Grafana Cloud; in-cluster Prometheus + Grafana are gone. ADR count unchanged at 24; incidents unchanged at 32 (code-only session, no cold-apply).*
+*Last updated: 2026-04-23 — Live Qdrant + Grafana Cloud onboarding (runbooks 006 + 007 validated end-to-end; live creds in SSM PS). Qdrant + Grafana `eu-central-1` regions both confirmed EU (ADR-025 GDPR caveat downgraded). CI workflow JS-quoting fix (PR #136) unblocks observability plan comments. Cognito commitment formalized: ADR-026 Draft → Partially Accepted; aegis-core consumption contract captured at aegis-core #76. `staging/auth/` plan doc + Runbook 008 skeleton land same PR. ADR count 25→26; runbook count 7→8; incidents unchanged at 32.*
+
+*Previous: 2026-04-21 (PM) — ADR-022 implementation shipped as 4 PRs (platform-layer ESO + prometheus-operator-crds + kube-state-metrics + Grafana Alloy; new `staging/observability/` peer layer with grafana-operator + GC tokens; kube-prometheus-stack removed from workloads; teardown workflow CRD pre-delete). Observability backend now lives in Grafana Cloud; in-cluster Prometheus + Grafana are gone. ADR count unchanged at 24; incidents unchanged at 32 (code-only session, no cold-apply).*
 
 *Previous: 2026-04-21 (AM) — Observability backend reversed: ADR-015 (kube-prometheus-stack) superseded by ADR-022 (Grafana Cloud free tier + Alloy + grafana-operator) + ADR-023 (backend-agnostic responsibility model). ADR-024 added (landing-zone repo topology). Runbook 006 added for Grafana Cloud onboarding. ADR-021 rung 1 redefined. ADR count 21 → 24.*
 

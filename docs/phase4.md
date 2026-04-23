@@ -9,21 +9,22 @@ Phase 4 closes the gap between "platform exists" and "platform serves a workload
 
 The sibling repository [`aegis-core`](https://github.com/BinHsu/aegis-core) has paved part of its side of this boundary. [ADR-0017 (Gateway↔Engine topology)](https://github.com/BinHsu/aegis-core/blob/main/docs/adr/0017-gateway-engine-topology.md) documents the N:N-ready application architecture. [Issue #61](https://github.com/BinHsu/aegis-aws-landing-zone/issues/61) on this repo captures exactly what aegis-core needs from the platform: a Headless Service for the engine pool, an ALB with session affinity for the gateway pool, and gRPC keepalive honoring at the load balancer.
 
-### aegis-core readiness (as of 2026-04-16)
+### aegis-core readiness (as of 2026-04-23)
 
-However, aegis-core is **not yet containerized**. Its current state:
+aegis-core has shipped containerization, LAN-verified workload, and image delivery; the remaining gate is SPA auth middleware for cloud-mode OIDC integration. Current state:
 
 | Component | Status | Blocking 4a? |
 |---|---|---|
-| C++ engine (whisper.cpp transcription) | Working under Bazel | Not directly — needs OCI packaging |
-| Go gateway (gRPC client → engine) | Health passthrough working | Same |
-| Frontend (React + Vite) | Scaffolded, audio capture done | Same |
-| WebRTC / WebSocket / session registry | Phase 2 — not started | Yes — gateway can't serve real traffic yet |
-| `rules_oci` / Dockerfile | Phase 3/4 in aegis-core roadmap | **Yes — no container image to deploy** |
-| K8s manifests (Deployment, Service, Ingress) | Do not exist | **Yes — nothing for ArgoCD to sync** |
-| CI → ECR push pipeline | Does not exist | **Yes — no automated delivery** |
+| C++ engine (whisper.cpp transcription) | Working, containerized, signed images in ECR ✅ (delivered Phase 4a per aegis-core release history) | No — delivered |
+| Go gateway (gRPC client → engine) | Containerized, signed, in ECR ✅ | No — delivered |
+| Frontend (React + Vite) | Scaffolded in LAN (per aegis-core LAN smoke passed 2026-04-23 on release `v0.1.0-demo-lan`). Cloud-mode SPA auth middleware = NOT YET | Partially — SPA exists but cloud-mode auth not wired |
+| WebRTC / WebSocket / session registry | LAN-verified via `v0.1.0-demo-lan` release (4 human-in-the-loop passes between 2026-04-21 and 2026-04-22) ✅ | No — delivered |
+| `rules_oci` / Dockerfile | Delivered Phase 4a ✅ | No — delivered |
+| K8s manifests (Deployment, Service, Ingress) | Delivered `apps/staging/aegis-{gateway,engine}/` ✅ | No — delivered |
+| CI → ECR push pipeline | Delivered Phase 4a ✅ | No — delivered |
+| SPA auth middleware / Cognito OIDC integration | NOT YET — aegis-core #76 open; callback URL design pending | **Yes — blocks ADR-026 Accepted + cold-apply** |
 
-**Implication for Phase 4 ordering**: deploying a real workload (original 4a) is gated on aegis-core shipping OCI packaging + K8s manifests. This is aegis-core's work, not landing-zone's. The ECR repository is already live and waiting ([#54 platform contract](https://github.com/BinHsu/aegis-aws-landing-zone/issues/54), [#11 aegis-core notification](https://github.com/BinHsu/aegis-core/issues/11#issuecomment-4257309501)).
+**Implication for Phase 4 ordering**: aegis-core is now ready on containerization, LAN-verified workload, and image delivery. The remaining gate is SPA auth middleware for cloud-mode OIDC integration (aegis-core #76). Phase 4a'' (workload deployment) is no longer blocked on aegis-core's OCI packaging — it is blocked on the auth integration gate and on ldz-side infrastructure (ACM+R53 in ldz #101, Argo Rollouts in ldz #103).
 
 **Adapted strategy**: split 4a into two halves. **4a' (docking station)** builds the platform-side infrastructure that does not depend on aegis-core — namespace, IRSA skeleton, NetworkPolicy base, OIDC trust verification. **4a'' (workload deployment)** wires up the actual pods, Services, and Ingress once aegis-core delivers OCI images and manifests. Meanwhile, **4b (observability) and 4c (cluster security) can proceed independently** — they observe and protect the cluster itself, not just the workload.
 
