@@ -2,9 +2,9 @@
 
 ## Status
 
-Draft (2026-04-23). Decisions on 6 consumption-contract open questions
-pending aegis-core input via https://github.com/BinHsu/aegis-core/issues/76.
-Commitment (Cognito User Pool) is decided; shape is not yet pinned.
+**Partially Accepted** (2026-04-23). Core commitment plus 5 of 6 shape decisions frozen per the aegis-core #76 reply later the same day. One Open Question remains — callback and logout URLs — genuinely blocked on aegis-core SPA auth scaffolding work that has not yet started. A strawman URL pair is the working default at Terraform commit time; Cognito's `callback_urls` and `logout_urls` accept updates to existing app clients without recreate, so Terraform implementation is not gated on resolving that question first.
+
+The original Draft version of this document (2026-04-23 AM) recorded the commitment as decided and all six shape details as unpinned. This amendment (2026-04-23 PM, after aegis-core #76 was answered at 07:00 UTC) moves five of the six into § Decision and leaves the sixth in § Open Questions with the strawman default captured explicitly. A future amendment promotes this ADR from Partially Accepted to Accepted when aegis-core's SPA auth scaffold lands and the URL values are firm.
 
 ## Context
 
@@ -36,7 +36,17 @@ A `cognito-config` Kubernetes Secret in the `aegis` namespace is reconciled by E
 
 **MVP scope** is local users only. Self-signup is disabled; the operator invites users manually via `aws cognito-idp admin-create-user`. Google / GitHub IdP federation is a later slice when the demo narrative justifies the additional Terraform surface.
 
-Six shape details — token validation path, callback and logout URLs, requested scopes, user attributes, session lifetime, logout behavior — are deferred to § Open Questions. Those answers come from aegis-core because aegis-core is the consumer. We do not speculate.
+### Consumption contract decisions (frozen 2026-04-23 per aegis-core #76)
+
+Five of the six shape details originally deferred are now pinned. The sixth (callback / logout URLs) remains in § Open Questions with a strawman default.
+
+- **Token validation**: the gateway validates ID tokens locally against Cognito's JWKS endpoint (RS256). Removes a per-request network hop to `/userinfo`; the standard cloud-native path. Gateway middleware will need a JWKS cache tolerant of Cognito's key-rotation window.
+- **Requested scopes**: `openid profile email` — no custom scopes for MVP. Role-based access is expressed through a custom attribute instead of through OAuth scopes (see next bullet); the gateway's authorization layer reads claims, not scopes.
+- **User attributes**: one custom attribute declared at user pool creation — `custom:tenant_id`, **immutable**. Carries tenant identity for aegis-core's multi-tenancy model (aegis-core ADR-0022) into the ID token so the gateway does not need a per-request directory lookup. The attribute name is soft until aegis-core's multi-tenancy code stabilizes; if Cognito's `custom:` naming rules clash, aegis-core flags back on #76 and the user pool is recreated with the corrected name.
+- **Session lifetime**: Cognito defaults — 1h access token, 30d refresh token. Acceptable for lab / demo scale. Revisit only if cold-apply smoke reveals UX pacing issues.
+- **Logout behavior**: Cognito global logout — revokes the user's sessions across every client. Secure default; cleaner demo narrative (one Logout click → actually logged out everywhere). Local-only SPA logout was rejected because the app has no multi-device UX requirement that would justify the weaker posture.
+
+The one remaining shape detail — callback / logout URLs — sits in § Open Questions with the strawman default captured.
 
 ## Alternatives Considered
 
@@ -66,31 +76,20 @@ Categorically wrong. "I re-implemented auth" is a portfolio anti-signal at staff
 
 ## Open Questions
 
-These six questions are filed against aegis-core as [aegis-core #76](https://github.com/BinHsu/aegis-core/issues/76) (`cross-repo/fyi`). Each blocks a specific Terraform or Helm decision; the ADR will be amended once answers arrive.
+### 1. Callback / redirect URLs (Q2 from the original 6)
 
-### 1. Token validation path
+**Status**: Open. aegis-core has no SPA auth scaffolding today — no `/auth/callback` route, no OAuth flow in the SPA, no post-logout redirect logic. The exact URLs are not yet designed and are blocked on the aegis-core-side SPA work starting.
 
-Does the gateway validate ID tokens (JWT RS256) locally via Cognito's JWKS endpoint, or does it treat Cognito as an OIDC provider and fetch `/userinfo` on each request? Local validation is lower latency and the AWS-recommended default; `/userinfo` is simpler code but adds a round-trip per request. The answer shapes gateway middleware and whether a JWKS cache is needed.
+**Working default for Terraform commit**: the Cognito app client's URL lists are seeded with strawman values that follow conventional SPA auth paths:
 
-### 2. Callback / redirect URLs
+- `callback_urls = ["https://aegis-app.staging.binhsu.org/auth/callback"]`
+- `logout_urls   = ["https://aegis-app.staging.binhsu.org/"]`
 
-What are the exact SPA routes for the OAuth callback and post-logout redirect? Needed at Terraform time as `callback_urls` and `logout_urls` on the app client. Wrong values here are the #1 cause of OAuth misconfiguration and they are visible to users as errors at the Hosted UI.
+When aegis-core's SPA auth scaffolding finalizes (matching or diverging from the strawman), the operator runs `terraform apply` on `staging/auth/` with updated lists. Cognito accepts updates to `callback_urls` and `logout_urls` on existing app clients without forcing recreate, so this is a low-risk drift rather than a migration.
 
-### 3. Requested scopes
+**Amendment trigger**: this ADR promotes from Partially Accepted to Accepted when aegis-core's SPA auth lands and the URL values are firm. If the production URLs differ from the strawman, the amendment captures the real values plus a note on whether the strawman was updated before or after first cold-apply.
 
-`openid`, `profile`, `email` are the default set. Does the gateway need custom scopes (e.g. `aegis/read`, `aegis/write`)? Custom scopes exist to express coarse-grained authorization in the token itself; without them, all authenticated users have the same grant surface from the gateway's perspective.
-
-### 4. User attributes in ID token
-
-The default is `email`, `sub`, `cognito:groups`. Any custom attributes required — for example `custom:tenant_id` if aegis-core's multi-tenancy story (aegis-core ADR-0022) lands? Custom attributes must be declared at user pool creation time; adding them later requires a new user pool. Getting this right on the first pass matters.
-
-### 5. Session lifetime
-
-Defaults are 1h access-token lifetime and 30d refresh-token lifetime. Does the app want tighter bounds (e.g. 15min + 8h) for security posture, or looser for demo convenience? This affects both UX (how often users see the login screen) and blast radius (how long a stolen refresh token stays useful).
-
-### 6. Logout behavior
-
-Cognito global logout revokes all sessions for the user across every client; local-only SPA logout just drops the local token. Global is the safer default; local is the faster UX. Choice depends on whether aegis-core assumes one user = one browser or plans for multi-device sessions.
+The other five consumption-contract questions (token validation, scopes, custom attributes, session lifetime, logout behavior) were resolved by aegis-core's 2026-04-23 reply on [aegis-core #76](https://github.com/BinHsu/aegis-core/issues/76); see § Decision's "Consumption contract decisions" subsection.
 
 ## Consequences
 
