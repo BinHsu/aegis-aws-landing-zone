@@ -115,6 +115,7 @@ Some Terraservices layers have their own operational contracts — pre-flight ch
   - `docs/runbooks/005-fis-dr-drill.md` — FIS DR drill execution (ADR-020); pre-flight checks, experiment start/observe/recover, troubleshooting (MUST read before `aws fis start-experiment` against any env)
   - `docs/runbooks/006-grafana-cloud-onboarding.md` — Grafana Cloud free tier signup, bootstrap/downstream token rotation, scope-isolation verification (MUST read when provisioning a fresh stack, rotating any token, or migrating regions)
   - `docs/runbooks/007-qdrant-cloud-onboarding.md` — Qdrant Cloud free tier signup, API key rotation, manual SSM PS credential stash ahead of TF scaffolding per ADR-025 (MUST read when provisioning a fresh cluster or rotating the API key)
+  - `docs/runbooks/008-cognito-user-pool-onboarding.md` — Cognito User Pool first-time provisioning, first-user creation via `admin-create-user`, Hosted UI login verification, JWKS token smoke test; MUST read before the first `terraform apply` on `staging/auth/` or before creating any new admin user
 
 - **Rule: When adding a new layer whose operations require their own diagnostic order (e.g., observability, service mesh), add a runbook under `docs/runbooks/` rather than extending this file.** Keeping CLAUDE.md small preserves its discoverability; layer-specific details belong with the layer.
 
