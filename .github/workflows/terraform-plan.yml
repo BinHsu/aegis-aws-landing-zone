@@ -197,22 +197,44 @@ jobs:
         uses: actions/github-script@v9
         if: github.event_name == 'pull_request'
         env:
+          # Pass user-controlled strings through env rather than direct
+          # template interpolation — the previous pattern stuffed
+          # steps.plan.outputs.stdout straight into a JS template literal,
+          # which breaks the instant plan output contains a backtick (`) or
+          # `${` sequence. Alloy Helm values + kubectl_manifest YAML in the
+          # staging/observability layer exposed this (SyntaxError "Unexpected
+          # identifier 'alloy'" on 2026-04-23). Reading via process.env gives
+          # us a plain JS string — no re-parsing of its contents.
+          PLAN_STDOUT: ${{ steps.plan.outputs.stdout }}
+          PLAN_ICON: ${{ steps.status.outputs.icon }}
+          PLAN_SUMMARY: ${{ steps.status.outputs.summary }}
+          MATRIX_ENV: ${{ matrix.env }}
           VARIANT_SUFFIX: ${{ matrix.variant && format(' ({0})', matrix.variant) || '' }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          ACTOR: ${{ github.actor }}
         with:
           script: |
-            const output = `### ${{ steps.status.outputs.icon }} Terraform Plan: \`${{ matrix.env }}\`${process.env.VARIANT_SUFFIX}
+            const planStdout = process.env.PLAN_STDOUT || '(no plan output)';
+            const icon       = process.env.PLAN_ICON       || '';
+            const summary    = process.env.PLAN_SUMMARY    || '';
+            const matrixEnv  = process.env.MATRIX_ENV      || '';
+            const variant    = process.env.VARIANT_SUFFIX  || '';
+            const headRef    = process.env.HEAD_REF        || '';
+            const actor      = process.env.ACTOR           || '';
 
-            **Result:** ${{ steps.status.outputs.summary }}
+            const output = `### ${icon} Terraform Plan: \`${matrixEnv}\`${variant}
+
+            **Result:** ${summary}
 
             <details><summary>Plan Output</summary>
 
             \`\`\`
-            ${{ steps.plan.outputs.stdout }}
+            ${planStdout}
             \`\`\`
 
             </details>
 
-            *Triggered by @${{ github.actor }} on \`${{ github.event.pull_request.head.ref }}\`*`;
+            *Triggered by @${actor} on \`${headRef}\`*`;
 
             github.rest.issues.createComment({
               issue_number: context.issue.number,
