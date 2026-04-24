@@ -36,10 +36,30 @@
 #     --value 'https://<cluster-uuid>.eu-central-1-0.aws.cloud.qdrant.io:6334' \
 #     --overwrite
 #
-# As of 2026-04-23 the live value is already in SSM PS from the pre-Terraform
-# manual bootstrap (Runbook 007). Terraform's create picks up the placeholder
-# on first apply; the `lifecycle.ignore_changes` block leaves the operator
-# value in place on subsequent applies.
+# ⚠️  First-apply migration step — existing operator-managed SSM params
+#
+# As of 2026-04-23 the live values are already in SSM PS from the
+# pre-Terraform manual bootstrap (Runbook 007). Terraform does NOT auto-
+# adopt pre-existing AWS resources; a bare `apply` will fail with
+# `ParameterAlreadyExists`. First-apply operator must import them:
+#
+#   terraform -chdir=terraform/environments/staging/observability import \
+#     'aws_ssm_parameter.qdrant_cluster_url[0]' \
+#     /aegis/staging/qdrant-cloud/cluster-url
+#
+#   terraform -chdir=terraform/environments/staging/observability import \
+#     'aws_ssm_parameter.qdrant_api_key[0]' \
+#     /aegis/staging/qdrant-cloud/api-key
+#
+# After import, the `lifecycle.ignore_changes = [value]` block guarantees
+# the operator-supplied values survive subsequent applies. On a fresh
+# environment (no pre-existing params), skip the imports — Terraform
+# creates placeholders and the operator `put-parameter`s real values
+# out-of-band per Runbook 007 §API key rotation.
+#
+# `import` blocks in HCL are not used here because the count-gated
+# resource address is awkward to import declaratively; the one-time
+# manual import is simpler and clearer to an operator.
 # -----------------------------------------------------------------------------
 
 resource "aws_ssm_parameter" "qdrant_cluster_url" {
