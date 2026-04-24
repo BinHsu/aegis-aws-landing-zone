@@ -31,7 +31,15 @@
 # -----------------------------------------------------------------------------
 
 resource "kubectl_manifest" "external_secret_cognito_config" {
-  count = local.auth_enabled ? 1 : 0
+  # Gate: both auth_enabled (cognito block in config) AND platform_applied
+  # (staging/platform has produced a cluster output). Without the second
+  # clause the kubectl provider tries to dial an unresolvable host and
+  # fails the whole apply even though AWS-side resources created cleanly.
+  # On cold-cycle first apply the operator sees this ExternalSecret
+  # skipped, applies staging/platform (via workloads), and re-dispatches
+  # baseline — the second pass picks up platform_applied=true and
+  # reconciles the ExternalSecret.
+  count = local.platform_applied ? 1 : 0
 
   yaml_body = yamlencode({
     apiVersion = "external-secrets.io/v1beta1"

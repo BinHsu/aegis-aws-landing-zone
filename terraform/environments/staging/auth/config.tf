@@ -86,6 +86,20 @@ locals {
   # Per-cluster details read from staging/platform's per-slot clusters map.
   # Auth targets the primary cluster only (see providers.tf rationale).
   clusters = try(data.terraform_remote_state.staging_platform.outputs.clusters, {})
+
+  # platform_applied — derived from whether staging/platform has
+  # produced a `primary` cluster in its outputs. Gates the kubectl-
+  # backed ExternalSecret resource: when platform has not been applied
+  # in this cold cycle yet, the kubectl provider's host resolves to
+  # empty string and apply fails with `dial tcp [::1]:80: connect: connection refused`.
+  # The AWS-side resources (User Pool, App Client, Domain, IAM, SSM
+  # parameters) do not depend on cluster reachability and apply cleanly
+  # regardless. On first cold-apply the operator sees "ExternalSecret
+  # skipped, apply this layer again after workloads"; the re-dispatch
+  # then reconciles the ExternalSecret once the cluster exists.
+  # Verified 2026-04-24 — first rerun against real AWS failed exactly
+  # on this gate before it existed.
+  platform_applied = local.auth_enabled && try(contains(keys(local.clusters), "primary"), false)
 }
 
 # -----------------------------------------------------------------------------
