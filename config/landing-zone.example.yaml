@@ -204,3 +204,23 @@ eks:
 #   # MFA posture. OFF (lab default) | OPTIONAL | ON. ON requires every
 #   # user to enroll a factor before login works — not recommended for MVP.
 #   mfa_configuration: OFF
+
+# Qdrant Cloud vector-DB scaffold (ADR-025, cross-repo ldz #141).
+# Optional: present with `enabled: true` to provision the Qdrant SSM PS
+# placeholders (/aegis/staging/qdrant-cloud/{cluster-url,api-key}) and the
+# ExternalSecret that reconciles them into K8s Secret `qdrant-credentials`
+# in ns `aegis` for the aegis-engine Deployment.
+#
+# Values are operator-managed — Terraform only creates the SecureString
+# shells. After the first apply, fill the real cluster URL + API key via:
+#
+#   aws ssm put-parameter --region eu-central-1 \
+#     --name /aegis/staging/qdrant-cloud/cluster-url \
+#     --type SecureString --key-id alias/aegis-staging-secrets \
+#     --value 'https://<cluster-uuid>.eu-central-1-0.aws.cloud.qdrant.io:6334' \
+#     --overwrite
+#
+# Runbook 007 documents first-time Qdrant Cloud signup + the API key
+# rotation cadence (90 days).
+# qdrant_cloud:
+#   enabled: true

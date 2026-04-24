@@ -317,6 +317,18 @@
         }
       }
     },
+    "qdrant_cloud": {
+      "type": "object",
+      "description": "Qdrant Cloud vector-DB scaffold (ADR-025, ldz #141). Optional — present with `enabled: true` to provision 2 operator-managed SSM PS placeholders (/aegis/staging/qdrant-cloud/{cluster-url,api-key}) plus an ExternalSecret that reconciles them into K8s Secret `qdrant-credentials` in ns `aegis`. Values are filled operator-side via `aws ssm put-parameter` per Runbook 007; Terraform never sees the real credentials. Omit the block to skip Qdrant entirely.",
+      "required": ["enabled"],
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Set true to provision the Qdrant SSM PS + ExternalSecret scaffold. False (or omit the block) skips all Qdrant resources."
+        }
+      }
+    },
     "eks": {
       "type": "object",
       "description": "EKS platform configuration keyed by workload environment name (e.g. staging, prod). Optional — only environments that deploy a platform layer need an entry.",

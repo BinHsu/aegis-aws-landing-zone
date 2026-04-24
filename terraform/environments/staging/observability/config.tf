@@ -53,6 +53,20 @@ locals {
   # family with a single wildcard (staging/platform ESO IRSA does this).
   ssm_path_prefix = "/aegis/staging/grafana-cloud"
 
+  # Qdrant Cloud block — independent gate (ADR-025, ldz #141). Enables the
+  # Qdrant scaffold (2 operator-managed SSM PS placeholders + 1 ExternalSecret
+  # reconciling into K8s Secret `qdrant-credentials` in ns `aegis`). Lives in
+  # this layer by precedent (team-webhooks ExternalSecret pattern), not
+  # because Qdrant is an observability concern — see ADR-027 for the layer-
+  # sharding discipline that justifies the current placement + enumerates
+  # triggers for future extraction to `staging/data-secrets/`.
+  qdrant_cloud   = try(local.config.qdrant_cloud, null)
+  qdrant_enabled = try(local.qdrant_cloud.enabled, false)
+
+  # Qdrant SSM PS path prefix — parallel structure to grafana-cloud. IAM wildcard
+  # /aegis/staging/* on ESO IRSA already covers this path, no new IAM needed.
+  qdrant_ssm_path_prefix = "/aegis/staging/qdrant-cloud"
+
   tags = merge(local.config.tags, {
     Environment = "staging"
     Component   = "observability"
@@ -60,6 +74,15 @@ locals {
 
   # Per-cluster details read from staging/platform's per-slot clusters map.
   clusters = try(data.terraform_remote_state.staging_platform.outputs.clusters, {})
+
+  # platform_applied — derived from whether staging/platform has produced a
+  # `primary` cluster in its outputs. Gates the Qdrant ExternalSecret
+  # kubectl_manifest: without a live cluster the kubectl provider dials an
+  # empty host and fails the whole apply. On cold-cycle first apply the
+  # operator sees the ExternalSecret skipped, applies staging/platform (via
+  # workloads), and re-applies this layer — the second pass reconciles it.
+  # Identical pattern to staging/auth/config.tf (PR #142).
+  platform_applied = try(contains(keys(local.clusters), "primary"), false)
 }
 
 # -----------------------------------------------------------------------------
@@ -155,7 +178,10 @@ check "platform_layer_applied" {
 # -----------------------------------------------------------------------------
 
 data "aws_kms_alias" "secrets" {
-  count = local.observability_enabled ? 1 : 0
+  # Shared by grafana-cloud tokens (observability_enabled) and qdrant-cloud
+  # SSM placeholders (qdrant_enabled). Any enabled feature in this layer
+  # needs the KMS alias; gate accordingly.
+  count = (local.observability_enabled || local.qdrant_enabled) ? 1 : 0
 
   name = "alias/aegis-staging-secrets"
 }
@@ -163,10 +189,10 @@ data "aws_kms_alias" "secrets" {
 check "secrets_kms_key_exists" {
   assert {
     condition = (
-      !local.observability_enabled
+      !(local.observability_enabled || local.qdrant_enabled)
       || try(data.aws_kms_alias.secrets[0].target_key_arn, "") != ""
     )
-    error_message = "config.grafana_cloud is set but KMS alias 'alias/aegis-staging-secrets' is missing. Apply staging/bootstrap first (baseline layer, auto-applied on PR merge — see staging/bootstrap/kms-secrets.tf)."
+    error_message = "config.grafana_cloud or config.qdrant_cloud is set but KMS alias 'alias/aegis-staging-secrets' is missing. Apply staging/bootstrap first (baseline layer, auto-applied on PR merge — see staging/bootstrap/kms-secrets.tf)."
   }
 }
 
