@@ -1,4 +1,4 @@
-<!-- session-close-review: when lab operator needs a fresh Qdrant Cloud cluster, rotates the API key, or the aegis-core Secret-contract cross-repo issue arrives and platform wiring moves from manual SSM PS puts to Terraform-managed resources -->
+<!-- session-close-review: when lab operator needs a fresh Qdrant Cloud cluster, rotates the API key, migrates to a different Qdrant Cloud cluster (region or account change), or when the ldz ↔ aegis-core Qdrant contract shape changes (env var names, Secret keys, additional fields, or Terraform scaffolding shape in staging/observability/qdrant-scaffold.tf) -->
 # 007. Qdrant Cloud free tier — onboarding and credential rotation
 
 > **When to read this**: you are doing a first-time Qdrant Cloud signup for this lab, rotating the cluster's API key, or migrating to a new Qdrant Cloud cluster. This is NOT a per-session runbook — the Qdrant Cloud cluster is a persistent SaaS resource, not a per-session workload. Reading in full takes <5 minutes.
@@ -64,36 +64,66 @@ Auth header for later verification: Qdrant Cloud accepts **both** `api-key: <key
 
 ---
 
-## Part 3 — Stash credentials in SSM Parameter Store (manual, pre-Terraform)
+## Part 3 — Stash credentials in SSM Parameter Store
 
 > ⚠️ **Credentials go in SSM Parameter Store — never in `config/landing-zone.yaml`.** The `config.yaml` file holds deployment-shape metadata (account IDs, emails, CIDRs) per CLAUDE.md §Security; API keys and session tokens are categorically distinct and must land in SSM PS SecureString with the KMS alias `alias/aegis-staging-secrets`. This rule applies even though `config.yaml` is gitignored — the repo's "zero static credentials by design" posture draws the line at file type, not at git-tracked vs. local.
 
-**IMPORTANT**: per [ADR-025](../decisions/025-qdrant-backend-cloud-free-tier.md) §"Landing-zone implementation is deferred pending aegis-core Secret-contract issue", this repo has intentionally NOT yet shipped Terraform `aws_ssm_parameter` resources for the Qdrant Cloud credentials. The Secret shape (key names, env-var mappings, extra config like collection name / embedding dimension / distance metric) is aegis-core's call and will arrive as a cross-repo issue.
+Both parameters live under the `/aegis/staging/qdrant-cloud/` prefix (the `qdrant-cloud` prefix names the managed product, matching the `grafana-cloud` convention in Runbook 006). Both use the CMK alias `alias/aegis-staging-secrets`, consistent with Grafana Cloud secrets and the existing External Secrets Operator IAM policy pattern.
 
-Until that issue lands and the corresponding platform PR merges, you must manually put the two parameters to SSM PS. Both parameters live under the `/aegis/staging/qdrant-cloud/` prefix (the `qdrant-cloud` prefix names the managed product, matching the `grafana-cloud` convention in Runbook 006).
+As of PR #146 (merged 2026-04-24), the two `aws_ssm_parameter` SecureString resources are Terraform-managed in `staging/observability/qdrant-scaffold.tf` — but delegated back to the operator for the `value` via `lifecycle.ignore_changes = [value]`. Terraform owns the resource declaration; the operator owns the value via `put-parameter`. The `aws ssm put-parameter` command is identical in both paths below; only the ordering relative to `terraform apply` differs.
+
+### Path A — Fresh environment (Terraform-first adoption)
+
+Use when the lab is being stood up from scratch and `qdrant_cloud.enabled: true` is about to land in `config/landing-zone.yaml` for the first time.
+
+1. Let the workload workflow's observability step run first. It creates two placeholder SSM SecureStrings with `value = "placeholder-operator-must-overwrite"`.
+2. Overwrite both placeholders with real values from Part 2:
 
 ```bash
-# Cluster URL (not a secret in the strictest sense, but kept as SecureString
-# to avoid mixing parameter tiers in the same namespace)
 AWS_PROFILE=aegis-staging-admin aws ssm put-parameter \
   --region eu-central-1 \
   --name /aegis/staging/qdrant-cloud/cluster-url \
   --type SecureString \
   --key-id alias/aegis-staging-secrets \
-  --value '<cluster URL from Part 2 step 1, including scheme + port, e.g. https://xyz.us-east-1.aws.cloud.qdrant.io:6334>'
+  --overwrite \
+  --value '<cluster URL from Part 2 step 1, including scheme + port, e.g. https://xyz.eu-central-1-0.aws.cloud.qdrant.io:6334>'
 
-# API key
 AWS_PROFILE=aegis-staging-admin aws ssm put-parameter \
   --region eu-central-1 \
   --name /aegis/staging/qdrant-cloud/api-key \
   --type SecureString \
   --key-id alias/aegis-staging-secrets \
+  --overwrite \
   --value '<API key from Part 2 step 3>'
 ```
 
-Both parameters use the same CMK alias (`alias/aegis-staging-secrets`) as the Grafana Cloud secrets, for consistency with the existing External Secrets Operator IAM policy pattern.
+3. Next `terraform plan` shows zero drift — `ignore_changes = [value]` masks the placeholder vs. real-value divergence.
 
-Verify both parameters are readable:
+### Path B — Retrofit (values predate Terraform adoption)
+
+Use when SSM PS values were `put-parameter`d manually BEFORE PR #146 merged. A bare `terraform apply` with `qdrant_cloud.enabled: true` would otherwise fail with `ParameterAlreadyExists` — Terraform does not auto-adopt pre-existing AWS resources.
+
+1. Put the creds in SSM PS via the Path A step-2 commands (skip if already done).
+2. **Before** flipping `qdrant_cloud.enabled: true` and running the workload workflow, import the two existing params into the observability layer's Terraform state:
+
+```bash
+export AWS_PROFILE=aegis-staging-admin
+cd terraform/environments/staging/observability
+terraform init
+terraform import 'aws_ssm_parameter.qdrant_cluster_url[0]' \
+  /aegis/staging/qdrant-cloud/cluster-url
+terraform import 'aws_ssm_parameter.qdrant_api_key[0]' \
+  /aegis/staging/qdrant-cloud/api-key
+```
+
+3. Run `terraform plan` once. Confirm the plan shows **zero changes** (ignore_changes masks value drift; tags/description from the HCL are inherited on import). If plan shows a value-overwrite change, stop and investigate — the `lifecycle.ignore_changes` block is likely mis-configured.
+4. Flip `qdrant_cloud.enabled: true` in `config/landing-zone.yaml`, sync the `LANDING_ZONE_CONFIG` GitHub Secret (`scripts/configure-github.sh`), then trigger the workload workflow.
+
+> Note: `import` blocks in HCL are not used here because the count-gated resource address (`[0]`) is awkward to import declaratively. The one-time operator import is simpler and clearer for a retrofit that happens once per environment lifecycle.
+
+### Verification
+
+Either path — confirm both parameters are readable:
 
 ```bash
 aws ssm get-parameter \
@@ -129,19 +159,17 @@ If 200, the credential chain is sound end-to-end. If not, see Troubleshooting.
 
 ---
 
-## Part 5 — Future state: when TF scaffolding lands
+## Part 5 — Terraform-managed state (interaction model)
 
-When aegis-core files the cross-repo Secret-contract issue and the corresponding platform PR merges, three things change:
+As of PR #146 (merged 2026-04-24), three pieces of the Qdrant Cloud credential-plumbing path are Terraform-managed:
 
-1. **Terraform takes over the SSM PS parameters**. Two `aws_ssm_parameter` SecureString resources (at `/aegis/<env>/qdrant-cloud/cluster-url` and `/aegis/<env>/qdrant-cloud/api-key`) land in either `staging/observability/tokens.tf` (extension) or a new `staging/workloads/qdrant.tf`, matching the placeholder-value + `lifecycle.ignore_changes = [value]` pattern already used for `team-webhooks-slack-aegis`. This means the operator-created values **persist** — Terraform will not overwrite them on first plan, because the `ignore_changes` block treats the live value as authoritative.
+1. **SSM PS parameters.** Two `aws_ssm_parameter` SecureString resources in [`terraform/environments/staging/observability/qdrant-scaffold.tf`](../../terraform/environments/staging/observability/qdrant-scaffold.tf) — one per credential, both count-gated on `local.qdrant_enabled` (from `config/landing-zone.yaml` → `qdrant_cloud.enabled`). Placeholder-value + `lifecycle.ignore_changes = [value]` pattern: Terraform owns the resource declaration, the operator owns the value via `put-parameter --overwrite`. See [Part 3](#part-3--stash-credentials-in-ssm-parameter-store) for the two ordering paths.
 
-   On the first apply after the TF resources land, double-check `terraform plan` output shows **no destructive change** to the parameter's value. If it does, stop and investigate — the `lifecycle.ignore_changes` block is likely missing or misconfigured.
+2. **ExternalSecret manifest.** `kubectl_manifest.external_secret_qdrant_credentials` reconciles the two SSM params into K8s Secret `qdrant-credentials` in ns `aegis` at 1h refresh interval. Gated additionally on `local.platform_applied` so a cold-cycle first-apply (observability runs before the cluster exists, or without workloads) skips cleanly and lets the AWS-side resources still create.
 
-2. **ExternalSecret manifest is added** to the `aegis` namespace. It reconciles `qdrant-credentials` K8s Secret from the two SSM PS parameters on the External Secrets refresh interval (default 1 hour).
+3. **Engine Deployment env-vars.** `QDRANT_URL` + `QDRANT_API_KEY` are wired in aegis-core (not here) via `envFrom` / `valueFrom: secretKeyRef` pulls of the reconciled K8s Secret. Pod restart (or `kubectl rollout restart deployment engine -n aegis`) picks up rotated keys; see [credential rotation below](#credential-rotation).
 
-3. **Engine Deployment env-vars are wired** (in aegis-core, not here). `QDRANT_URL` and `QDRANT_API_KEY` become `envFrom` / `valueFrom: secretKeyRef` pulls of the reconciled Secret. Pod restart (or a `kubectl rollout restart deployment engine`) is what picks up a rotated key — until the Deployment wiring exists, rotation is purely a manual SSM re-put.
-
-See [ADR-025](../decisions/025-qdrant-backend-cloud-free-tier.md) §"Platform work triggered on its arrival" for the full trigger list.
+Cross-repo references: [ldz #141](https://github.com/BinHsu/aegis-aws-landing-zone/issues/141) (Secret contract, closed 2026-04-24 by PR #146), [ADR-025](../decisions/025-qdrant-backend-cloud-free-tier.md) §"Platform work triggered on its arrival" (the trigger list this satisfies).
 
 ---
 
@@ -149,7 +177,7 @@ See [ADR-025](../decisions/025-qdrant-backend-cloud-free-tier.md) §"Platform wo
 
 ### API key — every 90 days
 
-Until the TF scaffolding in Part 5 lands, rotation is manual:
+The rotation procedure is operator-driven even after Terraform adoption: Terraform declares the resource but delegates `value` via `lifecycle.ignore_changes = [value]`, so `put-parameter --overwrite` is the rotation lever.
 
 1. Qdrant Cloud Portal → Cluster Detail → API Keys → **+ Create** a new key (name `engine-<YYYYMMDD>`, expiration 90 days, manage/write)
 2. **COPY the new key** — shown only once
@@ -167,7 +195,7 @@ AWS_PROFILE=aegis-staging-admin aws ssm put-parameter \
 
 4. **If the engine Deployment is running**: trigger a reload — either wait for External Secrets' refresh interval (≤1 hour) and then `kubectl rollout restart deployment engine -n aegis`, or force-refresh the ExternalSecret with `kubectl annotate externalsecret qdrant-credentials -n aegis force-sync=$(date +%s) --overwrite` and then restart the Deployment.
 
-   Note: before the TF scaffolding and ExternalSecret land, there is no reload path — there is no live engine pod consuming the key yet. Rotation stops at the SSM PS overwrite.
+   If the cluster is not currently up (between cold-apply and teardown cycles, or before first cold-apply), rotation stops at the SSM PS overwrite. The `lifecycle.ignore_changes` block on the SSM parameter means the next `terraform apply` sees no drift. The next workload cold-apply + ExternalSecret reconcile picks up the rotated value automatically.
 
 5. Qdrant Cloud Portal → Cluster Detail → API Keys → delete the **old** key. Confirm traffic has not degraded (pull a fresh `curl /collections` with the new key via Part 4).
 
@@ -198,18 +226,15 @@ Qdrant Cloud clusters are NOT torn down between sessions — the free tier costs
 
 Teardown order:
 
-1. If the platform-side Terraform scaffolding in Part 5 has landed, first `terraform state rm` or destroy the `aws_ssm_parameter.qdrant_cloud_*` resources (check the exact path after PR lands). Do this BEFORE deleting the cluster, so the downstream ExternalSecret does not flap on missing parameters.
-2. Delete the Qdrant Cloud cluster: Portal → Clusters → your cluster → **Delete cluster**. Historical vector data is lost — export collections to local files first if you need to preserve them.
-3. Delete SSM parameters:
+1. Flip `qdrant_cloud.enabled: false` in `config/landing-zone.yaml` (or remove the block entirely) and sync the `LANDING_ZONE_CONFIG` GitHub Secret. Then run the baseline apply workflow — `terraform apply` on `staging/observability` plans the two `aws_ssm_parameter` resources + the ExternalSecret (if `local.platform_applied`) to destruction on the `count = 0` gate. This removes the ExternalSecret first (if present), so the K8s Secret deletion is graceful before the SSM PS source goes away.
+2. Delete the Qdrant Cloud cluster: Portal → Clusters → your cluster → **Delete cluster**. **WARNING**: all ingested vectors are lost on cluster deletion — export collections to local files first if you need to preserve them. For the Taiwan corpus, re-ingest is a re-run of `engine seed --target=cloud` — non-trivial but not catastrophic.
+3. Step 1 destroyed the SSM parameters via Terraform's count gate. If the SSM PS entries somehow survived (e.g., state-file divergence from destruction), clean up manually:
 
 ```bash
 for param in cluster-url api-key; do
-  aws ssm delete-parameter --name /aegis/staging/qdrant-cloud/$param
+  aws ssm delete-parameter --name /aegis/staging/qdrant-cloud/$param 2>/dev/null || true
 done
 ```
-
-4. If the ADR-025 implementation PR has landed, remove the `qdrant_cloud` block from `config/landing-zone.yaml` (if one exists) so the TF layer plans to zero resources on next apply.
-5. **WARNING**: all ingested vectors are lost on cluster deletion. For the Taiwan corpus, re-ingest is a re-run of `engine seed --target=cloud` — non-trivial but not catastrophic.
 
 ---
 
