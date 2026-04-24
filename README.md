@@ -191,7 +191,8 @@ Complete improvement index and reliability map: [`docs/improvements/README.md`](
 | [023](docs/decisions/023-observability-responsibility-model.md) | Observability responsibility model (platform vs service domain) |
 | [024](docs/decisions/024-landing-zone-repo-topology.md) | Terraform repo topology — single repo with state/IAM/CI isolation |
 | [025](docs/decisions/025-qdrant-backend-cloud-free-tier.md) | Qdrant backend — Cloud free tier |
-| [026](docs/decisions/026-cognito-auth-user-pool.md) | Cognito User Pool — cloud-mode auth for aegis (Draft) |
+| [026](docs/decisions/026-cognito-auth-user-pool.md) | Cognito User Pool — cloud-mode auth for aegis |
+| [027](docs/decisions/027-intra-environment-layer-sharding.md) | Intra-environment Terraservice layer sharding discipline |
 
 ## Runbooks
 
