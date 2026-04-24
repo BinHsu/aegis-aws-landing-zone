@@ -5,7 +5,7 @@ A reader's guide for recruiters, hiring managers, and technical leadership revie
 
 **Time budget**:
 - Recruiter / HR / hunter: read all of this doc (~10 min).
-- Technical leader / architect peer: skim section 1 (stance), then jump to [`docs/decisions/`](decisions/) for the 26 ADRs and [`docs/incidents.md`](incidents.md) for the 32 postmortems.
+- Technical leader / architect peer: skim section 1 (stance), then jump to [`docs/decisions/`](decisions/) for the 27 ADRs and [`docs/incidents.md`](incidents.md) for the 32 postmortems.
 
 ---
 
@@ -93,13 +93,13 @@ Each entry: what was built → where to look in the repo → the kind of questio
 ### 2.6 Operational discipline (ADRs, incidents, runbooks)
 
 **Built**: three layers of operational writing with explicit rules in [`CLAUDE.md`](../CLAUDE.md):
-- **ADRs** — 26 in [`docs/decisions/`](decisions/), supersede-in-place style ("Design iteration" sections note evolution; ADR-018 §3 has an in-place amendment demonstrating the pattern; ADR-015 superseded by ADR-022 demonstrates the supersede-with-history pattern)
+- **ADRs** — 27 in [`docs/decisions/`](decisions/), supersede-in-place style ("Design iteration" sections note evolution; ADR-018 §3 has an in-place amendment demonstrating the pattern; ADR-015 superseded by ADR-022 demonstrates the supersede-with-history pattern; ADR-027 layers onto ADR-024 as a sibling at a finer granularity)
 - **Incidents** — 32 in [`docs/incidents.md`](incidents.md), append-only, standard format
 - **Runbooks** — 8 in [`docs/runbooks/`](runbooks/); CLAUDE.md rule requires AI agents to read the layer's runbook before operating on it
 
 **Where to look**:
 - [`CLAUDE.md`](../CLAUDE.md) — 6 explicit "Rule: AI must..." clauses
-- [`docs/decisions/`](decisions/) — 26 ADRs
+- [`docs/decisions/`](decisions/) — 27 ADRs
 - [`docs/incidents.md`](incidents.md) — 32 postmortems
 - [`docs/runbooks/`](runbooks/) — 8 runbooks
 - [`docs/principles/`](principles/) — 2 cross-cutting discipline docs (change-review, break-glass-apply)
@@ -200,7 +200,7 @@ Positive statements of what this project demonstrates, paired with explicit stat
 ### What is claimed
 
 - **Cross-cutting architectural design**: composing 10+ AWS services into a working multi-account landing zone with explicit decisions (ADRs) and documented trade-offs.
-- **Operational discipline**: 26 ADRs + 32 incident postmortems + 8 runbooks + 2 cross-cutting principle docs, each written to a consistent format, never softened retroactively.
+- **Operational discipline**: 27 ADRs + 32 incident postmortems + 8 runbooks + 2 cross-cutting principle docs, each written to a consistent format, never softened retroactively.
 - **Production-shaped patterns** — not production-*hardened* (the lab is single-operator, single-region-primary, no DR-tested, no SOC 2 audit trail). The patterns are transferable to production; the lab itself isn't production.
 - **Reproducibility**: a single `config/landing-zone.yaml` + two shell scripts land the whole foundation in a fresh AWS organization. Fork-and-deploy is not a slogan here; it's tested.
 
@@ -252,7 +252,7 @@ This doc is frame-level. For the actual substance:
 
 | Interest | Open |
 |---|---|
-| "Walk me through the architectural decisions" | [`docs/decisions/`](decisions/) — 26 ADRs |
+| "Walk me through the architectural decisions" | [`docs/decisions/`](decisions/) — 27 ADRs |
 | "Show me real failures and what you learned" | [`docs/incidents.md`](incidents.md) — 32 postmortems |
 | "How do I reproduce this?" | [`docs/runbooks/001-bootstrap-aws-account.md`](runbooks/001-bootstrap-aws-account.md) |
 | "How would an AI agent work on this?" | [`CLAUDE.md`](../CLAUDE.md) |
@@ -261,7 +261,7 @@ This doc is frame-level. For the actual substance:
 
 ---
 
-*Last updated: 2026-04-23 — Live Qdrant + Grafana Cloud onboarding (runbooks 006 + 007 validated end-to-end; live creds in SSM PS). Qdrant + Grafana `eu-central-1` regions both confirmed EU (ADR-025 GDPR caveat downgraded). CI workflow JS-quoting fix (PR #136) unblocks observability plan comments. Cognito commitment formalized: ADR-026 Draft → Partially Accepted; aegis-core consumption contract captured at aegis-core #76. `staging/auth/` plan doc + Runbook 008 skeleton land same PR. ADR count 25→26; runbook count 7→8; incidents unchanged at 32.*
+*Last updated: 2026-04-24 — ldz #101 closed: ACM cert for `aegis-api.staging.binhsu.org` materialized via baseline dispatch (PRs #143 + #145 closed the CI apply gap for `staging/edge/`). ADR-027 added (intra-environment Terraservice layer sharding discipline; sibling of ADR-024 at finer granularity). ADR-026 promoted Partially Accepted → Accepted after Cognito User Pool went live end-to-end. Qdrant Cloud scaffold shipped per aegis-core ldz #141 (SSM + ExternalSecret, mirrors the team-webhooks pattern). Cold-apply gate now fully cleared — next session candidate is joint big-bang validation. ADR count 26→27; runbook count unchanged at 8; incidents unchanged at 32.*
 
 *Previous: 2026-04-21 (PM) — ADR-022 implementation shipped as 4 PRs (platform-layer ESO + prometheus-operator-crds + kube-state-metrics + Grafana Alloy; new `staging/observability/` peer layer with grafana-operator + GC tokens; kube-prometheus-stack removed from workloads; teardown workflow CRD pre-delete). Observability backend now lives in Grafana Cloud; in-cluster Prometheus + Grafana are gone. ADR count unchanged at 24; incidents unchanged at 32 (code-only session, no cold-apply).*
 
