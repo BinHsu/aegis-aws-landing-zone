@@ -164,3 +164,43 @@ eks:
 #   # page ("Username / Instance ID" field). Password is the alloy-token
 #   # provisioned by Terraform in staging/observability/ (PR-2).
 #   mimir_user_id: "1234567"
+
+# Cognito User Pool — cloud-mode auth for aegis (ADR-026).
+# Optional: present this block to enable the staging/auth peer layer.
+# Provisions a Cognito User Pool with a single SPA app client, five SSM PS
+# SecureString parameters carrying the pool identifiers, and an
+# ExternalSecret that syncs three of them into the `aegis` namespace as a
+# K8s Secret consumed by aegis-core's gateway Deployment.
+#
+# Omit to deploy the landing zone without an auth layer — baseline apply
+# still succeeds, staging/auth plans zero resources.
+#
+# Runbook 008 documents first-operator setup (admin user invite, Hosted UI
+# login verification, token smoke test).
+# cognito:
+#   # Cognito-provided hosted UI domain prefix. Full URL:
+#   # <prefix>.auth.<region>.amazoncognito.com. Globally unique within
+#   # the region — pick a different prefix on collision.
+#   domain_prefix: aegis-staging
+#   # SPA callback URLs — aegis-core-confirmed 2026-04-23 on aegis-core #76.
+#   # Must match the SPA's OAuth redirect target exactly (scheme, host,
+#   # path, no trailing slash drift). Cognito accepts in-place updates
+#   # without recreate.
+#   callback_urls:
+#     - "https://aegis-app.staging.binhsu.org/auth/callback"
+#   # Logout redirect URLs — where Cognito sends the user after global
+#   # logout. Cognito accepts in-place updates without recreate.
+#   logout_urls:
+#     - "https://aegis-app.staging.binhsu.org/"
+#   # Password policy — NIST SP 800-63B aligned defaults. Omit any
+#   # subfield to inherit the lab default; omit the whole block to
+#   # inherit all defaults.
+#   password_policy:
+#     minimum_length: 12
+#     require_lowercase: true
+#     require_uppercase: true
+#     require_numbers: true
+#     require_symbols: true
+#   # MFA posture. OFF (lab default) | OPTIONAL | ON. ON requires every
+#   # user to enroll a factor before login works — not recommended for MVP.
+#   mfa_configuration: OFF

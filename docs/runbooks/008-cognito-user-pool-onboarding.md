@@ -18,9 +18,9 @@ Related: [ADR-026](../decisions/026-cognito-auth-user-pool.md) (backend decision
 ## Pre-flight
 
 - AWS CLI + AWS SSO login to `aegis-staging` active (`aws sso login --sso-session aegis`; `export AWS_PROFILE=aegis-staging-admin`)
-- Confirm ADR-026 has been amended from Partially Accepted to Accepted — the amendment trigger is aegis-core's SPA auth scaffold landing with final URL values. If the ADR still shows Partially Accepted, **stop** — `terraform apply` on `staging/auth/` is still gated; resolve the gate before proceeding.
-- Confirm `config/landing-zone.yaml` has a populated `cognito:` block with non-strawman `callback_urls` and `logout_urls` values. Absent or strawman values here guarantee a user-pool recreate when the real values arrive later — the minor friction now beats the data-loss later.
-- Confirm aegis-core's SPA auth scaffold is merged on `main`. Without the SPA-side `/auth/callback` route, the Hosted UI login verification in Part 3 cannot be completed end-to-end — you can still verify steps 1–4, but the post-callback token exchange will 404 in the browser.
+- Confirm ADR-026 reflects the pinned callback / logout URLs (aegis-core #76 confirmation 2026-04-23). ADR-026 is Accepted once the amendment lands; until then, Partially Accepted is fine for apply because the URL values are now final.
+- Confirm `config/landing-zone.yaml` has a populated `cognito:` block. Callback/logout URLs are `https://aegis-app.staging.binhsu.org/auth/callback` and `https://aegis-app.staging.binhsu.org/` (aegis-core-confirmed). If the block is absent, the layer plans zero resources — a clean no-op apply is still the right first step to confirm workflow + plumbing.
+- Confirm aegis-core's SPA auth scaffold is merged on `main` (aegis-core #78, #79, #80 all landed 2026-04-23). Without these, the Hosted UI login verification in Part 3 cannot be completed end-to-end — you can still verify steps 1–4, but the post-callback token exchange will 404 in the browser.
 - Confirm the `aegis` namespace exists in the target cluster (apply `staging/workloads` first if the current cold-apply cycle has not reached that stage yet).
 - A browser with the operator's Google account available (for Hosted UI login testing in Part 3). Lab uses `pcpunkhades@gmail.com`.
 - 30–45 minutes for first-time provisioning + user creation + smoke tests; 5–10 minutes for password rotation alone.
@@ -31,29 +31,25 @@ Related: [ADR-026](../decisions/026-cognito-auth-user-pool.md) (backend decision
 
 Per [CLAUDE.md § Cost Guardrails](../../CLAUDE.md#cost-guardrails), baseline-tier layers auto-apply on merge to `main`. `staging/auth/` is a baseline-tier layer (it does not incur hourly cost once provisioned — Cognito User Pool free tier is 50k MAU permanent, see [ADR-026](../decisions/026-cognito-auth-user-pool.md) §Consequences).
 
-On the PR that adds the `staging/auth/` `.tf` files:
+The layer auto-applies when a PR that touches `terraform/environments/staging/auth/**` or `config/**` merges to `main`:
 
-1. Merging triggers `terraform-apply-baseline.yml` which runs plan + apply on baseline-tier layers only. Verify the auth layer is listed in the workflow's matrix (PR-time check).
-2. If you need to apply manually outside the merge cycle (e.g. a config-only rotation that does not touch `.tf`), dispatch:
+1. Merging triggers `terraform-apply-baseline.yml` which runs plan + apply on baseline-tier layers. Watch the run: `gh run list --workflow=terraform-apply-baseline.yml` + `gh run view <id> --log-failed` if the auth row fails.
 
-   ```bash
-   gh workflow run terraform-apply-baseline.yml -f layer=staging/auth
-   gh run watch
-   ```
+2. **First-cold-cycle expected failure**: on a brand-new environment where `staging/workloads` has not been applied yet, the `kubectl_manifest.external_secret_cognito_config` step fails with `namespaces "aegis" not found`. The AWS-side resources (user pool, app client, domain, SSM parameters, IAM role) apply cleanly regardless. The operator applies `staging/workloads` via `gh workflow run terraform-apply-workload.yml -f env=staging`, then re-dispatches baseline via `gh workflow run terraform-apply-baseline.yml` to land the ExternalSecret. This is the same mitigation shape as `staging/observability` — not a bug.
 
-   Do **not** run `terraform apply` locally unless this is a break-glass scenario per [`docs/principles/break-glass-apply.md`](../principles/break-glass-apply.md). Local applies bypass the audit trail and skip the OIDC-assumed role path.
+3. Do **not** run `terraform apply` locally unless this is a break-glass scenario per [`docs/principles/break-glass-apply.md`](../principles/break-glass-apply.md). Local applies bypass the audit trail and skip the OIDC-assumed role path.
 
-3. On success, confirm the three SSM parameters exist and carry non-empty values:
+4. On success, confirm the five SSM parameters exist and carry non-empty values:
 
    ```bash
-   for key in user-pool-id app-client-id issuer-url; do
+   for key in user-pool-id user-pool-arn app-client-id issuer-url hosted-ui-domain; do
      aws ssm get-parameter \
        --name /aegis/staging/cognito/$key \
        --with-decryption --query 'Parameter.Value' --output text
    done
    ```
 
-   All three must print non-empty strings. The issuer URL format is `https://cognito-idp.eu-central-1.amazonaws.com/<user-pool-id>` — if it does not match this shape, the `issuer-url` was likely written from the wrong Cognito attribute; check `outputs.tf` + the `aws_ssm_parameter.issuer_url` value expression.
+   All five must print non-empty strings. The issuer URL format is `https://cognito-idp.eu-central-1.amazonaws.com/<user-pool-id>` — if it does not match this shape, the `issuer-url` was likely written from the wrong Cognito attribute; check `outputs.tf` + the `aws_ssm_parameter.issuer_url` value expression.
 
 4. Confirm the `cognito-config` ExternalSecret has reconciled into a K8s Secret:
 
@@ -130,20 +126,22 @@ The canonical first user is the operator's email, `pcpunkhades@gmail.com`. Subse
 
 At this point the user exists in Cognito but has never completed an OAuth flow. The goal of this part is to prove the Hosted UI → app client → callback chain works end-to-end **from a browser**, independent of the gateway.
 
-Pull the three values you need:
+Pull the three values you need (all retrievable from SSM PS, so the runbook is copy-paste reproducible):
 
 ```bash
 APP_CLIENT_ID=$(aws ssm get-parameter \
   --name /aegis/staging/cognito/app-client-id \
   --with-decryption --query 'Parameter.Value' --output text)
 
-# Domain prefix comes from config.yaml; the full domain is deterministic once the prefix is known.
-COGNITO_DOMAIN='aegis-staging.auth.eu-central-1.amazoncognito.com'
+COGNITO_DOMAIN=$(aws ssm get-parameter \
+  --name /aegis/staging/cognito/hosted-ui-domain \
+  --with-decryption --query 'Parameter.Value' --output text)
+# Expected: aegis-staging.auth.eu-central-1.amazoncognito.com
 
-# Callback URL — **[TBD — Q2 aegis-core SPA decision]**. Once aegis-core's SPA auth
-# scaffold is merged, substitute the real value. Must match one of the app client's
-# registered callback_urls exactly (scheme, host, path, no trailing slash drift).
-CALLBACK_URL='<TBD — Q2 aegis-core SPA decision>'
+# Callback URL — aegis-core-confirmed value from aegis-core #76 (2026-04-23).
+# Must match one of the app client's registered callback_urls exactly
+# (scheme, host, path, no trailing slash drift).
+CALLBACK_URL='https://aegis-app.staging.binhsu.org/auth/callback'
 ```
 
 Construct the Hosted UI login URL:
@@ -175,8 +173,8 @@ Prerequisite: you have an authorization code from Part 4 step 4. Exchange it for
 # Substitute the authorization code from the browser redirect.
 CODE='<code from Part 3 step 4>'
 
-# Callback must match Part 3 exactly.
-CALLBACK_URL='<TBD — Q2 aegis-core SPA decision>'
+# Callback must match Part 3 exactly — aegis-core-confirmed on aegis-core #76.
+CALLBACK_URL='https://aegis-app.staging.binhsu.org/auth/callback'
 
 TOKEN_RESPONSE=$(curl -s -X POST \
   "https://${COGNITO_DOMAIN}/oauth2/token" \
@@ -326,15 +324,17 @@ Teardown order:
    terraform destroy
    ```
 
-   This tears down the User Pool, app client, domain, and the three SSM parameters in dependency order.
+   This tears down the User Pool, app client, domain, IAM role, and the five SSM parameters in dependency order. The ExternalSecret was already deleted in step 2 — Terraform does not manage its lifecycle after namespace deletion.
 
-4. **Clean up SSM parameters manually** if Terraform state was lost mid-teardown:
+4. **Clean up SSM parameters manually** if Terraform state was lost mid-teardown (five parameters exist: the three consumed by the ExternalSecret plus `user-pool-arn` and `hosted-ui-domain` for operator convenience):
 
    ```bash
-   for key in user-pool-id app-client-id issuer-url; do
+   for key in user-pool-id user-pool-arn app-client-id issuer-url hosted-ui-domain; do
      aws ssm delete-parameter --name /aegis/staging/cognito/$key
    done
    ```
+
+   Note: all five SSM parameters carry `lifecycle.prevent_destroy = true` in Terraform. To destroy them, you must first remove the lifecycle block (or `terraform state rm` them before `destroy`) — this is deliberate friction.
 
 5. Remove the `cognito:` block from `config/landing-zone.yaml` so the layer plans to zero resources on any future baseline apply.
 

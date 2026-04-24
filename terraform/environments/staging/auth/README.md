@@ -2,26 +2,27 @@
 
 Peer Terraservice layer for the Cognito User Pool that backs cloud-mode auth for aegis-core's SPA and gateway. Implements [ADR-026](../../../../docs/decisions/026-cognito-auth-user-pool.md).
 
-> **Plan document**. This README is the blueprint the next session executes from — no `.tf` files land until aegis-core's SPA auth scaffold arrives with the final callback and logout URLs (see [aegis-core #76](https://github.com/BinHsu/aegis-core/issues/76)). The pre-implementation gate below enumerates what must be true before any `terraform apply` runs here.
+> **Implemented layer**. `.tf` files are live; this README describes the shipped reality. First-session apply follows [Runbook 008](../../../../docs/runbooks/008-cognito-user-pool-onboarding.md). The pre-implementation gate is closed (all 5 gates green) — see below for the evidence.
 
 ## What this layer owns
 
-- **Cognito User Pool** — a single pool (`aegis-<env>`) with self-signup disabled, password policy, and one immutable custom attribute `custom:tenant_id` (see ADR-026 §Decision for the attribute rationale and the soft-naming caveat).
-- **Cognito User Pool Client** (the app client consumed by the SPA) — `openid profile email` scopes, authorization-code flow, Cognito-managed `callback_urls` and `logout_urls` that accept in-place updates without recreate.
-- **Cognito-provided domain** — a `aws_cognito_user_pool_domain` resource pointing at `aegis-<env>.auth.eu-central-1.amazoncognito.com`. No ACM custom-domain work in this layer; that is a deliberately deferred slice per ADR-026 §Decision.
-- **Three SSM PS SecureString parameters** under `/aegis/<env>/cognito/*` — `user-pool-id`, `app-client-id`, `issuer-url`. All written by Terraform from the Cognito resources' attributes.
-- **One ExternalSecret CRD** — `cognito-config` in the `aegis` namespace, syncing the three SSM parameters into a single K8s Secret via the `aegis-ssm` ClusterSecretStore installed by staging/platform.
+- **Cognito User Pool** — a single pool `aegis-staging` with self-signup disabled, NIST-aligned password policy, and one immutable custom attribute `custom:tenant_id` (see ADR-026 §Decision for the attribute rationale).
+- **Cognito User Pool Client** (`aegis-cloud-spa`) — public client with no secret, `openid profile email` scopes, authorization-code + PKCE flow, plus `ALLOW_ADMIN_USER_PASSWORD_AUTH` for aegis-core's nightly integration CI (aegis-core #76 Q B).
+- **Cognito-provided domain** (`aegis-staging.auth.eu-central-1.amazoncognito.com`) — no ACM custom-domain work in this layer; that is a deliberately deferred slice per ADR-026 §Decision.
+- **Five SSM PS SecureString parameters** under `/aegis/staging/cognito/*` — `user-pool-id`, `user-pool-arn`, `app-client-id`, `issuer-url`, `hosted-ui-domain`. All written by Terraform from the Cognito resources' attributes.
+- **One ExternalSecret CRD** — `cognito-config` in the `aegis` namespace, syncing three of the SSM parameters into a single K8s Secret via the `aegis-ssm` ClusterSecretStore installed by staging/platform.
+- **One IAM role** — `github-actions-aegis-core-cognito-integration` for aegis-core's nightly CI, scoped to Cognito admin + SSM PS read on this pool only.
 
 ## What this layer does NOT own
 
 - **ACM custom domain** (`auth.staging.binhsu.org`) — future polish; requires an ACM cert in `us-east-1` for Cognito's CloudFront front-end.
 - **Identity Provider federation** (Google, GitHub, SAML) — future additive slice; add an `aws_cognito_identity_provider` resource and update the app client's `supported_identity_providers` when the demo narrative justifies it.
-- **aegis-core's SPA auth middleware** — the `/auth/callback` route, the PKCE flow, the post-logout redirect logic. All aegis-core scope; tracked on aegis-core #76.
+- **aegis-core's SPA auth middleware** — the `/auth/callback` route, the PKCE flow, the post-logout redirect logic. All aegis-core scope (shipped in aegis-core #78, #79, #80).
 - **First-user creation** — the user pool is provisioned empty. Inviting the operator as the first admin user is [Runbook 008](../../../../docs/runbooks/008-cognito-user-pool-onboarding.md) Part 2, run once after the first apply.
 
 ## Apply order
 
-This is a **baseline-tier peer layer** — long-lived, with its own Terraform state, not torn down between sessions. Rotating the user pool on every session would destroy every registered user. The contrast with cost-incurring layers matters:
+This is a **baseline-tier peer layer** with auto-apply on merge to `main`. Long-lived infrastructure: the User Pool persists across workload-tier teardown cycles. Rolling the pool destroys every registered user — Cognito does not export password hashes in an importable format.
 
 ```
 baseline tier (auto-apply on merge, never torn down):
@@ -32,55 +33,71 @@ workload tier (manual dispatch, torn down at session end):
   staging/network → staging/platform → staging/workloads → staging/observability
 ```
 
-Like `staging/observability/`, the auth layer straddles: it interacts with workload-tier resources (the ExternalSecret targets the `aegis` namespace created by staging/workloads) but its own lifecycle is baseline-tier. The resolution is the same one observability chose — apply manually after workloads exists, but do not tear down when the workload session ends. In CI terms the auth layer is **not** part of `terraform-teardown-workload.yml`.
+**Cold-cycle failure mode**: the `cognito-config` ExternalSecret targets the `aegis` namespace, which is owned by `staging/workloads`. On a fresh account where workloads has not been applied yet, the `kubectl_manifest` apply fails with `namespaces "aegis" not found`. The AWS-side resources (user pool, app client, domain, SSM params, IAM role) apply cleanly regardless. The operator sees the failure, applies workloads, re-dispatches baseline to land the ExternalSecret. This is the same mitigation shape as `staging/observability` — ADR-022 accepted it, ADR-026 inherits it.
 
-First-session bring-up order is:
+`lifecycle.prevent_destroy = true` on the User Pool AND on the five SSM parameters AND on the IAM role means subsequent workload cycles do not touch this layer's AWS resources. Only the ExternalSecret (a K8s CRD) becomes orphaned on workload teardown; External Secrets Operator stops reconciling it — not a functional issue, the K8s Secret stays until workload-teardown cleanup removes it.
 
-```
-staging/workloads (creates aegis namespace) → staging/auth (ExternalSecret lands in aegis)
-```
+In CI terms the auth layer is **not** part of `terraform-teardown-workload.yml`.
 
-After the first cold-apply cycle, the user pool persists; subsequent workload cycles (network → platform → workloads) can tear down and re-apply freely without touching `staging/auth/`.
-
-## Planned Terraform file inventory
+## Terraform file inventory
 
 | File | Purpose |
 |---|---|
-| `backend.tf` | S3 native-locking backend. Generated by `scripts/configure-backends.sh` from config.yaml, matching the `staging/observability/backend.tf` shape. |
-| `providers.tf` | AWS provider for `eu-central-1`. No multi-region slot pattern here — Cognito is primary-only in this ADR's scope. |
-| `config.tf` | `yamldecode(file("${path.root}/../../../../config/landing-zone.yaml"))`; derives `local.cognito`, `local.auth_enabled` (= `local.cognito != null`), and the SSM path prefix `/aegis/staging/cognito`. |
-| `user-pool.tf` | `aws_cognito_user_pool` + password policy + `custom:tenant_id` schema attribute. |
-| `user-pool-client.tf` | `aws_cognito_user_pool_client` with scopes, flows, and the callback / logout URL lists driven from config. |
-| `domain.tf` | `aws_cognito_user_pool_domain` for the Cognito-provided `.auth.eu-central-1.amazoncognito.com` host. |
-| `ssm.tf` | Three `aws_ssm_parameter` SecureString resources under `/aegis/staging/cognito/*`. Mirrors the `staging/observability/tokens.tf` SecureString + KMS-alias pattern. |
-| `external-secret.tf` | `kubectl_manifest` resource rendering the `cognito-config` ExternalSecret into the `aegis` namespace. Mirrors `staging/observability/external-secrets.tf`. |
-| `outputs.tf` | `user_pool_id`, `app_client_id`, `issuer_url`, `cognito_domain` — useful for cross-stack remote-state reads (e.g. future ACM custom-domain layer). |
+| `backend.tf` | S3 native-locking backend. Generated by `scripts/configure-backends.sh` from config.yaml. |
+| `versions.tf` | Provider versions — aws ~> 6.40, kubernetes ~> 2.35, kubectl ~> 1.19. |
+| `providers.tf` | AWS provider for `eu-central-1`. kubectl + kubernetes providers point at the primary cluster only (ADR-026 §Decision). |
+| `config.tf` | `yamldecode(file("${path.root}/../../../../config/landing-zone.yaml"))`; derives `local.cognito`, `local.auth_enabled`, SSM path prefix, callback/logout URLs with strawman fallbacks. |
+| `user-pool.tf` | `aws_cognito_user_pool.this` + password policy + `custom:tenant_id` schema attribute + `deletion_protection = "ACTIVE"`. |
+| `user-pool-client.tf` | `aws_cognito_user_pool_client.spa` with OAuth scopes, flows, callback/logout URL lists. |
+| `domain.tf` | `aws_cognito_user_pool_domain.this` for the Cognito-provided `.auth.eu-central-1.amazoncognito.com` host. |
+| `iam.tf` | `github-actions-aegis-core-cognito-integration` role + two inline policies (Cognito admin on this pool, SSM PS read + KMS decrypt). |
+| `ssm.tf` | Five `aws_ssm_parameter` SecureString resources under `/aegis/staging/cognito/*`. |
+| `external-secret.tf` | `kubectl_manifest` rendering the `cognito-config` ExternalSecret into the `aegis` namespace. |
+| `outputs.tf` | 8 outputs: `auth_enabled`, the five identifiers, integration role ARN, SSM paths map. |
 
-## Planned Cognito resource inventory
+## Cognito resource inventory
 
 | Resource type | Terraform resource name | Purpose | Update-safe vs. recreate |
 |---|---|---|---|
-| `aws_cognito_user_pool` | `this` | The user pool itself. Immutable attributes (`custom:tenant_id`) are declared here and cannot be added later without recreate. | **Recreate-required** on schema changes (adding / removing immutable attributes) — destroys all users. See ADR-026 §Decision. |
-| `aws_cognito_user_pool_client` | `spa` | The app client consumed by aegis-core's SPA. OIDC scopes, auth flows, callback/logout URL lists, `prevent_user_existence_errors = "ENABLED"`. | **Update-safe** on callback/logout URL list changes — Cognito accepts in-place updates. Adding a new flow or scope is also update-safe. |
-| `aws_cognito_user_pool_domain` | `this` | Cognito-provided hosted UI domain. | **Recreate** to rename (the domain prefix is in the resource name). Not a concern in lab scope — the prefix is fixed to `aegis-staging`. |
-| `aws_ssm_parameter` (x3) | `user_pool_id`, `app_client_id`, `issuer_url` | Deliver the three non-secret identifiers to the aegis namespace via External Secrets. | **Update-safe** — values change only on user-pool or app-client recreate. |
+| `aws_cognito_user_pool` | `this` | The user pool itself. Immutable attributes (`custom:tenant_id`) are declared here. | **Recreate-required** on schema changes (adding/removing immutable attributes) — destroys all users. `prevent_destroy = true` + `deletion_protection = "ACTIVE"`. |
+| `aws_cognito_user_pool_client` | `spa` | Public SPA client, no secret, PKCE flow. | **Update-safe** on callback/logout URL list changes. Adding flows or scopes is also update-safe. |
+| `aws_cognito_user_pool_domain` | `this` | Cognito-provided hosted UI domain. | **Recreate** to rename (the domain prefix is in the resource name). ~30s 5xx window during recreate. |
+| `aws_ssm_parameter` (x5) | `user_pool_id`, `user_pool_arn`, `app_client_id`, `issuer_url`, `hosted_ui_domain` | Identifier delivery to aegis namespace via ExternalSecret, plus outputs for the aegis-core nightly workflow. | **Update-safe** — values change only on user-pool or app-client recreate. All have `prevent_destroy = true`. |
 | `kubectl_manifest` | `external_secret_cognito_config` | `cognito-config` ExternalSecret in `aegis` namespace. | **Update-safe**; schema-stable against the ESO CRD. |
+| `aws_iam_role` | `aegis_core_cognito_integration` | aegis-core nightly CI assumes this via GitHub OIDC. | **Update-safe**. `prevent_destroy = true` (aegis-core has hardcoded the ARN). |
 
 ## SSM PS paths
 
-Three SecureString parameters under the `/aegis/<env>/cognito/` prefix:
+Five SecureString parameters under the `/aegis/staging/cognito/` prefix:
 
 ```
 /aegis/staging/cognito/user-pool-id
+/aegis/staging/cognito/user-pool-arn
 /aegis/staging/cognito/app-client-id
 /aegis/staging/cognito/issuer-url
+/aegis/staging/cognito/hosted-ui-domain
 ```
 
-None of these values is secret in the strict sense — `issuer-url` is a public JWKS endpoint, `user-pool-id` and `app-client-id` appear in every OAuth redirect the SPA performs. We still store them as SecureString because the **External Secrets Operator IAM policy surface** is already scoped to SecureString parameters under `/aegis/staging/*`, and splitting this one family into plain `String` would require either widening the IAM policy to both tiers or adding a second ClusterSecretStore. Neither pays back the "not really a secret" framing. Third repetition of the ADR-022 / ADR-025 reasoning: one secret-delivery channel is the simpler posture.
+None of these values is secret in the strict sense — `issuer-url` is a public JWKS endpoint, `user-pool-id` and `app-client-id` appear in every OAuth redirect the SPA performs. We still store them as SecureString because the **ESO ClusterSecretStore IAM policy surface** is already scoped to SecureString parameters under `/aegis/staging/*`, and splitting this one family into plain `String` would complicate the IAM policy for zero benefit. Third repetition of the ADR-022 / ADR-025 reasoning: one secret-delivery channel is the simpler posture.
 
 Each parameter is encrypted with `alias/aegis-staging-secrets` — the same CMK used by the Grafana Cloud and Qdrant Cloud credentials — and tagged `Name=cognito-<key>` plus the standard `Project`, `Environment`, `ManagedBy` tags.
 
-## ExternalSecret sketch
+## Outputs available
+
+For operator inspection via `terraform output` (all values are also published to SSM PS — aegis-core reads from SSM PS fresh each nightly run, not from remote_state, per aegis-core #76 Q A-2):
+
+| Output | Description |
+|---|---|
+| `auth_enabled` | True when `config.cognito` is present. |
+| `cognito_user_pool_id` | User Pool ID (e.g. `eu-central-1_abc12`). |
+| `cognito_user_pool_arn` | User Pool ARN. |
+| `cognito_app_client_id` | App Client ID for the SPA. |
+| `cognito_issuer_url` | OIDC issuer URL — the `iss` claim value on tokens. |
+| `cognito_hosted_ui_domain` | Fully-qualified Hosted UI domain (e.g. `aegis-staging.auth.eu-central-1.amazoncognito.com`). |
+| `aegis_core_cognito_integration_role_arn` | ARN of the IAM role for aegis-core's nightly CI. |
+| `ssm_paths` | Map of the five SSM PS paths for CLI retrieval. |
+
+## ExternalSecret shape
 
 ```yaml
 apiVersion: external-secrets.io/v1beta1
@@ -111,19 +128,19 @@ spec:
         key: /aegis/staging/cognito/issuer-url
 ```
 
-The three `secretKey` names are the env-var names aegis-core's gateway Deployment will `envFrom` or `valueFrom: secretKeyRef` against. Naming matches the ADR-026 §Decision contract — changing these requires a cross-repo amendment, not a unilateral refactor.
+The three `secretKey` names are the env-var names aegis-core's gateway Deployment consumes via `envFrom` or `secretKeyRef`. Changing these requires a cross-repo amendment, not a unilateral refactor.
 
 ## Config contract
 
-A new `cognito:` block under the existing staging env gates the layer's `auth_enabled` flag. Absent block = zero-resource plan (same pattern as `grafana_cloud:` gating `observability_enabled`).
+A `cognito:` block under the top-level config gates the layer's `auth_enabled` flag. Absent block = zero-resource plan (same pattern as `grafana_cloud:` gating `observability_enabled`).
 
 ```yaml
 cognito:
   domain_prefix: aegis-staging     # Cognito-provided domain prefix (<prefix>.auth.eu-central-1.amazoncognito.com)
   callback_urls:                   # app client allowed callback list (SPA OAuth redirect targets)
-    - "<TBD — Q2 aegis-core SPA decision>"
+    - "https://aegis-app.staging.binhsu.org/auth/callback"
   logout_urls:                     # app client allowed logout redirect list
-    - "<TBD — Q2 aegis-core SPA decision>"
+    - "https://aegis-app.staging.binhsu.org/"
   password_policy:
     minimum_length: 12
     require_lowercase: true
@@ -133,44 +150,44 @@ cognito:
   mfa_configuration: OFF           # "OFF" | "OPTIONAL" | "ON"; lab default OFF, demo may toggle to OPTIONAL
 ```
 
-The `callback_urls` and `logout_urls` values are **Q2 from ADR-026 — aegis-core's call**, blocked on the SPA auth scaffolding landing. This plan deliberately does **not** pin strawman URL values as if they were final. The implementation PR that lands the `.tf` files seeds strawman values aligned with aegis-core's answer on #76; until that answer arrives, the config block stays commented out and the layer plans to zero resources.
+Callback and logout URLs are **aegis-core-confirmed 2026-04-23** on aegis-core #76 — the strawman values originally hedged in the plan doc are now the pinned final values. `terraform apply` with these values produces a stable plan aligned with aegis-core's SPA auth scaffold (shipped in aegis-core #79).
 
-The `config/schema.json` addition is out of scope for this plan-only PR and lands alongside the implementation PR.
+Password policy and MFA have `try()` fallbacks in `config.tf` — forkers who want lab defaults can omit both subfields.
 
-## Pre-implementation gate
+See `config/landing-zone.example.yaml` for the commented-out template block a forker uncomments to enable the layer.
 
-Before anyone runs `terraform apply` on `staging/auth/` for the first time, all of the following must be true:
+## Pre-implementation gate — all 5 green (as of this PR)
 
-1. **aegis-core SPA auth scaffolding is merged** — the `/auth/callback` route, PKCE flow wiring, and post-logout redirect logic exist in aegis-core's `main`.
-2. **Q2 answer is posted to aegis-core #76** — final `callback_urls` and `logout_urls` values are documented on the issue.
-3. **`config/landing-zone.yaml` has a populated `cognito:` block** — with the URL values from step 2, not strawman placeholders.
-4. **ADR-026 is amended to Accepted** — the open question is closed and the URL values are reflected in the ADR.
-5. **The `aegis` namespace exists** — i.e. `staging/workloads` has been applied in the session's current cold-apply cycle (the ExternalSecret depends on the namespace).
+| Gate | Status | Evidence |
+|---|---|---|
+| 1. aegis-core SPA auth scaffolding merged | Green | aegis-core #78 (gateway JWT middleware), #79 (SPA OAuth scaffold), #80 (tenant propagation) all on aegis-core `main` 2026-04-23 |
+| 2. Q2 callback/logout URLs posted to aegis-core #76 | Green | aegis-core #76 status comment 2026-04-23 12:26 UTC confirmed strawman values as final |
+| 3. `config/landing-zone.yaml` has a populated `cognito:` block | Gated at apply time | Operator populates during first-apply per Runbook 008; config is gitignored |
+| 4. ADR-026 amended to Accepted | Pending | ADR is Partially Accepted — promotes to Accepted on the URL-confirmation amendment landing alongside this PR. Not a blocker for apply. |
+| 5. `aegis` namespace exists | Cold-cycle gated | First apply cycle where workloads has not been applied yet fails the ExternalSecret step; AWS-side resources apply cleanly. Operator applies workloads + re-dispatches baseline. |
 
-Only after all five gates are green does the first apply make sense. Skipping any one of them produces either a Terraform error (gate 5) or a silent misconfiguration that forces a user-pool recreate (gates 1–4).
+Gates 1–2 are fully green. Gates 3–5 resolve at operator-apply time per the normal baseline-on-merge flow.
 
 ## First-operator steps
 
-See [docs/runbooks/008-cognito-user-pool-onboarding.md](../../../../docs/runbooks/008-cognito-user-pool-onboarding.md). The runbook covers the end-to-end flow: Terraform apply, first admin user creation via `aws cognito-idp admin-create-user`, Hosted UI login verification, JWKS-based token smoke test, and the credential rotation procedure.
+See [docs/runbooks/008-cognito-user-pool-onboarding.md](../../../../docs/runbooks/008-cognito-user-pool-onboarding.md). The runbook covers the end-to-end flow: confirming the baseline apply succeeded, first admin user creation via `aws cognito-idp admin-create-user`, Hosted UI login verification, JWKS-based token smoke test, and the credential / user rotation procedure.
 
 ## Teardown
 
 Teardown is **manual and rare**. Rolling the Cognito user pool destroys every registered user — Cognito does not export password hashes in a re-importable format, so "tear down and re-apply" is equivalent to "every user re-registers from scratch". That is fine for a single-operator lab and catastrophic for anything larger.
 
-The safe path when teardown is actually needed (abandoning the lab permanently, or migrating to a different IdP):
-
-1. Run `aws cognito-idp list-users --user-pool-id <id> --output json > users-backup.json` and store it off-repo. This captures usernames and (non-hash) attributes for a manual re-invite flow on the successor IdP.
-2. Delete the ExternalSecret first (`kubectl delete externalsecret cognito-config -n aegis`) so the K8s Secret does not flap while the SSM parameters are being destroyed.
-3. `terraform destroy` in `staging/auth/`.
-4. Delete SSM parameters manually if Terraform state was lost: `aws ssm delete-parameter --name /aegis/staging/cognito/<key>` for each of the three keys.
+Layers of protection:
+1. `lifecycle.prevent_destroy = true` on the User Pool, the five SSM parameters, and the IAM role.
+2. `deletion_protection = "ACTIVE"` on the User Pool (Cognito-side safety net).
+3. The teardown procedure in [Runbook 008 §Permanent teardown](../../../../docs/runbooks/008-cognito-user-pool-onboarding.md#permanent-teardown) explicitly documents the order (user export → ExternalSecret delete → Terraform destroy → SSM manual cleanup).
 
 Per-session workload teardown **must not** touch this layer. `terraform-teardown-workload.yml` is scoped to the workload-tier layers; if a future PR extends that workflow to include `staging/auth/`, it is a design regression and must be rejected.
 
 ## Related
 
-- [ADR-026](../../../../docs/decisions/026-cognito-auth-user-pool.md) — the backing decision and the Q2 open-question source of truth.
+- [ADR-026](../../../../docs/decisions/026-cognito-auth-user-pool.md) — the backing decision.
 - [ADR-022](../../../../docs/decisions/022-observability-backend-grafana-cloud.md) — precedent for the peer-layer + SSM PS + ExternalSecret pattern.
 - [ADR-023](../../../../docs/decisions/023-observability-responsibility-model.md) — the External Secrets responsibility split reused here.
-- [ADR-025](../../../../docs/decisions/025-qdrant-backend-cloud-free-tier.md) — the most recent ADR with a deferred-implementation gate; this layer follows the same shape.
+- [ADR-025](../../../../docs/decisions/025-qdrant-backend-cloud-free-tier.md) — the most recent ADR with a deferred-implementation gate; this layer followed the same shape.
 - [Runbook 008](../../../../docs/runbooks/008-cognito-user-pool-onboarding.md) — operational procedures.
-- [aegis-core #76](https://github.com/BinHsu/aegis-core/issues/76) — the live consumption-contract coordination thread, including the Q2 callback/logout URL decision.
+- [aegis-core #76](https://github.com/BinHsu/aegis-core/issues/76) — the consumption-contract coordination thread, including the Q2 callback/logout URL decision.

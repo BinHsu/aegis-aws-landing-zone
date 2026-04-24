@@ -256,6 +256,67 @@
         }
       }
     },
+    "cognito": {
+      "type": "object",
+      "description": "Cognito User Pool — cloud-mode auth for aegis (ADR-026). Optional — present this block to enable the staging/auth peer layer. Omit to deploy the landing zone without an auth layer. Runbook 008 documents first-operator setup including admin user creation and Hosted UI login verification. See ADR-026 §Decision for the custom:tenant_id attribute design.",
+      "required": ["callback_urls", "logout_urls"],
+      "additionalProperties": false,
+      "properties": {
+        "callback_urls": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "format": "uri"
+          },
+          "description": "App client allowed callback URL list — SPA OAuth redirect targets. aegis-core-confirmed default: ['https://aegis-app.staging.binhsu.org/auth/callback']. Cognito accepts in-place updates to this list without recreate."
+        },
+        "logout_urls": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "format": "uri"
+          },
+          "description": "App client allowed logout redirect URL list. aegis-core-confirmed default: ['https://aegis-app.staging.binhsu.org/']. Cognito accepts in-place updates without recreate."
+        },
+        "domain_prefix": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "description": "Cognito-provided hosted UI domain prefix — full URL is <prefix>.auth.<region>.amazoncognito.com. Globally unique within the region. Default: 'aegis-staging'. Changing this forces a ~30s hosted-UI 5xx window during resource recreate."
+        },
+        "password_policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "minimum_length": {
+              "type": "integer",
+              "minimum": 6,
+              "maximum": 99,
+              "description": "Minimum password length. Lab default 12 (NIST SP 800-63B aligned)."
+            },
+            "require_lowercase": {
+              "type": "boolean"
+            },
+            "require_uppercase": {
+              "type": "boolean"
+            },
+            "require_numbers": {
+              "type": "boolean"
+            },
+            "require_symbols": {
+              "type": "boolean"
+            }
+          },
+          "description": "Cognito password policy. Omit any subfield to use the lab default. Omit the whole block to inherit the full lab-default policy (min 12, all four character classes required)."
+        },
+        "mfa_configuration": {
+          "type": "string",
+          "enum": ["OFF", "OPTIONAL", "ON"],
+          "description": "MFA posture. OFF (lab default) = no MFA. OPTIONAL = users may enroll a factor and get prompted when present. ON = factor required for every user; login hard-fails if not configured. ON is not recommended for MVP — use OPTIONAL if you want to demo MFA without breaking lab-operator login."
+        }
+      }
+    },
     "eks": {
       "type": "object",
       "description": "EKS platform configuration keyed by workload environment name (e.g. staging, prod). Optional — only environments that deploy a platform layer need an entry.",
