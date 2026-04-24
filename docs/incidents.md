@@ -2545,6 +2545,142 @@ Process (this is the bigger win):
 
 ---
 
+## Incident 33 — LBC webhook race recurrence: Incident 17 prevention never propagated to 5 later helm_releases; Kyverno finalizer cascade turned a first-apply retry into manual K8s cleanup
+
+**Date**: 2026-04-24 (Phase 4c+ first real end-to-end cold-apply attempting to land Qdrant + aegis-core rollout wiring together)
+**Severity**: S2 (blocked full-session cold-apply; blocked teardown retry; forced break-glass kubectl cleanup + ad-hoc SSO EKS Access Entry provisioning to recover)
+**Duration**: ~90 minutes from first apply failure to clean teardown completion — 2 failed apply attempts + 2 failed teardown attempts + manual K8s cleanup session
+
+### Symptom
+
+Fresh cold-apply (`gh workflow run terraform-apply-workload.yml -f env=staging`) on an empty state, after the pre-flight prep described in PR #148 (Runbook 007 unfreeze, Qdrant SSM PS imported, etc.). `apply-network` passed in ~3-5min. `apply-platform` failed ~10min later with the signature of Incident 17 but fanned across **five independent helm_releases × two clusters**:
+
+```
+Error: Internal error occurred: failed calling webhook "mservice.elbv2.k8s.aws":
+failed to call webhook: Post
+"https://aws-load-balancer-webhook-service.kube-system.svc:443/mutate-v1-service?timeout=10s":
+no endpoints available for service "aws-load-balancer-webhook-service"
+
+(and 7 more similar warnings elsewhere)
+
+Error: 3 errors occurred:
+  (cert_manager × 2 clusters)
+Error: 1 error occurred:
+  (external_secrets × 2 clusters)
+Error: 1 error occurred:
+  (kube_state_metrics × 2 clusters)
+Error: 6 errors occurred:
+  (kyverno × 2 clusters)
+```
+
+Per-resource summary from the failed plan log: cert-manager, external-secrets, kyverno, kube-state-metrics, on both the `primary` and `slave_1` EKS clusters. Total ~22 individual Service-admission failures (multiple Services per chart × 2 clusters). ArgoCD (which HAD `depends_on = [helm_release.aws_lb_controller]` from Incident 17's original fix) succeeded cleanly; that was the single chart that followed the rule.
+
+Naive retry (`gh workflow run terraform-apply-workload.yml -f env=staging` immediately) made the situation worse: cert-manager + ESO + KSM + node-exporter retried fine (LBC pod Ready by then), but Terraform's second-run plan saw the Kyverno helm_release in `failed` state and attempted to **destroy-then-recreate**. `helm uninstall kyverno` then hung for 5 minutes with `timed out waiting for the condition`, producing a second workflow failure with cluster now in a partially-torn-down state (Kyverno pods re-created by ReplicaSet controller while Helm tried to delete them, Kyverno CRDs with finalizers blocking CR cleanup, admission webhooks still registered).
+
+Teardown workflow (`gh workflow run terraform-teardown-workload.yml -f env=staging`) then failed at `destroy-platform` with a **mirror-image webhook race**: ESO's `helm_release` destroyed before `ClusterSecretStore aegis-ssm` could be deleted, because the ClusterSecretStore delete requires validation via `validate.clustersecretstore.external-secrets.io` — whose backing service (`external-secrets-webhook`) is gone after the helm_release destroy. Same Kyverno timeout surfaced on the destroy path.
+
+Result: 2 EKS control planes + NAT + Karpenter EC2 burning ~\$0.30/hr with no clean path forward via CI.
+
+### Root cause
+
+**Incident 17's prescription was written and never applied to the helm_releases added after 2026-04-14.**
+
+Incident 17 (2026-04-14) identified that LBC's MutatingWebhookConfiguration `mservice.elbv2.k8s.aws` intercepts **every** `Service` creation cluster-wide, not just `type=LoadBalancer`. The fix was a one-line `depends_on = [helm_release.aws_lb_controller]` on `helm_release.argocd`. The Prevention section explicitly generalized the rule: *"If a Helm chart installs a cluster-wide admission webhook, every subsequent Helm chart that creates resources the webhook intercepts must `depends_on` the webhook's chart."* That generalization was accurate and complete — but was expressed only in prose, with no enforcement mechanism and no reminder baked into `lb-controller.tf` itself.
+
+Five subsequent helm_releases were added to `modules/eks-cluster/` (cert-manager, external-secrets, kyverno, kube-state-metrics, plus implicitly downstream charts like alloy) and NONE of them added the prescribed `depends_on`. Terraform's resource graph gave no signal — these resources are not attribute-referenced by `aws_lb_controller`, so Terraform schedules them in parallel. When Karpenter hadn't yet provisioned an EC2 node for the LBC pod (cold-cluster case), the webhook service had zero endpoints at the moment these helm charts created their Services.
+
+The Kyverno-destroy-hang was a second-order effect: Kyverno's first-apply created CRDs with finalizers but hadn't fully installed its own admission controller, leaving the cluster in a state where Kyverno's uninstall requires Kyverno's own webhooks to validate CR deletions — but those webhooks can't fire because the controller never reached Ready. Terraform saw `helm uninstall` timeout and gave up. Retrying without manual cleanup perpetuated the loop.
+
+The teardown-path webhook race (ClusterSecretStore blocking on ESO's own validation webhook after ESO is destroyed) is **structurally identical** to the apply-path race but flows in the opposite direction. Same missing-depends_on class; Incident 17's Prevention rule would have caught both if applied.
+
+### Detection
+
+First-run failure was unambiguous from CI logs — error text explicitly named `aws-load-balancer-webhook-service` across 22 failures. Pattern-matched Incident 17 instantly. The misdiagnosis of naïve retry as "webhook race self-resolves once LBC is Ready" was partially correct (4 of 5 charts recovered) but missed that Kyverno specifically poisons its own retry path.
+
+Teardown failure detected via workflow job log: `aegis-ssm failed to delete kubernetes resource: Internal error occurred: failed calling webhook "validate.clustersecretstore.external-secrets.io"` — same admission-webhook-with-no-endpoints signature, different chart.
+
+Operator lockout detection during manual recovery: `kubectl auth whoami` returned `Unauthorized` despite valid SSO credentials. `aws eks list-access-entries` showed only `github-actions-terraform`, `AWSServiceRoleForAmazonEKS`, and the Fargate pod-execution-role — no entry for the human SSO role `AWSReservedSSO_PlatformAdmin_*`. This gap was independent of Incident 33 (a pre-existing deficiency the incident exposed) but materially blocked recovery.
+
+### Resolution
+
+Full manual cleanup + teardown retry sequence (executed with operator SSO after ad-hoc Access Entry creation):
+
+1. **Grant SSO role temporary EKS access on both clusters** (required because the platform layer's Terraform never provisioned an Access Entry for the SSO admin role — pre-existing gap, flagged as follow-up below):
+
+   ```bash
+   SSO_ROLE="arn:aws:iam::251774439261:role/aws-reserved/sso.amazonaws.com/eu-central-1/AWSReservedSSO_PlatformAdmin_5f5772e2bfd724a3"
+   for region_cluster in "eu-central-1 aegis-staging-primary" "eu-west-1 aegis-staging-slave-1"; do
+     region=$(echo $region_cluster | awk '{print $1}')
+     cluster=$(echo $region_cluster | awk '{print $2}')
+     aws eks create-access-entry --cluster-name $cluster --region $region \
+       --principal-arn "$SSO_ROLE" --type STANDARD
+     aws eks associate-access-policy --cluster-name $cluster --region $region \
+       --principal-arn "$SSO_ROLE" \
+       --policy-arn arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy \
+       --access-scope type=cluster
+   done
+   ```
+
+2. **Delete ESO ValidatingWebhookConfiguration** (the one blocking ClusterSecretStore deletion) on both clusters:
+
+   ```bash
+   kubectl --context $ctx delete validatingwebhookconfiguration secretstore-validate
+   ```
+
+3. **Patch + delete `ClusterSecretStore/aegis-ssm`** (finalizer was empty but the webhook rejection was the block — step 2 was required first):
+
+   ```bash
+   kubectl --context $ctx patch clustersecretstore aegis-ssm -p '{"metadata":{"finalizers":null}}' --type=merge
+   kubectl --context $ctx delete clustersecretstore aegis-ssm
+   ```
+
+4. **Delete Kyverno admission webhook configs** (remove the stuck validation that would block CRD deletes):
+
+   ```bash
+   kubectl --context $ctx get mutatingwebhookconfiguration,validatingwebhookconfiguration -o name \
+     | grep -i kyverno | xargs -r kubectl --context $ctx delete
+   ```
+
+5. **Patch finalizers off + delete all 12 Kyverno CRDs** (cascades to any remaining CRs; CRDs themselves had finalizers):
+
+   ```bash
+   for crd in $(kubectl --context $ctx get crd -o name | grep kyverno); do
+     kubectl --context $ctx patch $crd -p '{"metadata":{"finalizers":null}}' --type=merge
+   done
+   kubectl --context $ctx get crd -o name | grep kyverno \
+     | xargs -r kubectl --context $ctx delete --timeout=30s
+   ```
+
+6. **Re-trigger teardown workflow** — completed cleanly on this retry because the cluster-side blockers were gone.
+
+7. **Fix PR** follows: 4 files × `depends_on = [helm_release.aws_lb_controller]` + a prominent policy comment at the top of `lb-controller.tf` enumerating compliance and the rule for future authors.
+
+### Prevention
+
+1. **Structural fix** (this incident's fix PR): explicit `depends_on = [helm_release.aws_lb_controller]` added to `cert-manager-helm.tf`, `external-secrets-helm.tf`, `kyverno-helm.tf`, `kube-state-metrics.tf`. These are the 4 charts that demonstrably failed; `alloy.tf` transitively waits via `external_secrets` and is not load-bearing today (flag for follow-up audit).
+
+2. **Documentation fix**: prominent policy comment at the top of `lb-controller.tf` (not buried in a separate doc) enumerates the rule and current compliance status. Future helm_release additions reviewing the file at PR time will see the rule inline. This is the weakest part of the fix — relies on author compliance — but is the cheapest to ship. Long-term a pre-commit / Checkov custom rule checking `helm_release` → `depends_on` → `helm_release.aws_lb_controller` for charts that create Services would be stronger; out of scope for this PR.
+
+3. **Kyverno-specific hardening**: consider `atomic = true` on `helm_release.kyverno` so a failed first-apply auto-cleans (rolls back) rather than leaving broken state that poisons retry. Not in this PR (one change per PR principle); flagged for the next Kyverno-touching PR.
+
+4. **EKS Access Entry for SSO admin role**: separate from Incident 33's root cause, but exposed by the recovery path. Platform layer should provision an Access Entry for the SSO admin role (likely derived from `data.aws_iam_policy.sso_administrators` or passed as a config value). Until then, operators needing kubectl access during teardown-recovery will need to create Access Entries ad-hoc via AWS CLI. Follow-up issue to track.
+
+### Lessons
+
+- **"Incidents' Prevention sections must live where the code lives, not in a separate doc."** Incident 17's Prevention rule was correct and comprehensive, but it sat in `docs/incidents.md` and nobody reading the next helm_release PR had it in their working memory. The fix here bakes the rule into `lb-controller.tf` as a prominent top-of-file comment with compliance checklist — future PRs touching that module will see it. Generalizable: every "class-of-bug" prevention rule should have a co-located comment at the natural load-bearing location, not only in the incident log.
+
+- **"Prevention that relies on author compliance without enforcement is technical debt."** The depends_on rule is a code-review convention, not a check. Checkov doesn't catch it; terraform validate doesn't; tflint doesn't. Each new helm_release that misses it is an incident-in-waiting. A custom policy (Checkov/OPA/CEL on the plan) would be stronger. Not a 5-minute fix, but worth scheduling.
+
+- **"Second-order effects from admission webhooks are an order of magnitude worse than the first-order failure."** LBC webhook race on apply is annoying but cleanly recoverable (add depends_on, retry). LBC webhook race **combined with** Kyverno's self-finalizer trap on retry was un-recoverable via CI alone — required 90 minutes of manual kubectl work. The compound failure mode wasn't obvious from Incident 17's write-up. Moral: admission webhooks + finalizers + failed helm_release retry is a three-way deadlock surface that deserves dedicated guard rails (atomic=true, separate namespace lifecycle for CRDs, pre-Ready health checks, etc.).
+
+- **"Break-glass discipline must acknowledge that teardown recovery is structurally different from apply break-glass."** The break-glass-apply principle doc (PR #121) correctly flags unauthorized forward-progress mutations. But teardown recovery — where the goal is to return to clean state — often requires K8s-side intervention (finalizer patching, webhook deletion) that's operationally necessary and not the class of concern the principle addresses. The principle doc should carve out "teardown recovery" as an explicit exception category, or a sibling document should codify the teardown-recovery ritual as a named runbook. Right now the ritual exists only as tribal knowledge that each incident must rediscover.
+
+- **"EKS Access Entry provisioning for human SSO roles is a hidden single-point-of-failure for teardown recovery."** The platform layer cleanly provisions Access Entries for the CI role and the Fargate pod-execution-role, but not for the human SSO admin role. This worked "by accident" in normal flow because the operator never needs kubectl in green-path cold-apply + teardown. The moment the green path deviates and operator intervention is required, the operator is locked out. Fix: provision the SSO Access Entry in the platform layer; until then, document the ad-hoc creation as a known teardown-recovery step.
+
+- **"4 + 1 failures is a pattern, not bad luck."** Incident 17 + Incident 33 + (future): if this same class of bug surfaces a third time, the fix is not another depends_on — it's a structural change to how `helm_release`s declare their admission-webhook dependencies (e.g., a module-level map of "admission-owning helm_releases" that `null_resource`s encode as cluster-wide serialization gates). Flag the structural refactor as a pre-emptive ADR draft if the issue recurs.
+
+---
+
 ## Incident 34 — `lifecycle.ignore_changes` does not protect against destroy (2026-04-25)
 
 **Date**: 2026-04-25 (Phase 4c+ post-Incident-33 teardown forensics)

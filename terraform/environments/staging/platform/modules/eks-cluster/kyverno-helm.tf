@@ -66,6 +66,13 @@ resource "helm_release" "kyverno" {
   depends_on = [
     aws_eks_cluster.main,
     helm_release.karpenter,
+    # LB Controller webhook must be ready before this chart's Services hit
+    # admission (admission-controller, background-controller, cleanup-controller,
+    # reports-controller — Kyverno installs many Services). First-apply failure
+    # here is especially painful: Kyverno's own admission webhook then blocks
+    # its own helm uninstall via CRD finalizers, turning a retry into a manual
+    # K8s cleanup. See Incident 17 (ArgoCD fix) + Incident 33 (this race).
+    helm_release.aws_lb_controller,
     # Cluster-admin via group — needed for CRD delete at teardown.
     # See Incident 18 + 21.
     kubectl_manifest.aegis_cluster_admin_binding,
