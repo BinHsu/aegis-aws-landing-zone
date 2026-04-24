@@ -19,6 +19,7 @@ on:
       - 'terraform/environments/shared/**'
       - 'terraform/environments/staging/bootstrap/**'
       - 'terraform/environments/staging/auth/**'
+      - 'terraform/environments/staging/edge/**'
       - 'terraform/environments/prod/bootstrap/**'
       - 'config/**'
 
@@ -79,6 +80,34 @@ jobs:
           # resources. The layer is stable across workload cycles.
           # -----------------------------------------------------------------
           - env: staging/auth
+            account_id: "251774439261"
+          # -----------------------------------------------------------------
+          # staging/edge — CloudFront + S3 (frontend) + ALB ACM (api) + Route53
+          # delegated zone + OIDC role (ADR-019)
+          # -----------------------------------------------------------------
+          # Baseline-tier peer layer. All resources are either free tier
+          # (ACM cert, Route53 zone $0.50/mo, IAM) or bill-on-use with ~$0
+          # idle (CloudFront, S3). Safe for auto-apply.
+          #
+          # Ordered AFTER staging/bootstrap (needs the GitHub OIDC provider
+          # created there for `oidc-aegis-core-frontend` role's trust policy)
+          # and AFTER management/scps (SCPs guard all staging resources).
+          #
+          # Unlike staging/auth, this layer has NO kubectl_manifest step and
+          # NO dependency on the workloads namespace — all resources are
+          # account-level AWS primitives. It applies cleanly on a cold
+          # environment without the "apply workloads, then re-dispatch
+          # baseline" dance.
+          #
+          # Route53 ALIAS record for `aegis-api.staging.<domain>` is
+          # intentionally NOT created by this layer — the ALB DNS does not
+          # exist at apply time (LBC provisions it only after aegis-core's
+          # Ingress syncs post-cold-apply). Operator runs the copy-pasteable
+          # command printed by `terraform output -raw api_route53_creation_hint`
+          # after the cluster is live. external-dns automation is a future
+          # follow-up.
+          # -----------------------------------------------------------------
+          - env: staging/edge
             account_id: "251774439261"
 
     steps:
