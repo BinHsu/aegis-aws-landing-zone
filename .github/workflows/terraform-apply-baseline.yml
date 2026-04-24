@@ -23,6 +23,20 @@ on:
       - 'terraform/environments/prod/bootstrap/**'
       - 'config/**'
 
+  # Manual safety valve — mirrors terraform-apply-workload.yml's dispatch
+  # trigger. Use when:
+  #   - A baseline layer was added in a PR that didn't touch any path-filter
+  #     directory (e.g., a CI-only PR adding the layer to the matrix; the
+  #     push trigger won't fire).
+  #   - A previous auto-apply failed mid-matrix and you want to re-run
+  #     without a no-op code commit.
+  #   - First-time apply of a new baseline layer on a cold environment.
+  #
+  # Behavior is identical to push: runs the full matrix serially. No inputs
+  # because baseline is cheap and the matrix is fast; per-layer targeting
+  # would add config surface for marginal benefit.
+  workflow_dispatch:
+
 permissions:
   id-token: write
   contents: read
