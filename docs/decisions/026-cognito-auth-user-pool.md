@@ -2,9 +2,14 @@
 
 ## Status
 
-**Partially Accepted** (2026-04-23). Core commitment plus 5 of 6 shape decisions frozen per the aegis-core #76 reply later the same day. One Open Question remains — callback and logout URLs — genuinely blocked on aegis-core SPA auth scaffolding work that has not yet started. A strawman URL pair is the working default at Terraform commit time; Cognito's `callback_urls` and `logout_urls` accept updates to existing app clients without recreate, so Terraform implementation is not gated on resolving that question first.
+**Accepted** (2026-04-24). All six shape decisions pinned. Terraform implementation lands in the same PR as this amendment.
 
-The original Draft version of this document (2026-04-23 AM) recorded the commitment as decided and all six shape details as unpinned. This amendment (2026-04-23 PM, after aegis-core #76 was answered at 07:00 UTC) moves five of the six into § Decision and leaves the sixth in § Open Questions with the strawman default captured explicitly. A future amendment promotes this ADR from Partially Accepted to Accepted when aegis-core's SPA auth scaffold lands and the URL values are firm.
+Amendment trigger satisfied 2026-04-23 PM: aegis-core shipped Phase 4e-1/2/3 to their `main` (gateway JWT middleware via `auth.OIDCProvider` + JWKS cache in [aegis-core PR #78](https://github.com/BinHsu/aegis-core/pull/78); SPA OAuth scaffold via `react-oidc-context` + `<AegisAuthShell>` CLOUD mode in [aegis-core PR #79](https://github.com/BinHsu/aegis-core/pull/79); tenant propagation from authenticated Principal in [aegis-core PR #80](https://github.com/BinHsu/aegis-core/pull/80)). Their 12:26 UTC comment on aegis-core #76 confirmed the strawman URL pair holds as the final values and asked for ldz-side implementation details (5 pre-apply questions on Terraform output shape, IAM role for their nightly integration test, test-user strategy, signal path, sanity-check).
+
+Revision history:
+- **Draft** (2026-04-23 AM) — commitment recorded, all 6 shape details unpinned. Landed in PR #137.
+- **Partially Accepted** (2026-04-23 PM) — 5 of 6 decisions pinned from aegis-core's 07:00 UTC reply on #76. Landed in PR #138.
+- **Accepted** (2026-04-24) — Q2 URL pair confirmed final; Terraform implementation ships; aegis-core's 5 pre-apply questions answered in the same cycle. This PR.
 
 ## Context
 
@@ -38,7 +43,7 @@ A `cognito-config` Kubernetes Secret in the `aegis` namespace is reconciled by E
 
 ### Consumption contract decisions (frozen 2026-04-23 per aegis-core #76)
 
-Five of the six shape details originally deferred are now pinned. The sixth (callback / logout URLs) remains in § Open Questions with a strawman default.
+All six shape details originally deferred are now pinned.
 
 - **Token validation**: the gateway validates ID tokens locally against Cognito's JWKS endpoint (RS256). Removes a per-request network hop to `/userinfo`; the standard cloud-native path. Gateway middleware will need a JWKS cache tolerant of Cognito's key-rotation window.
 - **Requested scopes**: `openid profile email` — no custom scopes for MVP. Role-based access is expressed through a custom attribute instead of through OAuth scopes (see next bullet); the gateway's authorization layer reads claims, not scopes.
@@ -46,7 +51,7 @@ Five of the six shape details originally deferred are now pinned. The sixth (cal
 - **Session lifetime**: Cognito defaults — 1h access token, 30d refresh token. Acceptable for lab / demo scale. Revisit only if cold-apply smoke reveals UX pacing issues.
 - **Logout behavior**: Cognito global logout — revokes the user's sessions across every client. Secure default; cleaner demo narrative (one Logout click → actually logged out everywhere). Local-only SPA logout was rejected because the app has no multi-device UX requirement that would justify the weaker posture.
 
-The one remaining shape detail — callback / logout URLs — sits in § Open Questions with the strawman default captured.
+- **Callback / logout URLs**: `callback_urls = ["https://aegis-app.staging.binhsu.org/auth/callback"]` and `logout_urls = ["https://aegis-app.staging.binhsu.org/"]`. Confirmed final by aegis-core on 2026-04-23 PM after their SPA auth scaffold landed (PR #79). Cognito accepts in-place updates to both lists, so future URL shifts are routine drifts rather than migrations.
 
 ## Alternatives Considered
 
@@ -76,20 +81,16 @@ Categorically wrong. "I re-implemented auth" is a portfolio anti-signal at staff
 
 ## Open Questions
 
-### 1. Callback / redirect URLs (Q2 from the original 6)
+None. Callback and logout URLs confirmed final by aegis-core on 2026-04-23 PM (#76 reply at 12:26 UTC, Question E sanity-check): the strawman values hold as the production values.
 
-**Status**: Open. aegis-core has no SPA auth scaffolding today — no `/auth/callback` route, no OAuth flow in the SPA, no post-logout redirect logic. The exact URLs are not yet designed and are blocked on the aegis-core-side SPA work starting.
-
-**Working default for Terraform commit**: the Cognito app client's URL lists are seeded with strawman values that follow conventional SPA auth paths:
+Final URL pair — pinned in Terraform `callback_urls` / `logout_urls` on `aws_cognito_user_pool_client.spa`:
 
 - `callback_urls = ["https://aegis-app.staging.binhsu.org/auth/callback"]`
 - `logout_urls   = ["https://aegis-app.staging.binhsu.org/"]`
 
-When aegis-core's SPA auth scaffolding finalizes (matching or diverging from the strawman), the operator runs `terraform apply` on `staging/auth/` with updated lists. Cognito accepts updates to `callback_urls` and `logout_urls` on existing app clients without forcing recreate, so this is a low-risk drift rather than a migration.
+Cognito accepts updates to both lists without app-client recreate, so any future URL change (new SPA route, dev-cluster callback, preview environments) is a routine `terraform apply` drift rather than a migration event.
 
-**Amendment trigger**: this ADR promotes from Partially Accepted to Accepted when aegis-core's SPA auth lands and the URL values are firm. If the production URLs differ from the strawman, the amendment captures the real values plus a note on whether the strawman was updated before or after first cold-apply.
-
-The other five consumption-contract questions (token validation, scopes, custom attributes, session lifetime, logout behavior) were resolved by aegis-core's 2026-04-23 reply on [aegis-core #76](https://github.com/BinHsu/aegis-core/issues/76); see § Decision's "Consumption contract decisions" subsection.
+All six consumption-contract questions are now in § Decision's "Consumption contract decisions" subsection; the Q2 callback/logout pair joins Q1/Q3/Q4/Q5/Q6 as a decided contract.
 
 ## Consequences
 

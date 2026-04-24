@@ -18,6 +18,7 @@ on:
       - 'terraform/environments/management/**'
       - 'terraform/environments/shared/**'
       - 'terraform/environments/staging/bootstrap/**'
+      - 'terraform/environments/staging/auth/**'
       - 'terraform/environments/prod/bootstrap/**'
       - 'config/**'
 
@@ -49,6 +50,36 @@ jobs:
             account_id: "251774439261"
           - env: management/scps
             account_id: "186052668286"
+          # -----------------------------------------------------------------
+          # staging/auth — Cognito User Pool (ADR-026)
+          # -----------------------------------------------------------------
+          # Baseline-tier peer layer. Cognito User Pool is essentially free at
+          # lab scale (free tier = 50k MAU permanent) so it sits in auto-apply
+          # alongside the other baseline layers.
+          #
+          # Ordered AFTER staging/bootstrap (needs the KMS alias
+          # alias/aegis-staging-secrets for SSM PS SecureString encryption)
+          # and AFTER management/scps (SCPs guard all staging resources so
+          # they must exist by the time we create IAM + Cognito resources).
+          #
+          # Cold-cycle caveat: the kubectl_manifest step that creates the
+          # `cognito-config` ExternalSecret targets the `aegis` namespace,
+          # which is owned by staging/workloads (workload-tier, not
+          # auto-applied). On a brand-new environment where workloads has
+          # not been applied yet, this matrix row fails with
+          # `namespaces "aegis" not found` — the AWS-side resources (user
+          # pool, app client, domain, SSM params, IAM role) still apply
+          # cleanly. Operator applies workloads via
+          # terraform-apply-workload.yml, then re-dispatches baseline to
+          # land the ExternalSecret. Same cold-cycle shape as
+          # staging/observability (ADR-022).
+          #
+          # prevent_destroy = true on the User Pool + SSM params + IAM role
+          # means subsequent workload cycles do not touch this layer's AWS
+          # resources. The layer is stable across workload cycles.
+          # -----------------------------------------------------------------
+          - env: staging/auth
+            account_id: "251774439261"
 
     steps:
       - uses: actions/checkout@v6

@@ -96,6 +96,18 @@ jobs:
           # -----------------------------------------------------------------
           - env: staging/observability
             account_id: "251774439261"
+          # -----------------------------------------------------------------
+          # staging/auth — Cognito User Pool for cloud-mode aegis auth
+          # (ADR-026). Baseline-tier peer layer, conditional on
+          # config.cognito — without the block the whole plan is empty.
+          # Plan against live state should show "no changes" once applied.
+          # Catches drift on the User Pool schema (immutable attributes),
+          # app client callback/logout URL lists, and the ExternalSecret
+          # CRD shape. The CI secret LANDING_ZONE_CONFIG provides the
+          # cognito: block so this row is meaningful across PR cycles.
+          # -----------------------------------------------------------------
+          - env: staging/auth
+            account_id: "251774439261"
 
     steps:
       - uses: actions/checkout@v6
