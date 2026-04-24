@@ -27,6 +27,14 @@ output "ssm_paths" {
   } : null
 }
 
+output "qdrant_ssm_paths" {
+  description = "SSM PS parameter paths for Qdrant Cloud credentials (ADR-025, ldz #141). Values are operator-managed; null when qdrant_cloud is not enabled."
+  value = local.qdrant_enabled ? {
+    cluster_url = "${local.qdrant_ssm_path_prefix}/cluster-url"
+    api_key     = "${local.qdrant_ssm_path_prefix}/api-key"
+  } : null
+}
+
 output "grafana_admin_login_hint" {
   description = <<-EOT
     How to log in to the Grafana Cloud stack as a human admin:
