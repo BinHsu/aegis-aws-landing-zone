@@ -73,6 +73,8 @@ AWS_PROFILE=aegis-staging-admin aws ssm put-parameter \
   --value '<token from step 4>'
 ```
 
+> **Layer ownership (ADR-028)**: this `put-parameter` runs BEFORE the first apply of `staging/secrets-persistent/`. That layer's `imports.tf` block adopts the AWS-side resource into Terraform state on first apply (one-time). After adoption, `lifecycle.ignore_changes = [value]` ensures subsequent token rotations via `put-parameter --overwrite` are not clobbered by TF. See ADR-028 §Decision §Scope.
+
 ---
 
 ## Part 3 — Create break-glass admin user
@@ -173,13 +175,75 @@ External Secrets Operator (installed in the platform layer) pulls `alloy` and `g
 
 ---
 
+## Part 7 — Slack webhook URL (optional, for alerting)
+
+The `staging/secrets-persistent/` layer (ADR-028) provisions an empty SSM PS shell at `/aegis/staging/grafana-cloud/team-webhooks-slack-aegis` with a placeholder value. The shell exists ahead of time so aegis-core's `GrafanaContactPoint` CRD can reconcile (ldz #126 Coordination Point 1). Until you provision a real Slack webhook URL, alert deliveries silently fail at the Grafana Cloud → Slack hop — not a cluster issue, just an alerting gap.
+
+**Run this only when wiring real alerting**:
+
+1. **Create the Slack Incoming Webhook**
+   - Slack workspace where alerts should arrive (e.g. `aegis-team`)
+   - Visit `https://api.slack.com/apps` → Create New App → "From scratch" → name `aegis-grafana-alerts`, pick the workspace
+   - Sidebar → Incoming Webhooks → toggle ON
+   - "Add New Webhook to Workspace" → pick the channel (e.g. `#aegis-alerts`) → Allow
+   - Copy the URL: `https://hooks.slack.com/services/T.../B.../...`. **Slack does not show this URL again** — record it now.
+
+2. **Store in SSM Parameter Store** (`--overwrite` because the placeholder shell already exists):
+
+```bash
+AWS_PROFILE=aegis-staging-admin aws ssm put-parameter \
+  --region eu-central-1 \
+  --name /aegis/staging/grafana-cloud/team-webhooks-slack-aegis \
+  --type SecureString \
+  --key-id alias/aegis-staging-secrets \
+  --value 'https://hooks.slack.com/services/T.../B.../...' \
+  --overwrite
+```
+
+3. **Verify ESO syncs the value** (within 1 hour of the put):
+
+```bash
+kubectl -n aegis get secret team-webhooks -o jsonpath='{.data.slack-aegis}' | base64 -d
+# Expected: the same hooks.slack.com/services/... URL
+```
+
+If the K8s Secret still shows the placeholder string, force a refresh by deleting and recreating it via ESO:
+
+```bash
+kubectl -n aegis annotate externalsecret team-webhooks force-sync=$(date +%s) --overwrite
+```
+
+4. **Send a test alert** to confirm the chain. Easiest path: edit a Grafana dashboard alert rule's threshold so it briefly violates, save, watch the channel. Restore the threshold afterwards.
+
+### Rotation
+
+Slack Incoming Webhook URLs are stable indefinitely unless explicitly revoked. Rotation is operator-discretion only:
+
+- Revoke a leaked URL: Slack `api.slack.com/apps` → app → Incoming Webhooks → remove the URL
+- Issue a new URL: same flow as step 1 above
+- Update SSM PS: same `put-parameter --overwrite` as step 2
+- ESO syncs within 1 hour; Grafana Cloud delivers next alert via new URL
+
+No Terraform action needed. `lifecycle.ignore_changes = [value]` on `aws_ssm_parameter.team_webhooks_slack_aegis` (in `staging/secrets-persistent/grafana-cloud.tf`) preserves the operator-supplied value across applies.
+
+### Adding additional team channels
+
+The `team-webhooks` K8s Secret is multi-key by design (ADR-023 §Secret plumbing model). Today only `slack-aegis` exists; future onboarding adds keys like `slack-platform`, `slack-billing`. Adding a team channel requires:
+
+1. Add a new `aws_ssm_parameter` resource in `staging/secrets-persistent/grafana-cloud.tf` (e.g. `team_webhooks_slack_platform` at `${local.grafana_cloud_ssm_path_prefix}/team-webhooks-slack-platform`)
+2. Add a matching `data` entry in the `team-webhooks` ExternalSecret in `staging/observability/external-secrets.tf` (key `slack-platform`, remoteRef pointing at the new SSM path)
+3. Run this Part 7 procedure for the new channel
+4. aegis-core adds a `GrafanaContactPoint` CRD referencing the new K8s Secret key (cross-repo coordination per ldz #126)
+
+---
+
 ## Token rotation
 
 ### Bootstrap token — every 30 days
 
 1. Portal → Access Policies → `terraform-bootstrap` → Add token (new token; keep old token for 24h overlap)
-2. Update the SSM parameter with the new token value
-3. Re-run `terraform apply` in the observability layer — confirms the new token works
+2. Update the SSM parameter with the new token value via `aws ssm put-parameter --overwrite` (same command as Part 2 step 5, with `--overwrite` flag added)
+3. Re-run `terraform apply` in the observability layer — confirms the new token works (the `data "aws_ssm_parameter"` lookup picks up the new value automatically; no Terraform changes to plan in `staging/secrets-persistent/` because of `lifecycle.ignore_changes = [value]`)
 4. Portal → delete the old bootstrap token
 5. Reset calendar reminder for 30 days
 

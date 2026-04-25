@@ -2545,6 +2545,90 @@ Process (this is the bigger win):
 
 ---
 
+## Incident 34 — `lifecycle.ignore_changes` does not protect against destroy (2026-04-25)
+
+**Date**: 2026-04-25 (Phase 4c+ post-Incident-33 teardown forensics)
+**Severity**: S3 (no production impact; cost is one Qdrant API key re-issuance + ~15 minutes of operator time per recurrence; surfaced as part of Incident 33 recovery, written separately because the lemma generalizes beyond Qdrant)
+**Duration**: ~10 minutes from "why is `aws ssm get-parameter` returning NoSuchKey" to root cause
+
+### Symptom
+
+After Incident 33's third teardown attempt finally succeeded, the operator began pre-flight prep for the next cold-apply (Runbook 007 §Part 3 Path A). The first step is verifying SSM PS state:
+
+```bash
+$ aws ssm get-parameter --name /aegis/staging/qdrant-cloud/cluster-url --region eu-central-1
+An error occurred (ParameterNotFound) when calling the GetParameter operation
+
+$ aws ssm get-parameter --name /aegis/staging/qdrant-cloud/api-key --region eu-central-1
+An error occurred (ParameterNotFound) when calling the GetParameter operation
+```
+
+Both Qdrant SSM PS resources were gone from AWS, despite the originating Terraform resource declarations carrying `lifecycle { ignore_changes = [value] }`. Operator's prior mental model: "`ignore_changes` protects the resource from drift; teardown is not drift; therefore teardown was protected." That model was wrong.
+
+### Root cause
+
+`lifecycle.ignore_changes` is documented in the Terraform CLI reference as: *"Causes Terraform to skip detecting certain changes in the configuration when planning. Specifically, when these attributes change in the configuration, Terraform will not see them as drift compared to the real-world state, and will leave them as they are during apply."* It is a **drift-suppression** mechanism that operates on the **update** path, not on the **destroy** path.
+
+When `terraform-teardown-workload.yml` ran `terraform destroy` against `staging/observability/`, the tear-down logic walked the resource graph and called the AWS provider's `Delete` for every managed resource, including the two `aws_ssm_parameter` resources owning the Qdrant credentials. `ignore_changes` was never consulted — there was no drift detection phase, only a destroy plan. The SSM PS objects in AWS were deleted accordingly.
+
+The same destroy pathway also removed `aws_ssm_parameter.team_webhooks_slack_aegis` (which carried `ignore_changes = [value]` for the same reason). It held only a placeholder value, so no real loss; but the failure mode is identical and would have destroyed a real Slack webhook URL had one been put-parameter'd.
+
+The semantic gap is subtle but well-documented: `ignore_changes` and `prevent_destroy` are independent levers. The latter blocks destroy entirely (and forces operator override via `terraform destroy -target=...` or temporary spec edit); the former blocks update-time drift only. The pre-Incident-33 codebase had `ignore_changes` everywhere it needed `prevent_destroy`, because the operator's mental model conflated them.
+
+### Detection
+
+Verification step in Runbook 007 §Part 3 Path A (`aws ssm get-parameter` immediately after teardown). The pre-flight is meant to be a no-op confirmation — instead it surfaced the gap in ~5 seconds.
+
+The lemma had been latent since PR #146 merged on 2026-04-24 (one day before Incident 33). Any teardown of `staging/observability/` between PR #146 and ADR-028 would have surfaced it; Incident 33 happened to be the first.
+
+### Resolution
+
+Per-instance recovery (one-shot, can repeat per future occurrence until ADR-028 lands):
+
+```bash
+# 1. Qdrant Cloud Portal → Cluster Detail → API Keys → + Create new key
+#    Name: engine-<YYYYMMDD>, 90-day, manage/write. COPY (shown only once).
+# 2. Re-put both SSM parameters (note: --overwrite NOT needed because resources are GONE from AWS)
+AWS_PROFILE=aegis-staging-admin aws ssm put-parameter \
+  --region eu-central-1 \
+  --name /aegis/staging/qdrant-cloud/cluster-url \
+  --type SecureString --key-id alias/aegis-staging-secrets \
+  --value '<cluster URL from portal>'
+
+AWS_PROFILE=aegis-staging-admin aws ssm put-parameter \
+  --region eu-central-1 \
+  --name /aegis/staging/qdrant-cloud/api-key \
+  --type SecureString --key-id alias/aegis-staging-secrets \
+  --value '<new key>'
+# 3. Delete old key in Qdrant portal.
+```
+
+Structural fix: [ADR-028](decisions/028-persistent-saas-credential-isolation.md) relocates Path-B SSM PS shells (operator-put values from SaaS portals that don't retain values after first display) to a new baseline-tier `staging/secrets-persistent/` Terraservice layer. The new layer is excluded from `terraform-apply-workload.yml` AND `terraform-teardown-workload.yml` matrices — workload teardowns can no longer reach these resources. Scope: 4 SSM PS (Qdrant cluster-url + api-key, Grafana Cloud bootstrap-token, Slack webhook URL).
+
+### Prevention
+
+Three layers of defense, in order of effectiveness:
+
+1. **Layer-level isolation (the only true guard)**: Path-B SSM PS belong in a Terraservice layer that no automated workflow destroys. ADR-028 §Decision codifies this. Future Path-B resources go in `staging/secrets-persistent/` by default; the layer name self-documents the immunity property.
+
+2. **Read the Terraform CLI reference for both `ignore_changes` AND `prevent_destroy` whenever the topic involves destroy semantics.** They look like sibling protections; they are orthogonal levers operating on different lifecycle phases. The prevention rule is "always consult both docs when designing teardown-aware resources" — not "use one or the other," but "know which lever covers which path."
+
+3. **Mental model correction**: when proposing `lifecycle.ignore_changes`, ask the question *"what happens if this resource's Terraservice layer is destroyed?"* If the answer is "we lose the operator-supplied value with no recovery short of re-issuing from a SaaS portal," then `ignore_changes` alone is insufficient — the resource also needs either layer-level isolation (preferred) or `prevent_destroy = true` (acceptable but UX-poor for any layer with a real teardown workflow).
+
+### Lessons
+
+- **`ignore_changes` and `prevent_destroy` are not aliases**. The operator's prior mental model treated them interchangeably — "this lifecycle block protects the value." That gloss is half-true on the update path and false on the destroy path. Naming them adjacently in HCL syntax (both inside `lifecycle { }`) is a footgun.
+
+- **Layer placement IS the lifecycle**. A resource's true protection level is determined by which Terraservice layer it lives in and which workflows touch that layer. Resource-attribute-level lifecycle blocks are tactics; layer placement is strategy. Future ADRs proposing new resources should answer "which workflow can destroy this and is that the desired blast radius" before any HCL is written.
+
+- **Lemmas deserve their own incident entries even when they emerge mid-cascade**. Incident 33's narrative is the headline failure (LBC race + Kyverno cascade). Incident 34's narrative is the smaller technical fact that misled the operator about Qdrant SSM PS protection. Splitting them into two entries keeps each post-mortem scannable and lets the lemma transfer cleanly to future SaaS-credential resources without dragging Incident 33's full context along.
+
+- **Latent gaps surface when the workflow that exercises them runs for the first time**. PR #146 added the Qdrant SSM PS resources; the first teardown after PR #146 (Incident 33's recovery) was the first time the destroy pathway crossed those resources. The 1-day window between PR #146 merge and Incident 33 is not a coincidence — it's the typical exposure delay for any new resource added to a path that runs on infrequent triggers. Future PRs adding teardown-bound resources should explicitly note "destroy-path tested?" in the change-review-discipline checklist.
+
+- **`prevent_destroy` is not a substitute for layer placement, even when it would technically work**. Setting `prevent_destroy = true` on the Qdrant SSM PS resources before ADR-028 would have caused `terraform-teardown-workload.yml` to hard-fail mid-matrix, requiring operator workaround via `terraform destroy -target=...` to skip the protected resources. That workaround erodes the discipline of "the workflow IS the source of truth for teardown order" — it makes the protection adversarial to the workflow it should coexist with. Layer placement keeps the workflow whole.
+
+---
+
 ## Adding a new incident
 
 Append new sections at the bottom, before this footer, using the format:
