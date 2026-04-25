@@ -75,6 +75,10 @@ resource "helm_release" "external_secrets" {
   depends_on = [
     aws_eks_cluster.main,
     helm_release.karpenter,
+    # LB Controller webhook must be ready before this chart's Services hit
+    # admission (external-secrets, external-secrets-webhook, external-secrets-cert-controller).
+    # See Incident 17 (ArgoCD fix) + Incident 33 (this race recurrence).
+    helm_release.aws_lb_controller,
     kubectl_manifest.aegis_cluster_admin_binding,
   ]
 }

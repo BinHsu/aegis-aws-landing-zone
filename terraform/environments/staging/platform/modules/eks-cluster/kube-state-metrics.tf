@@ -48,5 +48,9 @@ resource "helm_release" "kube_state_metrics" {
 
   depends_on = [
     helm_release.prometheus_operator_crds,
+    # LB Controller webhook must be ready before this chart's Service hits
+    # admission (kube-state-metrics exposes a Service for scraping).
+    # See Incident 17 (ArgoCD fix) + Incident 33 (this race recurrence).
+    helm_release.aws_lb_controller,
   ]
 }
