@@ -53,6 +53,17 @@ jobs:
             account_id: "345895787808"
           - env: staging/bootstrap
             account_id: "251774439261"
+          # -----------------------------------------------------------------
+          # staging/secrets-persistent — Path-B SSM PS shells for SaaS
+          # credentials (Qdrant, Grafana Cloud bootstrap, Slack webhook).
+          # Baseline-tier per ADR-028. Plan against live state should show
+          # "no changes" once applied. Catches drift on the 4-resource
+          # scope enumerated in ADR-028 §Decision; first-apply also runs
+          # the import block adopting the pre-existing
+          # /aegis/staging/grafana-cloud/bootstrap-token AWS resource.
+          # -----------------------------------------------------------------
+          - env: staging/secrets-persistent
+            account_id: "251774439261"
           - env: staging/network
             account_id: "251774439261"
           # -----------------------------------------------------------------

@@ -18,6 +18,7 @@ on:
       - 'terraform/environments/management/**'
       - 'terraform/environments/shared/**'
       - 'terraform/environments/staging/bootstrap/**'
+      - 'terraform/environments/staging/secrets-persistent/**'
       - 'terraform/environments/staging/auth/**'
       - 'terraform/environments/staging/edge/**'
       - 'terraform/environments/prod/bootstrap/**'
@@ -65,6 +66,34 @@ jobs:
             account_id: "251774439261"
           - env: management/scps
             account_id: "186052668286"
+          # -----------------------------------------------------------------
+          # staging/secrets-persistent — Path-B SSM PS shells (ADR-028)
+          # -----------------------------------------------------------------
+          # Baseline-tier peer layer. Owns the 4 Path-B SSM PS shells for
+          # SaaS credentials whose source-of-truth is an external SaaS
+          # portal (Qdrant cluster-url + api-key, Grafana Cloud bootstrap-
+          # token, Slack webhook URL). All four are SecureStrings encrypted
+          # with alias/aegis-staging-secrets — essentially free at lab
+          # scale.
+          #
+          # Excluded from terraform-apply-workload.yml AND
+          # terraform-teardown-workload.yml. The whole point of this layer
+          # is that its resources survive workload teardown cycles
+          # (Incident 33 + 34 → ADR-028).
+          #
+          # Ordered AFTER staging/bootstrap (KMS alias dependency) and
+          # BEFORE staging/auth (clusters secret-related layers together).
+          # No dependency on management/scps (no IAM resources).
+          #
+          # First-apply caveat: the imports.tf block adopts the pre-
+          # existing /aegis/staging/grafana-cloud/bootstrap-token AWS
+          # resource into TF state. Forkers must run Runbook 006 §Part 2
+          # (manual put of the bootstrap-token from Grafana Cloud portal)
+          # before first apply, otherwise the import fails with "no SSM
+          # parameter found". Same prerequisite as pre-ADR-028.
+          # -----------------------------------------------------------------
+          - env: staging/secrets-persistent
+            account_id: "251774439261"
           # -----------------------------------------------------------------
           # staging/auth — Cognito User Pool (ADR-026)
           # -----------------------------------------------------------------

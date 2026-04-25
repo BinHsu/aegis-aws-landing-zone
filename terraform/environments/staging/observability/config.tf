@@ -202,8 +202,14 @@ check "secrets_kms_key_exists" {
 # Plain `data "aws_ssm_parameter"` returns NoSuchKey when the operator has
 # not run Runbook 006 Part 2 yet. That is the intended operator-facing error
 # — Part 4 of the runbook documents the `terraform apply` command that
-# reaches this data source. Keeping it unconditional (no count) surfaces the
-# missing-bootstrap-token case loudly rather than masking it.
+# reaches this data source.
+#
+# Resource ownership: post-ADR-028, the SSM PS shell lives in
+# staging/secrets-persistent/grafana-cloud.tf (baseline-tier, never torn
+# down). This data source reads it by path — TF state ownership of the
+# shell is irrelevant to the lookup. Pre-ADR-028 the parameter had no TF
+# resource shell at all (operator-only via Runbook 006 §Part 2);
+# secrets-persistent's `import { }` block adopts it on first apply.
 # -----------------------------------------------------------------------------
 
 data "aws_ssm_parameter" "bootstrap_token" {

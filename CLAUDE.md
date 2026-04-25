@@ -189,7 +189,7 @@ aws-landing-zone-lab/
 │   └── environments/          # Terraservice layers (one state file per directory)
 │       ├── management/{bootstrap,scps}/
 │       ├── shared/{bootstrap,ipam}/   # shared/aft/ committed but not applied (ADR-011)
-│       ├── staging/{bootstrap,network,platform,workloads,observability,edge,fis}/   # platform = EKS + Karpenter + ArgoCD + Kyverno + cert-manager + ESO/CRDs/KSM/Alloy; observability = grafana-operator + GC tokens (ADR-022); fis = DR drill (ADR-020)
+│       ├── staging/{bootstrap,secrets-persistent,auth,network,platform,workloads,observability,edge,fis}/   # secrets-persistent = Path-B SaaS-credential SSM PS shells excluded from teardown matrix (ADR-028); auth = Cognito User Pool (ADR-026); platform = EKS + Karpenter + ArgoCD + Kyverno + cert-manager + ESO/CRDs/KSM/Alloy; observability = grafana-operator + GC tokens (ADR-022); edge = CloudFront + ACM + Route53 (ADR-019); fis = DR drill (ADR-020)
 │       └── prod/bootstrap/    # prod workloads not yet provisioned
 ├── k8s-manifests/             # App-of-apps root (details live in aegis-core repo)
 ├── config/

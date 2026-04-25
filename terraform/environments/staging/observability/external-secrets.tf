@@ -119,11 +119,20 @@ resource "kubectl_manifest" "external_secret_grafana_operator_token" {
 # (`slack-aegis`) exists; future team onboarding adds keys alongside (e.g.
 # `slack-platform`, `slack-billing`). The ExternalSecret's `data` list is
 # the single source of truth for which keys exist — adding a team = adding
-# an entry here and a matching SSM PS parameter in tokens.tf.
+# an entry here and a matching SSM PS resource in
+# staging/secrets-persistent/grafana-cloud.tf (ADR-028).
 #
 # Target namespace `aegis` is owned by staging/workloads (via
-# modules/eks-workloads/namespace.tf). Apply order: network → platform →
-# workloads → observability, enforced by terraform-apply-workload.yml.
+# modules/eks-workloads/namespace.tf). Apply order: secrets-persistent
+# (baseline) → network → platform → workloads → observability, enforced
+# by the workflow split (terraform-apply-baseline.yml then
+# terraform-apply-workload.yml).
+#
+# No Terraform-state-level depends_on for the team-webhooks SSM PS —
+# it lives in the staging/secrets-persistent/ state per ADR-028.
+# Apply-time correctness is guaranteed by workflow ordering; out-of-
+# order local applies surface as ESO retry loops at runtime ("Secret
+# not found"), not as Terraform errors.
 # -----------------------------------------------------------------------------
 
 resource "kubectl_manifest" "external_secret_team_webhooks" {
@@ -160,6 +169,4 @@ resource "kubectl_manifest" "external_secret_team_webhooks" {
       ]
     }
   })
-
-  depends_on = [aws_ssm_parameter.team_webhooks_slack_aegis]
 }
