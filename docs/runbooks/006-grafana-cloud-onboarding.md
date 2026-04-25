@@ -1,4 +1,4 @@
-<!-- session-close-review: when lab operator needs a fresh Grafana Cloud stack, rotates any of the three tokens, or migrates to a new Grafana Cloud region -->
+<!-- session-close-review: when lab operator needs a fresh Grafana Cloud stack, rotates any of the three tokens, provisions or rotates the Slack webhook URL (Part 7), or migrates to a new Grafana Cloud region -->
 # 006. Grafana Cloud free tier — onboarding and token rotation
 
 > **When to read this**: you are doing a first-time Grafana Cloud signup for this lab, rotating a bootstrap or downstream token, or migrating to a new Grafana Cloud stack. This is NOT a per-session runbook — per-session `terraform-apply-workload` flow does not touch Grafana Cloud onboarding once the bootstrap token is in SSM PS. Reading in full takes <5 minutes.
