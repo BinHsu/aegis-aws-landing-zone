@@ -5,7 +5,7 @@ A reader's guide for recruiters, hiring managers, and technical leadership revie
 
 **Time budget**:
 - Recruiter / HR / hunter: read all of this doc (~10 min).
-- Technical leader / architect peer: skim section 1 (stance), then jump to [`docs/decisions/`](decisions/) for the 27 ADRs and [`docs/incidents.md`](incidents.md) for the 32 postmortems.
+- Technical leader / architect peer: skim section 1 (stance), then jump to [`docs/decisions/`](decisions/) for the 28 ADRs and [`docs/incidents.md`](incidents.md) for the 34 postmortems.
 
 ---
 
@@ -21,8 +21,8 @@ This split is explicit for a reason: a hands-on architect's value comes from shi
 The project value is execution and discipline, layered together:
 
 - **Execution**: the entire repo is working code — Terraform applies cleanly, CI applies to a live AWS organization, the EKS platform bootstraps end-to-end in one workflow dispatch. See the [Phase table in README](../README.md#phases) for what's actually deployed on `main`, not aspirations.
-- 21 [Architecture Decision Records](decisions/) (including several "Design iteration" sections documenting *reversed* decisions honestly)
-- 32 [incident postmortems](incidents.md) (each written after the fact in a consistent format, never softened retroactively)
+- 28 [Architecture Decision Records](decisions/) (including several "Design iteration" sections documenting *reversed* decisions honestly)
+- 34 [incident postmortems](incidents.md) (each written after the fact in a consistent format, never softened retroactively)
 - A 4-workflow CI/CD split shaped by cost profile (not template copy-paste)
 - Runbooks covering both the happy path and the "here is how to debug when it breaks" diagnostic order
 - A config contract that makes the whole landing zone forkable in one YAML file
@@ -94,13 +94,13 @@ Each entry: what was built → where to look in the repo → the kind of questio
 
 **Built**: three layers of operational writing with explicit rules in [`CLAUDE.md`](../CLAUDE.md):
 - **ADRs** — 27 in [`docs/decisions/`](decisions/), supersede-in-place style ("Design iteration" sections note evolution; ADR-018 §3 has an in-place amendment demonstrating the pattern; ADR-015 superseded by ADR-022 demonstrates the supersede-with-history pattern; ADR-027 layers onto ADR-024 as a sibling at a finer granularity)
-- **Incidents** — 32 in [`docs/incidents.md`](incidents.md), append-only, standard format
+- **Incidents** — 34 in [`docs/incidents.md`](incidents.md), append-only, standard format
 - **Runbooks** — 8 in [`docs/runbooks/`](runbooks/); CLAUDE.md rule requires AI agents to read the layer's runbook before operating on it
 
 **Where to look**:
 - [`CLAUDE.md`](../CLAUDE.md) — 6 explicit "Rule: AI must..." clauses
-- [`docs/decisions/`](decisions/) — 27 ADRs
-- [`docs/incidents.md`](incidents.md) — 32 postmortems
+- [`docs/decisions/`](decisions/) — 28 ADRs
+- [`docs/incidents.md`](incidents.md) — 34 postmortems
 - [`docs/runbooks/`](runbooks/) — 8 runbooks
 - [`docs/principles/`](principles/) — 2 cross-cutting discipline docs (change-review, break-glass-apply)
 
@@ -200,7 +200,7 @@ Positive statements of what this project demonstrates, paired with explicit stat
 ### What is claimed
 
 - **Cross-cutting architectural design**: composing 10+ AWS services into a working multi-account landing zone with explicit decisions (ADRs) and documented trade-offs.
-- **Operational discipline**: 27 ADRs + 32 incident postmortems + 8 runbooks + 2 cross-cutting principle docs, each written to a consistent format, never softened retroactively.
+- **Operational discipline**: 28 ADRs + 34 incident postmortems + 8 runbooks + 2 cross-cutting principle docs, each written to a consistent format, never softened retroactively.
 - **Production-shaped patterns** — not production-*hardened* (the lab is single-operator, single-region-primary, no DR-tested, no SOC 2 audit trail). The patterns are transferable to production; the lab itself isn't production.
 - **Reproducibility**: a single `config/landing-zone.yaml` + two shell scripts land the whole foundation in a fresh AWS organization. Fork-and-deploy is not a slogan here; it's tested.
 
@@ -252,8 +252,8 @@ This doc is frame-level. For the actual substance:
 
 | Interest | Open |
 |---|---|
-| "Walk me through the architectural decisions" | [`docs/decisions/`](decisions/) — 27 ADRs |
-| "Show me real failures and what you learned" | [`docs/incidents.md`](incidents.md) — 32 postmortems |
+| "Walk me through the architectural decisions" | [`docs/decisions/`](decisions/) — 28 ADRs |
+| "Show me real failures and what you learned" | [`docs/incidents.md`](incidents.md) — 34 postmortems |
 | "How do I reproduce this?" | [`docs/runbooks/001-bootstrap-aws-account.md`](runbooks/001-bootstrap-aws-account.md) |
 | "How would an AI agent work on this?" | [`CLAUDE.md`](../CLAUDE.md) |
 | "What does the config contract look like?" | [`config/landing-zone.example.yaml`](../config/landing-zone.example.yaml) + [`config/schema.json`](../config/schema.json) + [ADR-004](decisions/004-deployment-configuration-contract.md) |
