@@ -64,7 +64,7 @@ Every multi-account AWS landing zone faces this exact cycle. Some projects ignor
 
 ## War stories
 
-Real incidents from this project's deployment are kept in [`docs/incidents.md`](incidents.md) as postmortem-style entries (Symptom → Root cause → Detection → Resolution → Prevention → Lessons). Highlights:
+Real incidents from this project's deployment history are kept in [`docs/incidents.md`](incidents.md) as postmortem-style entries (Symptom → Root cause → Detection → Resolution → Prevention → Lessons). Highlights below illustrate the *kind* of issues a multi-account landing zone surfaces under cold-apply — not a prescriptive checklist a forker should expect to encounter in this exact order or set:
 
 - **KMS key policy wasn't enough at Control Tower launch** — the wizard's default key policy was missing CloudTrail and Config service principals. Rollback itself failed because a CloudWatch Log Group couldn't be cleaned up. See [Incident 1](incidents.md#incident-1--kms-key-policy-insufficient-at-control-tower-launch).
 - **IAM alias collided with another AWS customer worldwide** — aliases are globally unique, not org-scoped. `list-account-aliases` returning empty is not proof the alias is available. Fixed by `binhsu-` prefix. See [Incident 2](incidents.md#incident-2--iam-account-alias-globally-unique-collision).

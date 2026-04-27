@@ -13,7 +13,7 @@ AWS Organizations structure with the six accounts, three OUs, and SCP attachment
 
 ```mermaid
 flowchart TB
-  Org["AWS Organization<br/>o-f5xi4j1hrx<br/>Control Tower home: eu-central-1"]
+  Org["AWS Organization<br/>(your org id)<br/>Control Tower home: eu-central-1"]
 
   Mgmt["aegis-management<br/><br/>Organizations<br/>SCPs<br/>Identity Center<br/>Billing<br/>RAM org-sharing"]
 
@@ -129,10 +129,10 @@ What lives in the `aegis-shared` account, and how other accounts consume its ser
 
 ```mermaid
 flowchart TB
-  subgraph shared["aegis-shared (345895787808)"]
+  subgraph shared["aegis-shared"]
     direction TB
 
-    bucket["S3: aegis-terraform-state-345895787808<br/>SSE-KMS + versioning<br/>30-day noncurrent expiration<br/>prevent_destroy"]
+    bucket["S3: aegis-terraform-state-&lt;shared-account-id&gt;<br/>SSE-KMS + versioning<br/>30-day noncurrent expiration<br/>prevent_destroy"]
 
     ipam["AWS IPAM (Advanced tier)"]
     top["Top Pool: 10.0.0.0/8"]

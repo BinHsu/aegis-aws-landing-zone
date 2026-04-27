@@ -3,9 +3,11 @@
 
 A reader's guide for recruiters, hiring managers, and technical leadership reviewing this project as a portfolio artifact. Different from the rest of the repo, this document is written *about* the project rather than *inside* it — its job is to frame scope, stance, and what a conversation could productively cover.
 
+> **Forking this repo?** This document is portfolio-framing, not operational guidance — start with [`README.md`](../README.md) for the architecture overview and [`docs/runbooks/`](runbooks/) for how-to walk-throughs.
+
 **Time budget**:
 - Recruiter / HR / hunter: read all of this doc (~10 min).
-- Technical leader / architect peer: skim section 1 (stance), then jump to [`docs/decisions/`](decisions/) for the 28 ADRs and [`docs/incidents.md`](incidents.md) for the 34 postmortems.
+- Technical leader / architect peer: skim section 1 (stance), then jump to [`docs/decisions/`](decisions/) for the 28 ADRs and [`docs/incidents.md`](incidents.md) for the 35 postmortems.
 
 ---
 
@@ -100,7 +102,7 @@ Each entry: what was built → where to look in the repo → the kind of questio
 **Where to look**:
 - [`CLAUDE.md`](../CLAUDE.md) — 6 explicit "Rule: AI must..." clauses
 - [`docs/decisions/`](decisions/) — 28 ADRs
-- [`docs/incidents.md`](incidents.md) — 34 postmortems
+- [`docs/incidents.md`](incidents.md) — 35 postmortems
 - [`docs/runbooks/`](runbooks/) — 8 runbooks
 - [`docs/principles/`](principles/) — 2 cross-cutting discipline docs (change-review, break-glass-apply)
 
@@ -200,7 +202,7 @@ Positive statements of what this project demonstrates, paired with explicit stat
 ### What is claimed
 
 - **Cross-cutting architectural design**: composing 10+ AWS services into a working multi-account landing zone with explicit decisions (ADRs) and documented trade-offs.
-- **Operational discipline**: 28 ADRs + 34 incident postmortems + 8 runbooks + 2 cross-cutting principle docs, each written to a consistent format, never softened retroactively.
+- **Operational discipline**: 28 ADRs + 35 incident postmortems + 8 runbooks + 2 cross-cutting principle docs, each written to a consistent format, never softened retroactively.
 - **Production-shaped patterns** — not production-*hardened* (the lab is single-operator, single-region-primary, no DR-tested, no SOC 2 audit trail). The patterns are transferable to production; the lab itself isn't production.
 - **Reproducibility**: a single `config/landing-zone.yaml` + two shell scripts land the whole foundation in a fresh AWS organization. Fork-and-deploy is not a slogan here; it's tested.
 
@@ -253,7 +255,7 @@ This doc is frame-level. For the actual substance:
 | Interest | Open |
 |---|---|
 | "Walk me through the architectural decisions" | [`docs/decisions/`](decisions/) — 28 ADRs |
-| "Show me real failures and what you learned" | [`docs/incidents.md`](incidents.md) — 34 postmortems |
+| "Show me real failures and what you learned" | [`docs/incidents.md`](incidents.md) — 35 postmortems |
 | "How do I reproduce this?" | [`docs/runbooks/001-bootstrap-aws-account.md`](runbooks/001-bootstrap-aws-account.md) |
 | "How would an AI agent work on this?" | [`CLAUDE.md`](../CLAUDE.md) |
 | "What does the config contract look like?" | [`config/landing-zone.example.yaml`](../config/landing-zone.example.yaml) + [`config/schema.json`](../config/schema.json) + [ADR-004](decisions/004-deployment-configuration-contract.md) |
