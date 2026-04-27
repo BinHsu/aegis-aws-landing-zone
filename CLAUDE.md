@@ -1,40 +1,8 @@
 # AWS Landing Zone Lab — AI Operational Rules
 
-## Project Context
-
-This is a hands-on portfolio project by **Bin Hsu**, a Senior Software Architect with 15 years of experience (10 years C++ embedded systems at VIVOTEK, 5 years AWS platform engineering at E2 Nova). The project exists to:
-
-1. **Prove hands-on ability** — after interview feedback that he "doesn't code enough," this project demonstrates he can design AND implement production-grade infrastructure from scratch.
-2. **Fill skill gaps** — practice GitHub Actions (previously Jenkins), ArgoCD (previously push-based CI/CD), and Go (learning).
-3. **Create a portfolio piece** — a GitHub repo that any interviewer can review.
-
-## Bin's Existing Experience (don't re-explain these)
-
-- AWS: 5 accounts, 3 regions, 479 CloudFormation templates, 6 Terraform modules, AWS SAP certified
-- Kubernetes: EKS, 15 Helm charts, Karpenter, LION-UT ephemeral test environments
-- CI/CD: 155 Jenkins pipelines (38,900 lines Groovy/Shell)
-- Observability: Prometheus → Grafana IaC pipeline (12 alert rules as Helm → ConfigMap → sidecar)
-- Security: ISO 27001/27701 3 years, SCPs, cross-account IAM, IRSA, Zero Trust (SSO migration)
-- Databases: MySQL/Aurora, ProxySQL connection pooling
-
-## What's NEW for Bin (learning goals)
-
-- GitHub Actions (replacing Jenkins knowledge)
-- ArgoCD (replacing push-based deployment)
-- GitHub OIDC → AWS (replacing long-lived IAM keys)
-- AWS Organizations setup from scratch (previously inherited)
-- Terraform S3 native locking (previously DynamoDB)
-
 ## Communication Rules
 
 - **Artifact Language**: All code, comments, commit messages, documentation, ADRs, runbooks, diagrams, and any file written to the repo MUST be in English. No exceptions.
-- **Conversation Language**: AI mirrors the language the user types in.
-  - User types English → AI responds in English.
-  - User types Chinese (Traditional) → AI responds in Chinese (Traditional).
-  - If a message mixes languages, AI responds in whichever language dominates the user's message.
-  - Language switching is per-message: the AI re-evaluates on every turn, not once per session.
-- **Technical terms stay in English** even in Chinese replies (e.g., "Terraform", "SCP", "break-glass", "burn-rate alert") — do not translate industry terminology.
-- **English Correction**: When the user types in English, flag any incorrect or unnatural phrasing with a corrected version. Do not correct Chinese input.
 
 ## Technical Standards
 
@@ -127,32 +95,6 @@ Some rules are *cross-cutting* — they apply to reviewing any platform change, 
 
 - **Rule: When a new cross-cutting discipline emerges that applies to multiple layers (e.g., observability, security posture, release engineering), add a principles doc under `docs/principles/` rather than another CLAUDE.md section.** Same motivation as runbooks: this file stays small, subject-matter details live where the subject lives.
 
-### Cross-repo coordination (landing-zone ↔ aegis-core)
-
-This repository shares a lifecycle boundary with [aegis-core](https://github.com/BinHsu/aegis-core) — the app-side repository that ArgoCD syncs from. The two repos are maintained by independent agents and must coordinate through durable artifacts, not direct IPC.
-
-- **Rule: Cross-repo coordination lives in GitHub Issues labeled `cross-repo`.** Two standing issues (do not close; edit body to maintain):
-  - [#54 Platform surface contract (landing-zone)](https://github.com/BinHsu/aegis-aws-landing-zone/issues/54) — what aegis-core can assume
-  - [#11 Requirements from landing-zone (aegis-core)](https://github.com/BinHsu/aegis-core/issues/11) — what aegis-core needs
-
-- **Rule: At session start for any work that touches the platform contract** (CRDs, namespaces, IRSA, `staging/platform/`), AI must run both:
-  ```
-  gh issue list -l cross-repo -R BinHsu/aegis-aws-landing-zone
-  gh issue list -l cross-repo -R BinHsu/aegis-core
-  ```
-  Any issue labeled `cross-repo/blocking` on either side halts planning until acknowledged.
-
-- **Rule: When this repo changes the platform surface contract**, the PR must (a) update the #54 issue body to reflect the new state, and (b) carry label `cross-repo/blocking` if the change would break aegis-core's existing assumptions.
-
-- **Label semantics**:
-  - `cross-repo` — default coordination tag (standing issues + long-lived threads)
-  - `cross-repo/blocking` — the other side is blocked until this lands / is acknowledged
-  - `cross-repo/fyi` — informational only; no action required
-
-- **Rule: Do NOT implement a cross-repo request before the other side's issue arrives.** The issue is the requirements document, not just a notification. The other side may specify security constraints (least-privilege roles vs shared admin), blast radius boundaries, or future-proofing requirements that fundamentally change the implementation. Acknowledge the gap, note what needs to happen, but do not write code until the spec is in hand. "Obvious" fixes that skip this gate have caused wasted PR cycles and briefly-incorrect trust policies (see PR #73 → #72 lesson).
-
-- **Anti-pattern**: direct agent-to-agent messaging, shared memory mounts, or any ephemeral channel. The audit trail is the point.
-
 ## Session-close review (marker-based)
 
 Before suggesting the user close a session, the AI must run:
@@ -224,9 +166,7 @@ aws-landing-zone-lab/
 ## Cost Guardrails
 
 - **NEVER leave EKS, NAT Gateway, or ALB running overnight.** Always run the soft teardown at session end.
-- **Budget alerts**: daily $10, monthly $30, enforced via AWS Budgets in the management account. See memory.
-- **Phase 0-2 should cost <$5 total.** If Phase 0-2 costs exceed this, something is wrong — investigate before continuing.
-- **Phase 3+: budget ~$5-10 per 4-hour session.** A session is framed as "from `gh workflow run terraform-apply-workload.yml` until `gh workflow run terraform-teardown-workload.yml`." Both are approval-gated via GitHub Environments.
+- **Set a daily and a monthly budget cap with alerts in the management account.** Specific numbers are deployment-dependent; pick values that sting if a NAT Gateway runs over a weekend.
 - **Rule: AI must remind the user to run the workload teardown at the end of any session that applied workload layers.** Preferred path (portfolio-visible audit trail):
   ```
   gh workflow run terraform-teardown-workload.yml -f env=<env>
@@ -255,19 +195,3 @@ aws-landing-zone-lab/
 **Signal you mis-delegated**: Subagent returns a summary but you have to re-read the files anyway to make the edit. Next time: inline.
 
 **Signal you mis-inlined**: Main thread hit ~30% context on tool output before you even started the real work. Next time: delegate.
-
-## Workflow with AI
-
-The user (Bin) provides:
-- **Architecture decisions** — what to build, why, tradeoffs
-- **AWS account access** — credentials, account IDs
-- **Review and deployment** — runs `terraform apply`, validates results
-
-The AI provides:
-- **Implementation** — Terraform code, GitHub Actions workflows, Helm values
-- **Best practices** — security patterns, cost optimization, naming conventions
-- **Explanations** — why each design choice matters (for interview prep)
-
-**Rule: The user must understand every line of code before deploying it.** This is a learning project, not a copy-paste exercise. If the user doesn't understand something, explain it before moving on.
-
-**Rule: Do NOT write code or create files until the user explicitly says to start.** Default mode is discuss and plan. Only begin implementation when the user gives a clear go-ahead (e.g., "動手", "開始", "go", "start building").
