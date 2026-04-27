@@ -294,3 +294,11 @@ done
 - [ADR-022](../decisions/022-observability-backend-grafana-cloud.md) — observability backend decision (Grafana Cloud free tier)
 - [ADR-023](../decisions/023-observability-responsibility-model.md) — observability responsibility model (what lives where)
 - [ADR-021](../decisions/021-observability-scaling-path.md) (amended) — scaling ladder; rung transitions trigger migration beyond free tier
+
+## 💰 Bounty Contribution
+
+- **Task:** Observability v2 plan: Loki logs + OTel traces (post cold-apply)
+- **Reward:** $5
+- **Source:** GitHub-Paid
+- **Date:** 2026-04-27
+
