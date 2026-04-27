@@ -95,7 +95,7 @@ Who can do what, and how they authenticate. Zero IAM users. Zero long-lived cred
 ```mermaid
 flowchart LR
   subgraph Human["Human Access"]
-    bin["Identity Center user: bin<br/>pcpunkhades@gmail.com"]
+    bin["Identity Center user<br/>(operator email)"]
     ps["Permission Set:<br/>PlatformAdmin<br/>(AdministratorAccess policy)"]
   end
 

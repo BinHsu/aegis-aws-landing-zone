@@ -187,11 +187,11 @@ eks:
 #   # path, no trailing slash drift). Cognito accepts in-place updates
 #   # without recreate.
 #   callback_urls:
-#     - "https://aegis-app.staging.binhsu.org/auth/callback"
+#     - "https://aegis-app.staging.<your-domain>/auth/callback"  # substitute domain.name
 #   # Logout redirect URLs — where Cognito sends the user after global
 #   # logout. Cognito accepts in-place updates without recreate.
 #   logout_urls:
-#     - "https://aegis-app.staging.binhsu.org/"
+#     - "https://aegis-app.staging.<your-domain>/"  # substitute domain.name
 #   # Password policy — NIST SP 800-63B aligned defaults. Omit any
 #   # subfield to inherit the lab default; omit the whole block to
 #   # inherit all defaults.

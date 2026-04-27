@@ -27,7 +27,7 @@ Related: [ADR-022](../decisions/022-observability-backend-grafana-cloud.md) (bac
 ## Part 1 — Sign up and create stack
 
 1. Navigate to `https://grafana.com/signup`
-2. Sign up with email. Note: this email is the account root and is difficult to change later. Lab uses `pcpunkhades@gmail.com`.
+2. Sign up with email. Note: this email is the account root and is difficult to change later — use the operator's primary email.
 3. Most Grafana Cloud signup flows auto-create both an organization and a stack matching your account name (the lab's live signup on 2026-04-23 produced org `aegis` + stack slug `aegis`). Skip this step if you are happy with the auto-created org; otherwise manually create one (suggested name: `aegis-lab`).
 4. Create stack — **skip if signup auto-created one you want to keep**. Otherwise:
    - Stack URL slug: your choice. Update `config/landing-zone.yaml` `grafana_cloud.org_slug` to match your **actual** slug — the `aegis-staging` example appearing elsewhere in this repo is a suggestion, not a contract. If the auto-created slug (typically equal to your org name) is fine, record that value and move on.

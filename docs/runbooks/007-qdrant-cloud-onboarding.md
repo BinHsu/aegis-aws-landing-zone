@@ -27,7 +27,7 @@ Related: [ADR-025](../decisions/025-qdrant-backend-cloud-free-tier.md) (backend 
 ## Part 1 — Sign up and create cluster
 
 1. Navigate to `https://cloud.qdrant.io/signup`
-2. Sign up with Gmail or GitHub OAuth. Note: this account is the org root and is difficult to change later. Lab uses `pcpunkhades@gmail.com`.
+2. Sign up with Gmail or GitHub OAuth. Note: this account is the org root and is difficult to change later — use the operator's primary email.
 3. Accept any Terms / DPA prompts — free tier runs on Qdrant Labs' managed infrastructure; no additional contract is required.
 4. Navigate to the Cloud Dashboard → **Clusters** → click **+ Create**
 5. Create cluster:

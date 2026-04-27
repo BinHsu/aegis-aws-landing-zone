@@ -13,6 +13,8 @@
 
 Related: [ADR-026](../decisions/026-cognito-auth-user-pool.md) (backend decision, including the deferred-implementation gate), [ADR-022](../decisions/022-observability-backend-grafana-cloud.md) and [ADR-023](../decisions/023-observability-responsibility-model.md) (External Secrets + SSM PS pattern reused here), [Runbook 006](006-grafana-cloud-onboarding.md) and [Runbook 007](007-qdrant-cloud-onboarding.md) (sibling SaaS onboarding shape).
 
+> **Forker note**: shell snippets below are written against this lab's specific values — operator email and `staging.binhsu.org` domain. When applying yourself, substitute (a) the operator email you used at SSO bootstrap (Runbook 001), and (b) your `domain.name` from `config/landing-zone.yaml` everywhere you see `binhsu.org`.
+
 ---
 
 ## Pre-flight
@@ -22,7 +24,7 @@ Related: [ADR-026](../decisions/026-cognito-auth-user-pool.md) (backend decision
 - Confirm `config/landing-zone.yaml` has a populated `cognito:` block. Callback/logout URLs are `https://aegis-app.staging.binhsu.org/auth/callback` and `https://aegis-app.staging.binhsu.org/` (aegis-core-confirmed). If the block is absent, the layer plans zero resources — a clean no-op apply is still the right first step to confirm workflow + plumbing.
 - Confirm aegis-core's SPA auth scaffold is merged on `main` (aegis-core #78, #79, #80 all landed 2026-04-23). Without these, the Hosted UI login verification in Part 3 cannot be completed end-to-end — you can still verify steps 1–4, but the post-callback token exchange will 404 in the browser.
 - Confirm the `aegis` namespace exists in the target cluster (apply `staging/workloads` first if the current cold-apply cycle has not reached that stage yet).
-- A browser with the operator's Google account available (for Hosted UI login testing in Part 3). Lab uses `pcpunkhades@gmail.com`.
+- A browser with the operator's Google account available (for Hosted UI login testing in Part 3).
 - 30–45 minutes for first-time provisioning + user creation + smoke tests; 5–10 minutes for password rotation alone.
 
 ---
@@ -67,7 +69,7 @@ The layer auto-applies when a PR that touches `terraform/environments/staging/au
 
 Cognito User Pools are provisioned empty. Per ADR-026 §Decision, MVP self-signup is **disabled**; the operator invites users via `admin-create-user`.
 
-The canonical first user is the operator's email, `pcpunkhades@gmail.com`. Subsequent users follow the same recipe — swap in the new user's email and pick a strong temporary password.
+The canonical first user is the operator's email. Subsequent users follow the same recipe — swap in the new user's email and pick a strong temporary password.
 
 1. Pull the user pool ID from SSM PS (avoids hand-copying from the Terraform output):
 
