@@ -243,8 +243,8 @@ Two incidents caught during a Dependabot maintenance sweep after the Phase 3c ro
 ### Phase 4 — Observability + cluster security (done 2026-04-17)
 Three sub-phases shipped in PRs #67–#69: **4a'** (docking station — `aegis` namespace, IRSA skeleton, default-deny NetworkPolicy, ADR-017); **4b** (kube-prometheus-stack via ArgoCD with deprecated-API alert rule, VPC Flow Logs to S3 in Parquet, ADR-015) (observability backend reversed 2026-04-21 per ADR-022; see ADR-022 §Context for rationale); **4c** (GuardDuty EKS Runtime + Audit Log Monitoring, Kyverno admission controller with 4 baseline policies in Audit mode, ADR-016). Cross-repo coordination protocol ([#54](https://github.com/BinHsu/aegis-aws-landing-zone/issues/54), [#11](https://github.com/BinHsu/aegis-core/issues/11)) exercised live during the session. Phase 4a'' (actual workload deployment) gates on aegis-core shipping OCI images.
 
-### Phase 5 — Service mesh + per-pod TLS (not started)
-cert-manager, service mesh mTLS, private endpoints, EKS Pod Identity migration.
+### Phase 5 — Auth + Service Mesh (partial — Auth shipped, mesh not started)
+**Shipped**: Cognito User Pool ([ADR-026](decisions/026-cognito-auth-user-pool.md), Accepted; live `eu-central-1_0gdyxKxOB` user pool with validated Hosted UI + JWKS path); cert-manager and External Secrets Operator (Phase 4c platform layer). **Not started**: Istio service mesh mTLS, private endpoints, EKS Pod Identity migration (the `aegis-staging-aegis-engine` IRSA role is provisioned but Pod Identity hasn't replaced it). Persistent-credential layer ([ADR-028](decisions/028-persistent-saas-credential-isolation.md)) shipped to keep SSM PS shells out of the teardown matrix — supporting infrastructure for the auth + observability secret patterns.
 
 ---
 

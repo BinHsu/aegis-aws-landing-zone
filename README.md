@@ -193,6 +193,7 @@ Complete improvement index and reliability map: [`docs/improvements/README.md`](
 | [025](docs/decisions/025-qdrant-backend-cloud-free-tier.md) | Qdrant backend — Cloud free tier |
 | [026](docs/decisions/026-cognito-auth-user-pool.md) | Cognito User Pool — cloud-mode auth for aegis |
 | [027](docs/decisions/027-intra-environment-layer-sharding.md) | Intra-environment Terraservice layer sharding discipline |
+| [028](docs/decisions/028-persistent-saas-credential-isolation.md) | Persistent SaaS-credential SSM PS shells isolated from teardown matrix |
 
 ## Runbooks
 
