@@ -135,3 +135,108 @@ resource "aws_organizations_policy_attachment" "deny_leave_org" {
   policy_id = aws_organizations_policy.deny_leave_org.id
   target_id = local.root_id
 }
+
+# -----------------------------------------------------------------------------
+# SCP 4: Deny IAM Privilege Escalation
+# ISO 27001:2022 Annex A.8.2 — Privileged access management
+# -----------------------------------------------------------------------------
+# Closes the "inner-wall-breach" privilege-escalation path documented in
+# ADR-030. After ADR-029, the apply-tier roles (`gh-tf-apply-baseline`,
+# `gh-tf-apply-workload`) carry purpose-scoped policies — but those policies
+# still permit `iam:CreateRole` / `iam:AttachRolePolicy` against
+# `arn:aws:iam::*:role/aegis-*` because the apply layers legitimately create
+# IAM roles (cluster IAM, IRSA, OIDC providers, etc.). Without this SCP, an
+# attacker who hijacked an apply-tier role could create a new role, attach
+# `AdministratorAccess` to it, and assume it — escalating from scoped CI
+# permissions to full Admin via a path the per-role policy cannot itself
+# prevent.
+#
+# This SCP applies the wall at the org level: the listed mutating IAM
+# actions are denied for every principal in every member account, EXCEPT
+# the explicit allow-list of legitimate identities. A compromised apply-tier
+# role cannot self-modify the SCP, by definition — SCPs are managed in the
+# management account, which is outside the apply-tier roles' scope.
+#
+# Allow-list rationale:
+#   - AWSControlTowerExecution / aws-controltower-* / stacksets-exec-* —
+#     Control Tower / StackSets create and modify IAM during account
+#     provisioning; required for the platform to function.
+#   - github-actions-terraform — legacy Admin role retained during the
+#     ADR-029 rollout window; will be removed when the cleanup PR drops it.
+#   - gh-tf-* — the four purpose-scoped CI roles that supersede the legacy
+#     role per ADR-029. Apply-tier members of this family legitimately create
+#     IAM roles for new infrastructure.
+#   - aegis-emergency-* — break-glass pattern aligned with
+#     `docs/principles/break-glass-apply.md`. Aspirational at present (no role
+#     of this name exists yet); the SCP allow-list reserves the namespace so
+#     a future incident-only role does not require an SCP amendment to land.
+#   - *-karpenter-controller — Karpenter IRSA role calls `iam:PassRole`,
+#     `iam:CreateInstanceProfile`, `iam:AddRoleToInstanceProfile`, and
+#     `iam:RemoveRoleFromInstanceProfile` at runtime to manage EC2 instance
+#     profiles for nodes. Karpenter's own policy already scopes these by tag
+#     and resource ARN; the SCP exception unblocks the legitimate code path
+#     without weakening Karpenter's own boundary.
+#
+# Service-Linked Roles (`iam:CreateServiceLinkedRole`) are intentionally
+# NOT in the deny list — AWS auto-creates SLRs for many services
+# (`spot.amazonaws.com`, `eks.amazonaws.com`, etc.) and apply roles
+# legitimately trigger this action when first provisioning a service.
+# The risk is bounded because SLR trust policies are AWS-controlled.
+#
+# AWS service principals (e.g., `eks.amazonaws.com` assuming roles internally
+# during cluster operations) are NOT subject to SCPs — SCPs apply to IAM
+# principals (users + roles) only. This is documented AWS behavior; see
+# https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_policies_scps.html
+# under "What SCPs don't affect."
+# -----------------------------------------------------------------------------
+
+resource "aws_organizations_policy" "deny_iam_privilege_escalation" {
+  name        = "deny-iam-privilege-escalation"
+  description = "Deny IAM principal/policy mutation by anything other than AWS-managed and break-glass identities. ISO 27001 A.8.2."
+  type        = "SERVICE_CONTROL_POLICY"
+
+  content = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "DenyIamPrivilegeEscalation"
+        Effect = "Deny"
+        Action = [
+          "iam:CreateRole",
+          "iam:UpdateAssumeRolePolicy",
+          "iam:AttachRolePolicy",
+          "iam:DetachRolePolicy",
+          "iam:PutRolePolicy",
+          "iam:DeleteRolePolicy",
+          "iam:CreateUser",
+          "iam:AttachUserPolicy",
+          "iam:PutUserPolicy",
+          "iam:CreatePolicyVersion",
+          "iam:SetDefaultPolicyVersion",
+          "iam:CreateInstanceProfile",
+          "iam:AddRoleToInstanceProfile",
+          "iam:PassRole",
+        ]
+        Resource = "*"
+        Condition = {
+          ArnNotLike = {
+            "aws:PrincipalArn" = [
+              "arn:aws:iam::*:role/AWSControlTowerExecution",
+              "arn:aws:iam::*:role/aws-controltower-*",
+              "arn:aws:iam::*:role/stacksets-exec-*",
+              "arn:aws:iam::*:role/github-actions-terraform",
+              "arn:aws:iam::*:role/gh-tf-*",
+              "arn:aws:iam::*:role/aegis-emergency-*",
+              "arn:aws:iam::*:role/*-karpenter-controller",
+            ]
+          }
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_organizations_policy_attachment" "deny_iam_privilege_escalation" {
+  policy_id = aws_organizations_policy.deny_iam_privilege_escalation.id
+  target_id = local.root_id
+}
