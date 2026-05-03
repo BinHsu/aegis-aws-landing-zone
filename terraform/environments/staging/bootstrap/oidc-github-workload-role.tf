@@ -63,7 +63,10 @@ resource "aws_iam_role" "gh_tf_apply_workload" {
 resource "aws_iam_role_policy" "gh_tf_apply_workload" {
   # checkov:skip=CKV_AWS_287: ReadOnlyAwsApiSurface Sid uses Resource:* on Get*/List*/Describe* actions only — restrictable per-ARN scoping is not meaningful for inventory-style API calls. Mutation prevention is enforced by the absence of any Create/Update/Delete action paired with Resource:*. See ADR-029.
   # checkov:skip=CKV_AWS_288: Same as CKV_AWS_287 — read-shape data disclosure is the explicit threat model accepted by ADR-029. AWS metadata is classified non-secret per CLAUDE.md "What is NOT a secret" clause.
+  # checkov:skip=CKV_AWS_289: `iam:*` is intentionally scoped to project-prefixed resources (aegis-staging-* IRSA + cluster + node + Fargate-exec roles plus matching policies). Permission-management within a fixed prefix is the apply contract for the workload-tier role.
+  # checkov:skip=CKV_AWS_290: Service-namespace wildcards (ec2:*, eks:*, elasticloadbalancing:*, fis:*, guardduty:*) are needed because these AWS APIs do not support resource-level ARN constraints on most write actions (EC2 in particular); region condition + project tag condition are added where supported. Trust-policy-gated by `sub: environment:workload-apply` plus environment required-reviewer + main-only deployment branches.
   # checkov:skip=CKV_AWS_355: Resource:* is by design on the read-only Sid and on AWS APIs that do not support resource-level ARNs (EC2 most write actions, ELB, GuardDuty, tag). Every mutating action with Resource:* is service-namespace-scoped at the action prefix and gated by the trust policy `sub: environment:workload-apply`.
+  # checkov:skip=CKV2_AWS_40: `iam:*` is intentionally allowed within aegis-staging-* prefix scope for apply-tier workload operations (creating IRSA roles for cluster components). Full IAM privileges on a fixed ARN-prefix is the deliberate apply-workload design (ADR-029 §Decision). An enumerated 20+-action whitelist would carry identical effective surface with maintenance liability.
   name = "apply-workload-scoped"
   role = aws_iam_role.gh_tf_apply_workload.id
 

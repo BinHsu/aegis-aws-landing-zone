@@ -58,7 +58,10 @@ resource "aws_iam_role" "gh_tf_teardown_workload" {
 resource "aws_iam_role_policy" "gh_tf_teardown_workload" {
   # checkov:skip=CKV_AWS_287: ReadOnlyAwsApiSurface Sid uses Resource:* on Get*/List*/Describe* actions only — restrictable per-ARN scoping is not meaningful for inventory-style API calls. Mutation prevention is enforced by the absence of any Create/Update action paired with Resource:*. See ADR-029.
   # checkov:skip=CKV_AWS_288: Same as CKV_AWS_287 — read-shape data disclosure is the explicit threat model accepted by ADR-029. AWS metadata is classified non-secret per CLAUDE.md "What is NOT a secret" clause.
-  # checkov:skip=CKV_AWS_355: Resource:* is by design on the read-only Sid and on AWS APIs that do not support resource-level ARNs (EC2 most destructive actions, ELB, GuardDuty, tag). Every mutating action with Resource:* is service-namespace-scoped at the action prefix and gated by the trust policy `sub: environment:workload-teardown`.
+  # checkov:skip=CKV_AWS_289: IAM destructive actions (Delete*/Detach*/Remove*/DeleteServiceLinkedRole) are intentionally scoped to aegis-staging-* prefixed resources. Teardown contract is "destroy what apply created" — the prefix scope is the gate.
+  # checkov:skip=CKV_AWS_290: Service-namespace destructive wildcards (ec2:Delete*, eks:Delete*, elasticloadbalancing:Delete*) are needed because these AWS APIs do not support resource-level ARN constraints on most destructive write actions; region + project-tag conditions added where supported. Trust-policy-gated by `sub: environment:workload-teardown` plus environment required-reviewer + main-only deployment branches.
+  # checkov:skip=CKV_AWS_355: Resource:* is by design on the read-only Sid and on AWS APIs that do not support resource-level ARNs (EC2 most destructive actions, ELB, GuardDuty, tag). Every mutating action with Resource:* is service-namespace-scoped and trust-policy-gated.
+  # checkov:skip=CKV2_AWS_40: Broad iam:Delete*/Detach*/Remove*/DeleteServiceLinkedRole on aegis-staging-* prefix scope is the deliberate teardown design. Same contract as gh-tf-apply-workload — the prefix scope is the gate, the destructive verbs are intentional.
   name = "teardown-workload-scoped"
   role = aws_iam_role.gh_tf_teardown_workload.id
 
