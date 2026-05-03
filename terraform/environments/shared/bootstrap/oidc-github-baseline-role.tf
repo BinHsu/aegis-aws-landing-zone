@@ -52,7 +52,10 @@ resource "aws_iam_role" "gh_tf_apply_baseline" {
 resource "aws_iam_role_policy" "gh_tf_apply_baseline" {
   # checkov:skip=CKV_AWS_287: ReadOnlyAwsApiSurface Sid uses Resource:* on Get*/List*/Describe* actions only — restrictable per-ARN scoping is not meaningful for inventory-style API calls. Mutation prevention is enforced by the absence of any Create/Update/Delete action paired with Resource:*. See ADR-029.
   # checkov:skip=CKV_AWS_288: Same as CKV_AWS_287 — read-shape data disclosure is the explicit threat model accepted by ADR-029. AWS metadata is classified non-secret per CLAUDE.md "What is NOT a secret" clause.
-  # checkov:skip=CKV_AWS_355: Resource:* is by design on the read-only Sid and on AWS APIs that do not support resource-level ARNs (RAM, IPAM-CreateServiceLinkedRole, EC2 IPAM mutation, tag). Every mutating action with Resource:* is service-namespace-scoped at the action prefix and gated by the trust policy `sub: ref:refs/heads/main`.
+  # checkov:skip=CKV_AWS_289: `iam:*` is intentionally scoped to project-prefixed resources (aegis-*/github-actions-*/gh-tf-*) plus the OIDC provider and account alias. The role is the apply-tier identity for `terraform-apply-baseline.yml`; permission-management within a fixed prefix is the apply contract.
+  # checkov:skip=CKV_AWS_290: Service-namespace wildcards (ram:*, IPAM ec2:*Ipam* / ec2:*VpcCidr*, kms:* on local key/alias) are scoped to local account + region OR are needed because AWS APIs do not support resource-level ARN constraints on most write actions (RAM). All trust-policy-gated by `sub: ref:refs/heads/main` plus branch protection on main.
+  # checkov:skip=CKV_AWS_355: Resource:* is by design on the read-only Sid and on AWS APIs without resource-level ARN support. Every mutating action with Resource:* is service-namespace-scoped and trust-policy-gated.
+  # checkov:skip=CKV2_AWS_40: `iam:*` is intentionally allowed within aegis-*/github-actions-*/gh-tf-* prefix scope for apply-tier baseline operations. Full IAM privileges on a fixed ARN-prefix is the deliberate apply-baseline design (ADR-029 §Decision). An enumerated 20+-action whitelist would be a maintenance liability with identical effective surface.
   name = "apply-baseline-scoped"
   role = aws_iam_role.gh_tf_apply_baseline.id
 
