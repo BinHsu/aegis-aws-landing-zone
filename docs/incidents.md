@@ -2765,6 +2765,169 @@ Three layers of defense, in order of effectiveness:
 
 ---
 
+## Incident 35 — `MalformedPolicyDocument`: `account-alias/*` is not a valid IAM resource path (2026-05-04)
+
+**Date**: 2026-05-04 (Phase 3+, ADR-029 IAM scope-down rollout, PR #172 ship)
+**Severity**: S3 (CI/apply failure, recovered with single hotfix PR; no AWS resources damaged)
+**Duration**: ~30 min from first apply-baseline failure to PR #175 merged + apply re-run green
+
+### Symptom
+
+Three of four post-merge `terraform-apply-baseline.yml` runs after the original four-PR ADR-029 rollout (#171/#172/#173/#174 merged within 45 seconds of each other) failed with:
+
+```
+Error: putting IAM Role (gh-tf-apply-baseline) Policy (apply-baseline-scoped):
+operation error IAM: PutRolePolicy, https response error StatusCode: 400,
+MalformedPolicyDocument: IAM resource path must either be "*", root, or start
+with user/, federated-user/, role/, group/, instance-profile/, mfa/,
+server-certificate/, policy/, sms-mfa/, saml-provider/, oidc-provider/,
+report/, access-report/.
+```
+
+The error fired three times (mgmt/bootstrap, shared/bootstrap, staging/bootstrap apply jobs across multiple workflow runs) — once for each account where `gh-tf-apply-baseline` was being created.
+
+### Root cause
+
+PR #172's `gh-tf-apply-baseline` policy (and PR #173's workload + teardown policies, but those failed earlier on lock contention before reaching this error) had this resource list inside the `IamScoped` Sid:
+
+```hcl
+Resource = [
+  "arn:aws:iam::${local.account_id}:role/aegis-*",
+  "arn:aws:iam::${local.account_id}:role/github-actions-*",
+  "arn:aws:iam::${local.account_id}:role/gh-tf-*",
+  "arn:aws:iam::${local.account_id}:policy/aegis-*",
+  "arn:aws:iam::${local.account_id}:oidc-provider/token.actions.githubusercontent.com",
+  "arn:aws:iam::${local.account_id}:account-alias/*",   # <-- THIS LINE
+]
+```
+
+`account-alias` is **not** in AWS IAM's allowed resource-path list. The IAM authorizer accepts only the segments enumerated in the error message — `user/`, `federated-user/`, `role/`, `group/`, `instance-profile/`, `mfa/`, `server-certificate/`, `policy/`, `sms-mfa/`, `saml-provider/`, `oidc-provider/`, `report/`, `access-report/`. Account-alias operations (`iam:CreateAccountAlias` / `DeleteAccountAlias` / `ListAccountAliases`) are account-level — AWS only accepts `Resource: "*"` for these.
+
+The bug was authored by a subagent generating the `gh-tf-apply-baseline` .tf during the ADR-029 implementation. Static analysis (terraform validate, Checkov, Terraform's own JSON schema check) all passed: the JSON is syntactically valid; AWS rejects only at the actual `PutRolePolicy` API call. Plan-time was happy; apply-time was not.
+
+### Detection
+
+Standard apply-baseline workflow run logs. The error is unusually descriptive for AWS IAM (it enumerates all valid path segments verbatim), so categorization was instant. Distinguishing the real bug from the concurrent `Error acquiring the state lock` failures (caused by all four apply-baseline runs racing each other on shared layers) required reading job-level conclusions per-workflow-run rather than just the top-level conclusion.
+
+### Resolution
+
+PR #175 ([commit 27eb246](https://github.com/BinHsu/aegis-aws-landing-zone/pull/175)):
+
+1. Removed `"arn:aws:iam::${local.account_id}:account-alias/*"` from the `IamScoped` Sid's `Resource` list in all three baseline-role files (`management/`, `shared/`, `staging/`).
+2. Added a new `AccountAliasManagement` Sid:
+   ```hcl
+   {
+     Sid    = "AccountAliasManagement"
+     Effect = "Allow"
+     Action = [
+       "iam:CreateAccountAlias",
+       "iam:DeleteAccountAlias",
+       "iam:ListAccountAliases",
+     ]
+     Resource = "*"
+   }
+   ```
+3. Added a comment in each file explaining why the split exists, so future readers (forkers / next operator) don't re-introduce the same bug.
+
+After PR #175 merged, the next `terraform-apply-baseline.yml` run (sha=27eb246) succeeded across all 8 baseline layers.
+
+### Prevention
+
+- **Memory entry**: `feedback_iam_resource_path_account_alias.md` documents the full list of valid IAM resource-path segments and tags account-alias / password-policy / account-summary as common landmines requiring a separate Sid with `Resource: "*"`.
+- **Subagent prompts** for IAM policy drafting going forward should explicitly call out: "do not put `account-alias/`, `password-policy/`, `account-summary/`, or any non-listed segment in IAM resource ARNs — those actions are account-level and need their own `Resource: \"*\"` Sid."
+- Local `terraform validate` does NOT catch this; only AWS `PutRolePolicy` does. Hotfix-after-the-fact is the realistic flow until AWS adds plan-time policy validation (unlikely; the API contract is the contract).
+
+### Lessons
+
+- **Static analysis is not enough for IAM policies**. Terraform validate, Checkov, JSON schema validation all passed for the buggy policy. AWS's PolicyValidation only fires at the actual API call. The implication: **CI pre-flight cannot catch this class of bug**; only post-merge apply does. Budget for one hotfix-PR cycle after every new IAM policy ships, and make the apply log readable enough that the bug categorizes in <2 minutes.
+
+- **The split-Sid pattern is the correct shape for mixed-resource-level / account-level policies**. AWS IAM's resource-path rules are per-action: some actions support resource-level ARNs, some are account-level only. When the policy mixes both, splitting into two Sids — one with explicit ARN list, one with `Resource: "*"` and a narrow action list — keeps the discipline tight without tripping AWS validation. This pattern is reusable for any future policy that touches account-alias / password-policy / account-summary / etc.
+
+- **Three concurrent apply-baseline runs (from the four-PR-merge race) made the failure noisy**: `state lock` errors from the layer-locking competition obscured the real `MalformedPolicyDocument` errors until job-level conclusions were inspected. Lesson: when triaging multi-workflow-run failures, ALWAYS read jobs not just top-line. The concurrent merges were themselves a poor pattern — see Incident 36's note on serial vs parallel rollout.
+
+---
+
+## Incident 36 — Scoped-role policy bug gauntlet, chicken-and-egg break-glass, and drift-correction overwrite (2026-05-04)
+
+**Date**: 2026-05-04 (Phase 3+, ADR-029 four-role cutover, PR #177 → PR #180)
+**Severity**: S2 (cascading PR CI failures + multiple break-glass operations + apply-baseline self-lock; ~3 hours from first failure to stable state)
+**Duration**: ~3 hours (06:08 first PR #177 plan failure → 09:00ish stable post-fourth-break-glass + manual workflow_dispatch)
+
+### Symptom
+
+PR #177 (the workflow cutover that points `terraform-plan.yml` at the new `gh-tf-plan` role) opened with all the matrix Plan jobs running against the scoped role for the first time. Five of the fourteen Plan jobs failed:
+
+- `Plan management/bootstrap` — `sso:ListInstances` AccessDenied (data source `aws_ssoadmin_instances`)
+- `Plan shared/ipam` — `ec2:GetIpamPoolCidrs` UnauthorizedOperation
+- `Plan staging/secrets-persistent` — `kms:Decrypt` AccessDenied (cross-service condition mismatch)
+- `Plan staging/auth` — same `kms:Decrypt` issue (Cognito SSM PS reads)
+- `Plan staging/observability` — same `kms:Decrypt` issue (Grafana Cloud token reads)
+
+Each fix exposed the next bug. Three rounds of break-glass `aws iam put-role-policy` were needed before the Plan jobs went green. Then after PR #180 merged (the .tf-side alignment commit), `terraform-apply-baseline.yml` for sha=bf3debe failed on `Apply management/bootstrap` — same `sso:ListInstances` error, even though the role had been break-glass-fixed earlier.
+
+### Root cause
+
+Four distinct policy-design bugs in the new `gh-tf-plan` role policy (and the same bugs replicated in `gh-tf-apply-baseline` mgmt-account variant):
+
+1. **`sso-admin:` IAM prefix bug** — the policy used `sso-admin:Describe* / List* / Get*` as actions. AWS IAM's authorizer recognizes `sso:` prefix for IAM Identity Center actions. The CLI verb (`aws sso-admin <command>`) and the IAM service prefix differ; AWS docs sometimes label the section `sso-admin` for display while the IAM authorization key is `sso:`.
+
+2. **Missing `ec2:Get*`** — IPAM CIDR reads (`GetIpamPoolCidrs`, `GetIpamPoolAllocations`) use `Get*` verbs. The policy only had `ec2:Describe*` + `ec2:DescribeIpam*`; refresh on shared/ipam failed.
+
+3. **KMS `ViaService` too narrow** — single condition `kms:ViaService = s3.${region}.amazonaws.com` covered cross-account state-bucket reads but blocked SSM SecureString reads (which need `kms:ViaService = ssm.${region}.amazonaws.com` to decrypt the `/aegis/staging/*` parameter values during refresh of layers that read SSM PS).
+
+4. **Missing `identitystore:Get*`** — the `data "aws_identitystore_user"` lookup in `management/bootstrap/sso-assignments.tf` calls `identitystore:GetUserId`. Policy had `Describe*` + `List*` but not `Get*`.
+
+These four bugs were latent in the .tf code from the original PR #171 / PR #172 / PR #173 ship. They didn't surface during pre-cutover CI because the legacy `github-actions-terraform` Admin role (`*:*` permissions) bypassed all IAM authorization. Once PR #177 swapped `terraform-plan.yml` to use `gh-tf-plan` (scoped, read-only), all four bugs surfaced over three sequential CI re-runs.
+
+The chicken-and-egg: to update a role's policy in AWS via `terraform-apply-baseline.yml`, the workflow needs the role-policy update to take effect during apply. But for `gh-tf-apply-baseline` (mgmt account), its own policy had the same `sso-admin:` bug — refresh on `data "aws_ssoadmin_instances"` failed, terraform aborted, the fix never landed via the normal path. Direct API calls (`aws iam put-role-policy`) were blocked by the `deny-iam-privilege-escalation` SCP from PR #174 / ADR-030 — the operator's `AWSReservedSSO_PlatformAdmin_*` SSO role is intentionally NOT in the SCP allow-list (the SCP's threat model: "even SSO Admin shouldn't be able to do IAM privilege escalation directly").
+
+The drift-correction overwrite: after the third round of `gh-tf-plan` break-glass (round 3 added `identitystore:Get*` for mgmt) succeeded and PR #177 merged, PR #177's merge-induced `terraform-apply-baseline.yml` run (sha=1a51536) ran terraform apply. The `apply-baseline` path filter matched the plan-role .tf paths. At sha=1a51536, the .tf code for the plan-role had the fixes (PR #177's last commits) but the .tf code for `gh-tf-apply-baseline` (mgmt) still had `sso-admin:*` (PR #180 hadn't been opened yet). Terraform refresh saw `sso:*` in AWS (the round-2 break-glass version), compared to .tf which said `sso-admin:*`, computed a drift, and applied the .tf — overwriting the break-glass fix back to the buggy version. The next apply-baseline run (sha=bf3debe, PR #180 merge) then failed because AWS state had been silently reverted.
+
+### Detection
+
+Each of the four bugs was detected by reading the failed CI run's job log via `gh run view --log-failed`. The `AccessDeniedException` / `UnauthorizedOperation` error messages are precise enough that the missing IAM action prefix is unambiguous from the error string. The drift-correction overwrite was harder to diagnose — the failure log read identical to the original bug, and only inspecting the apply-baseline workflow run history (specifically the `gh run list --workflow terraform-apply-baseline.yml`) revealed an additional run (sha=1a51536, PR #177 merge) had executed between the break-glass and the failing PR #180 apply. The plan output `~ "sso-admin:*" -> "***"` (with `***` being GitHub Actions' content-redaction of `sso:*`) confirmed that the apply at sha=1a51536 had reverted the policy.
+
+### Resolution
+
+A four-round break-glass procedure across two days, with five distinct steps:
+
+**Round 1** (~06:25 UTC): Lifted `Bash(aws iam put-*:*)` from `.claude/settings.local.json` permissions deny list. Wrote `/tmp/plan-role-policy.json` with the first three bug fixes (sso prefix, ec2:Get* added, KMS ViaService expanded to s3+ssm). Ran `aws iam put-role-policy` against `gh-tf-plan` in mgmt. Shared and staging put failed with SCP `deny-iam-privilege-escalation` denial because PlatformAdmin SSO is not in the SCP allow-list.
+
+**Round 1.5** (~06:30 UTC): Detached SCP `p-0jgmxs51` from org root (`r-fk0d`) via `aws organizations detach-policy` from the management account (mgmt is exempt from member SCPs). Slept 30 seconds for SCP propagation. Ran `aws iam put-role-policy` for `gh-tf-plan` in shared and staging. Re-attached SCP to root.
+
+**Round 2** (~07:00 UTC): Wrote `/tmp/baseline-mgmt-policy.json` with sso prefix fix. Ran `aws iam put-role-policy` against `gh-tf-apply-baseline` in mgmt. Restored deny.
+
+**Round 3** (~07:09 UTC): PR #177 CI re-run revealed the fourth bug (`identitystore:Get*` missing). Lifted deny again, edited `/tmp/plan-role-policy.json` to add the missing action, re-ran `put-role-policy` against mgmt's `gh-tf-plan` only. Restored deny.
+
+**Round 4** (~07:35 UTC): After PR #180 apply failed due to drift-correction overwrite, lifted deny once more. Re-ran `put-role-policy` for mgmt baseline-role. Restored deny. Then `gh workflow run terraform-apply-baseline.yml --ref main` to manually trigger apply — this time the .tf at sha=bf3debe matched the now-correct AWS state (both sso:*), so apply was a no-op for the role policy and the data-source refresh passed.
+
+Total break-glass operations: 5 `put-role-policy` calls + 1 SCP detach/attach round + 4 deny-list lift/restore cycles + 1 manual `gh workflow run`.
+
+### Prevention
+
+- **Memory entry**: `feedback_iam_resource_path_account_alias.md` (extended from Incident 35) covers the IAM action prefix gotcha — `aws sso-admin <cmd>` CLI verb vs `sso:` IAM prefix. Same memory will be extended again with the `identitystore:Get*` and `ec2:Get*` patterns next session.
+- **Memory entry** (new, captured next session): "Break-glass IAM patches must be paired with the same fix in .tf code, OR the next `terraform apply` that touches the layer will revert it via drift correction." This is the load-bearing lesson; without it, the round-4 drift-overwrite dance recurs.
+- **Build `aegis-emergency-*` role family** to provide a non-detach-SCP recovery path. ADR-030 OQ-1 reserved the namespace but didn't materialize the role. After this incident, OQ-1 graduates from aspirational to actionable — next session should ship `aegis-emergency-bin-recovery` with a trust policy that admits the operator's SSO PlatformAdmin and a permission policy with the `iam:*`-on-prefix-scope needed for break-glass. The SCP `deny-iam-privilege-escalation` already allows `aegis-emergency-*` via its bypass list; the role just needs to exist.
+- **Avoid concurrent merges of multiple PRs that touch the same Terraservice layer.** Four merges in 45 seconds (PR #171/#172/#173/#174 at 05:14:51-05:15:34) caused state-lock contention across all baseline layers, which masked the real `MalformedPolicyDocument` failure (Incident 35) until job-level inspection. Sequential merges (one merge → wait for apply-baseline to complete → next merge) are the disciplined default. Branch-protection's `Require branches to be up to date` was set to `false` on the ruleset, which permitted the racy concurrency; tightening that single setting would have forced serial merges naturally.
+- **Cutover PRs (the ones that swap `role-to-assume:` from Admin to scoped role) should expect a 1-3-round CI debug cycle.** Latent IAM action coverage gaps that were masked by the Admin role surface only after the cutover. Plan budget accordingly. The ADR-029 rollout's PR-2/PR-4/PR-6/PR-7 split into separate cutover PRs (per role family) is the right shape — each cutover surfaces its own bug surface.
+- **Read the apply-baseline workflow's `paths:` filter when reasoning about whether a merge will trigger a re-apply**. PR #176 (docs only), PR #178 / PR #179 (workflow YAML only) did NOT trigger apply-baseline. PR #177 (.tf changes inside `terraform/environments/.../bootstrap/**`) DID. The path filter is non-obvious and the chicken-and-egg cascade depended on knowing exactly when each merge triggered an apply.
+
+### Lessons
+
+- **AWS CLI verb namespace ≠ IAM action prefix.** The mismatch between `aws sso-admin list-instances` and `sso:ListInstances` is invisible at static analysis time — `terraform validate` accepts the JSON, Checkov accepts the JSON, AWS accepts the policy at `PutRolePolicy` time, only fails at policy *evaluation* time when the role tries to call the action and authorization searches for the prefix. AWS docs occasionally use both `sso` and `sso-admin` in different contexts, deepening the confusion. **Rule of thumb**: when authoring a policy that gates a CLI verb, look up the action in the AWS Service Authorization Reference, not in the CLI command help. The prefix listed there is the IAM-recognized one.
+
+- **Drift correction is a feature that bites operators who break-glass.** Terraform's "the .tf is the source of truth" is correct in steady state. During an incident where AWS state has been hand-fixed but .tf has the bug, the next apply will revert. **Mitigation**: any break-glass hand-fix must be paired with a `.tf` PR that lands the same fix in code, in the same merge window. If the break-glass runs at 07:00 and the `.tf` PR can't merge until 09:00, an apply triggered by an unrelated PR at 08:00 that touches the same layer will silently revert. The discipline: **break-glass and code-fix are inseparable. Author both, ship the code-fix in the same hour, ideally in the same commit-set as a draft PR before the break-glass runs.**
+
+- **The `deny-iam-privilege-escalation` SCP is working as designed when it locks out the operator.** This was the first time the SCP fired against a real privilege-escalation attempt (the operator using PlatformAdmin SSO to call `iam:PutRolePolicy` on member accounts). The fact that it locked the operator out is the security guarantee; the discomfort of the recovery path (detach SCP from root → fix → re-attach) is the expected cost. Designing a smoother recovery path (the `aegis-emergency-*` role) is a follow-up, not a redesign — the SCP's deny-by-default is correct.
+
+- **Operator authority over the org root is the real break-glass key.** SCPs do not apply to the management account, so `aws organizations detach-policy` from mgmt admin is always available. This is AWS's own escape hatch design — the management account is the "ultimate admin" and cannot be bricked by its own SCPs. Knowing that this escape hatch exists, and being willing to use it under audit (CloudTrail logs the detach + re-attach + intermediate API calls in clear), is the difference between "SCP is a soft suggestion" and "SCP is a real lock". This incident validated both directions.
+
+- **Subagent-authored IAM policies need empirical testing under load.** The four bugs in `gh-tf-plan` were all introduced by subagents during PR #171's policy authoring (or its `aegis-baseline`-equivalent in PR #172). Each subagent produced JSON that passed local validation, then AWS rejected at the actual call site. The full surface of "what action prefix does this CLI verb actually evaluate against" is not in any subagent's training data with reliable accuracy. **Mitigation**: subagent IAM policy work should ALWAYS be paired with a manual review pass against the AWS Service Authorization Reference, OR a smoke test (apply to a throwaway role + try to invoke the action + observe the result) BEFORE shipping the .tf. This adds 10-15 minutes per policy; saves the 2-3 hour debug cycle this incident produced.
+
+- **Ruleset `Require branches to be up to date` should be `true`**. The original ruleset was set with `strict_required_status_checks_policy: false` because of an oversight during the same morning's Rulesets migration. With `false`, four PRs were merged within 45 seconds without any rebase requirement, producing state-lock contention. With `true`, GitHub would have refused to merge a PR whose base was behind main — forcing a rebase per merge — which would have serialized the four merges naturally. The setting was corrected to `true` later in the same session via PR #180. Future rulesets should include this from the start.
+
+---
+
 ## Adding a new incident
 
 Append new sections at the bottom, before this footer, using the format:
