@@ -73,7 +73,7 @@ resource "aws_s3_bucket_policy" "terraform_state" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid       = "AllowOrganizationAccess"
+        Sid       = "AllowAllowListedPrincipals"
         Effect    = "Allow"
         Principal = "*"
         Action = [
@@ -90,6 +90,13 @@ resource "aws_s3_bucket_policy" "terraform_state" {
         Condition = {
           StringEquals = {
             "aws:PrincipalOrgID" = local.org_id
+          }
+          ArnLike = {
+            "aws:PrincipalArn" = [
+              "arn:aws:iam::*:role/gh-tf-*",
+              "arn:aws:iam::*:role/aegis-emergency-*",
+              "arn:aws:iam::*:role/aws-reserved/sso.amazonaws.com/*/AWSReservedSSO_PlatformAdmin_*",
+            ]
           }
         }
       },
