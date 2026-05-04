@@ -133,6 +133,7 @@ resource "aws_iam_role_policy" "gh_tf_plan" {
           "sso:Get*",
           "identitystore:Describe*",
           "identitystore:List*",
+          "identitystore:Get*",
           "ssm:Describe*",
           "ssm:Get*",
           "ssm:List*",
