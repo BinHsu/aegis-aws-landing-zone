@@ -57,7 +57,7 @@ resource "aws_iam_role_policy" "gh_tf_apply_baseline" {
   # checkov:skip=CKV_AWS_289: `iam:*` is intentionally scoped to project-prefixed resources (aegis-*/github-actions-*/gh-tf-*) plus the OIDC provider and account alias — see Sid IamScoped Resource list. The role is the apply-tier identity for `terraform-apply-baseline.yml` and must be able to manage the project's own IAM resources. Permission-management within a fixed prefix is the apply contract, not a misuse.
   # checkov:skip=CKV_AWS_290: Service-namespace wildcards (organizations:*, sso:*, identitystore:*) are needed because these AWS APIs do not support resource-level ARN constraints on most write actions; service-namespace scoping is the tightest contract available and is gated by trust policy `sub: ref:refs/heads/main` plus branch protection on main.
   # checkov:skip=CKV_AWS_355: Resource:* is by design on the read-only Sid and on AWS APIs without resource-level ARN support. Every mutating action with Resource:* is service-namespace-scoped and trust-policy-gated.
-  # checkov:skip=CKV2_AWS_40: `iam:*` is intentionally allowed within the aegis-*/github-actions-*/gh-tf-* prefix scope for apply-tier baseline operations (creating IRSA roles, OIDC providers, account aliases). Full IAM privileges on a fixed ARN-prefix scope is a deliberate design — an enumerated whitelist of iam:CreateRole/UpdateRole/DeleteRole/...x20+ would be a maintenance liability with the same effective surface. ADR-029 §Decision describes the apply-baseline scope.
+  # checkov:skip=CKV2_AWS_40: `iam:*` is intentionally allowed within the aegis-*/github-actions-*/gh-tf-* prefix scope for apply-tier baseline operations (creating IRSA roles, OIDC providers, account aliases). Full IAM privileges on a fixed ARN-prefix scope is a deliberate design — an enumerated whitelist of iam:CreateRole/UpdateRole/DeleteRole/...x20+ would be a maintenance liability with the same effective surface. ADR-029 §Decision describes the apply-baseline scope. Same pattern applies to `events:*` (scoped to `rule/aegis-detective-*`) and `sns:*` (scoped to `aegis-security-alerts*`) added by ADR-031 Item A.
   name = "apply-baseline-scoped"
   role = aws_iam_role.gh_tf_apply_baseline.id
 
@@ -187,6 +187,32 @@ resource "aws_iam_role_policy" "gh_tf_apply_baseline" {
         Effect   = "Allow"
         Action   = "tag:*"
         Resource = "*"
+      },
+      {
+        # EventBridge rule mutation — scoped to the project's detective
+        # controls rule namespace. ADR-031 Item A creates the
+        # `aegis-detective-failed-oidc-assumption` rule on the default bus;
+        # this Sid covers PutRule / DeleteRule / PutTargets / RemoveTargets
+        # plus the tag-on-create flow Terraform uses. Resource ARN pins to
+        # the default event bus + `aegis-detective-*` rule prefix so a name
+        # outside the project namespace is denied.
+        Sid    = "EventsForDetectiveRule"
+        Effect = "Allow"
+        Action = "events:*"
+        Resource = [
+          "arn:aws:events:${local.primary_region}:${local.account_id}:rule/aegis-detective-*",
+          "arn:aws:events:${local.primary_region}:${local.account_id}:event-bus/default",
+        ]
+      },
+      {
+        # SNS topic mutation — scoped to the project's security-alerts
+        # topic namespace. ADR-031 Item A creates `aegis-security-alerts`;
+        # the prefix accommodates Items B/C if they add separate topics
+        # rather than reusing this one.
+        Sid      = "SnsForDetectiveTopic"
+        Effect   = "Allow"
+        Action   = "sns:*"
+        Resource = "arn:aws:sns:${local.primary_region}:${local.account_id}:aegis-security-alerts*"
       },
       {
         # Read shapes for `terraform plan` after apply (refresh + drift
