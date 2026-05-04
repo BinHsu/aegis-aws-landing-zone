@@ -32,7 +32,7 @@ resource "aws_kms_key" "terraform_state" {
         Resource  = "*"
       },
       {
-        Sid       = "AllowOrganizationDecryptAndEncrypt"
+        Sid       = "AllowAllowListedPrincipalsDecryptAndEncrypt"
         Effect    = "Allow"
         Principal = { AWS = "*" }
         Action = [
@@ -46,6 +46,13 @@ resource "aws_kms_key" "terraform_state" {
         Condition = {
           StringEquals = {
             "aws:PrincipalOrgID" = local.org_id
+          }
+          ArnLike = {
+            "aws:PrincipalArn" = [
+              "arn:aws:iam::*:role/gh-tf-*",
+              "arn:aws:iam::*:role/aegis-emergency-*",
+              "arn:aws:iam::*:role/aws-reserved/sso.amazonaws.com/*/AWSReservedSSO_PlatformAdmin_*",
+            ]
           }
         }
       },
