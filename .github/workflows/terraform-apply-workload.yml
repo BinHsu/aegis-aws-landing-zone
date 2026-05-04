@@ -63,7 +63,7 @@ jobs:
 
       - uses: aws-actions/configure-aws-credentials@v6
         with:
-          role-to-assume: arn:aws:iam::${{ steps.acct.outputs.account_id }}:role/github-actions-terraform
+          role-to-assume: arn:aws:iam::${{ steps.acct.outputs.account_id }}:role/gh-tf-apply-workload
           aws-region: ${{ env.AWS_REGION }}
 
       - uses: hashicorp/setup-terraform@v4
@@ -123,7 +123,7 @@ jobs:
 
       - uses: aws-actions/configure-aws-credentials@v6
         with:
-          role-to-assume: arn:aws:iam::${{ steps.acct.outputs.account_id }}:role/github-actions-terraform
+          role-to-assume: arn:aws:iam::${{ steps.acct.outputs.account_id }}:role/gh-tf-apply-workload
           aws-region: ${{ env.AWS_REGION }}
 
       - uses: hashicorp/setup-terraform@v4
@@ -179,7 +179,7 @@ jobs:
 
       - uses: aws-actions/configure-aws-credentials@v6
         with:
-          role-to-assume: arn:aws:iam::${{ steps.acct.outputs.account_id }}:role/github-actions-terraform
+          role-to-assume: arn:aws:iam::${{ steps.acct.outputs.account_id }}:role/gh-tf-apply-workload
           aws-region: ${{ env.AWS_REGION }}
 
       - uses: hashicorp/setup-terraform@v4
@@ -240,7 +240,7 @@ jobs:
 
       - uses: aws-actions/configure-aws-credentials@v6
         with:
-          role-to-assume: arn:aws:iam::${{ steps.acct.outputs.account_id }}:role/github-actions-terraform
+          role-to-assume: arn:aws:iam::${{ steps.acct.outputs.account_id }}:role/gh-tf-apply-workload
           aws-region: ${{ env.AWS_REGION }}
 
       - uses: hashicorp/setup-terraform@v4
