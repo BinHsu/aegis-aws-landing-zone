@@ -2928,6 +2928,39 @@ Total break-glass operations: 5 `put-role-policy` calls + 1 SCP detach/attach ro
 
 ---
 
+## Incident 37 — IAM eventual-consistency race during apply that adds permissions + new resources together (2026-05-04)
+
+**Symptom**: PR #186 (Tier 3 detective controls) merged. The triggered `Terraform Apply (Baseline)` workflow failed on `Apply management/bootstrap` with two errors back-to-back: `AccessDeniedException` on `SNS:CreateTopic` for `aegis-security-alerts` and `AccessDeniedException` on `events:TagResource` for `aegis-detective-failed-oidc-assumption`. Other 7/8 baseline jobs were green.
+
+**Root cause**: AWS IAM eventual consistency on policy updates. The same `terraform apply` ran two operations in close sequence: (a) `aws_iam_role_policy.gh_tf_apply_baseline` modification adding the new `EventsForDetectiveRule` (`events:*` scoped to `rule/aegis-detective-*`) and `SnsForDetectiveTopic` (`sns:*` scoped to `aegis-security-alerts*`) Sids, completing at `09:54:17.24Z`; then (b) `aws_sns_topic.security_alerts` creation, attempted at approximately `09:54:17.7Z`. The active assumed-role session's permission cache had not yet propagated the new Sids when the SNS API was called — sub-second window, but real. Once the policy propagated (low tens of seconds), the new resources became creatable.
+
+**Detection**: GitHub Actions email notification on workflow failure. Main thread `gh run view --log` confirmed the AccessDeniedException pattern. The error message `"User: arn:aws:sts::186052668286:assumed-role/gh-tf-apply-baseline/GitHubActions is not authorized to perform: SNS:CreateTopic ... because no identity-based policy allows the SNS:CreateTopic action"` is the AWS-standard signature for "policy says no" — but in this case the policy DID say yes; the session cache hadn't received the update yet.
+
+**Resolution**: `gh run rerun --failed` re-triggered just `Apply management/bootstrap`. By retry time, the policy had fully propagated. Apply succeeded in one shot, creating SNS topic + EventBridge rule + target + topic policy.
+
+**Prevention**: PR #187 added a `time_sleep.wait_for_apply_baseline_policy_propagation` resource in `terraform/environments/management/bootstrap/detective-controls.tf`:
+
+```hcl
+resource "time_sleep" "wait_for_apply_baseline_policy_propagation" {
+  depends_on      = [aws_iam_role_policy.gh_tf_apply_baseline]
+  create_duration = "30s"
+}
+```
+
+The new SNS topic and EventBridge rule then `depends_on = [time_sleep.wait_for_apply_baseline_policy_propagation]`. `triggers` is intentionally omitted — the sleep fires on first create only; once the resource exists in state, subsequent applies pass through in zero time. No latency tax on routine apply. The pattern works for any future apply that adds permissions and creates the resources permitted by them in the same plan.
+
+**Lessons**:
+
+- **Same-apply policy-update + resource-create has a built-in IAM race**. Terraform's resource graph orders the policy update before the resource create only if there's an explicit dependency. Without `depends_on`, the AWS provider may pipeline both concurrently. Even with `depends_on`, AWS IAM's eventual consistency means the assumed-role session cache may evaluate the pre-update policy for tens of seconds AFTER `aws_iam_role_policy` returns success.
+
+- **`gh run rerun --failed` is the one-line recovery** for this race. The race is bounded in time (seconds, not minutes), so a single retry virtually always succeeds. No partial state to clean up — the failed CreateTopic / PutRule did not commit anything.
+
+- **`time_sleep` without `triggers` is the cleanest cold-apply guard**. With `triggers = {policy_id = aws_iam_role_policy.X.id}`, the sleep would re-fire every time the policy changes. Without `triggers`, it fires once on first create — which is exactly the race window. Forker cold-apply benefits the most: their first apply does not need the manual rerun step PR #186's merge needed.
+
+- **30s buffer is empirically sufficient for an account this size**. Larger orgs with more attached policies may need longer; the value should be tuned per account if cold-apply still races at 30s. The pattern is the same; only the duration changes.
+
+---
+
 ## Adding a new incident
 
 Append new sections at the bottom, before this footer, using the format:

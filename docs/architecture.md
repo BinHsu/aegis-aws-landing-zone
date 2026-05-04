@@ -15,7 +15,7 @@ AWS Organizations structure with the six accounts, three OUs, and SCP attachment
 flowchart TB
   Org["AWS Organization<br/>(your org id)<br/>Control Tower home: eu-central-1"]
 
-  Mgmt["aegis-management<br/><br/>Organizations<br/>SCPs<br/>Identity Center<br/>Billing<br/>RAM org-sharing"]
+  Mgmt["aegis-management<br/><br/>Organizations<br/>SCPs<br/>Identity Center<br/>Billing<br/>RAM org-sharing<br/>EventBridge + SNS<br/>(Tier 3 detective)"]
 
   subgraph Security["OU: Security (Control Tower-managed)"]
     Sec["aegis-security<br/><br/>GuardDuty<br/>Security Hub<br/>Config admin"]
@@ -106,7 +106,7 @@ flowchart LR
 
   subgraph AWS["AWS IAM Principals"]
     sso_roles["AWSReservedSSO_PlatformAdmin_*<br/>(4 accounts: management,<br/>shared, staging, prod)"]
-    ci_roles["github-actions-terraform<br/>(3 accounts: management,<br/>shared, staging)"]
+    ci_roles["gh-tf-plan / gh-tf-apply-baseline<br/>(3 accounts: management, shared, staging)<br/>+ gh-tf-apply-workload / gh-tf-teardown-workload<br/>(staging only)<br/>+ aegis-emergency-break-glass<br/>(3 accounts; PlatformAdmin trust)"]
   end
 
   bin --> ps
@@ -154,7 +154,7 @@ flowchart TB
     prd["prod: same pattern<br/>(Phase 3+)"]
   end
 
-  bucket -. s3:GetObject + PutObject<br/>condition: aws:PrincipalOrgID .-> mgmt
+  bucket -. s3:GetObject + PutObject<br/>condition: aws:PrincipalOrgID<br/>+ ArnLike on gh-tf-* /<br/>aegis-emergency-* /<br/>SSO PlatformAdmin .-> mgmt
   bucket -. same .-> stg
   bucket -. same .-> prd
   ram -. allocate-cidr .-> stg
