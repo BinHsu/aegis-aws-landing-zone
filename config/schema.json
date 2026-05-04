@@ -133,6 +133,16 @@
         "app_repo": {
           "type": "string",
           "description": "Application repository name (aegis-core)"
+        },
+        "infra_repo_id": {
+          "type": "string",
+          "description": "GitHub numeric repository ID for the infra repo (run: gh api repos/OWNER/REPO --jq .id). When set, OIDC trust policies pin to this immutable ID in addition to the textual repo name. Defense-in-depth against repo rename/transfer edge cases.",
+          "pattern": "^[0-9]+$"
+        },
+        "app_repo_id": {
+          "type": "string",
+          "description": "GitHub numeric repository ID for the app repo (sister repo, e.g. aegis-core). Run: gh api repos/OWNER/REPO --jq .id. Same defense-in-depth role as infra_repo_id.",
+          "pattern": "^[0-9]+$"
         }
       }
     },
