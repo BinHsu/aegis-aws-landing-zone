@@ -194,6 +194,9 @@ Complete improvement index and reliability map: [`docs/improvements/README.md`](
 | [026](docs/decisions/026-cognito-auth-user-pool.md) | Cognito User Pool — cloud-mode auth for aegis |
 | [027](docs/decisions/027-intra-environment-layer-sharding.md) | Intra-environment Terraservice layer sharding discipline |
 | [028](docs/decisions/028-persistent-saas-credential-isolation.md) | Persistent SaaS-credential SSM PS shells isolated from teardown matrix |
+| [029](docs/decisions/029-iam-permission-scope-down.md) | IAM permission scope-down — four-role split for `github-actions-terraform` |
+| [030](docs/decisions/030-tier-2b-permission-boundary-hardening.md) | Tier 2B permission boundary hardening — SCP `deny-iam-privilege-escalation` + state bucket allow-list + `repository_id` claim |
+| [031](docs/decisions/031-tier-3-detective-controls.md) | Tier 3 detective controls — EventBridge alert on failed OIDC assumption |
 
 ## Runbooks
 
