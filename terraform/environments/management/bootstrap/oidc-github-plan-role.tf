@@ -147,6 +147,12 @@ resource "aws_iam_role_policy" "gh_tf_plan" {
           "sqs:List*",
           "events:Describe*",
           "events:List*",
+          # ADR-031 Item A adds the `aegis-detective-failed-oidc-assumption`
+          # rule on the default bus + an SNS topic. Plan-tier refresh needs
+          # the read shapes for both services.
+          "events:Get*",
+          "sns:Get*",
+          "sns:List*",
           "ram:Get*",
           "ram:List*",
           "ec2:DescribeIpam*",
