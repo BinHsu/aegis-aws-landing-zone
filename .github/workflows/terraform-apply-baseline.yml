@@ -165,7 +165,7 @@ jobs:
 
       - uses: aws-actions/configure-aws-credentials@v6
         with:
-          role-to-assume: arn:aws:iam::${{ matrix.account_id }}:role/github-actions-terraform
+          role-to-assume: arn:aws:iam::${{ matrix.account_id }}:role/gh-tf-apply-baseline
           aws-region: ${{ env.AWS_REGION }}
 
       - uses: hashicorp/setup-terraform@v4
