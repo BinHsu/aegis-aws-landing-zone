@@ -66,3 +66,12 @@ output "secrets_kms_key_alias" {
   description = "KMS key alias (alias/aegis-staging-secrets) — matches Runbook 006 Part 2 step 5"
   value       = aws_kms_alias.secrets.name
 }
+
+# -----------------------------------------------------------------------------
+# Break-glass recovery role — ADR-030 OQ-1 graduation
+# -----------------------------------------------------------------------------
+
+output "aegis_emergency_break_glass_role_arn" {
+  description = "ARN of the aegis-emergency-break-glass role for SSO PlatformAdmin assume during break-glass recovery"
+  value       = aws_iam_role.aegis_emergency_break_glass.arn
+}
