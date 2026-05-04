@@ -64,10 +64,11 @@ resource "aws_iam_role_policy" "gh_tf_apply_baseline" {
     Statement = [
       {
         # IAM mutation — scoped to project-prefixed resources plus the
-        # OIDC provider and account alias. `aegis-*` covers Terraform-
-        # controlled roles; `github-actions-*` and `gh-tf-*` cover the
-        # CI roles managed by this very layer (including this role's own
-        # in-place updates).
+        # OIDC provider. `aegis-*` covers Terraform-controlled roles;
+        # `github-actions-*` and `gh-tf-*` cover the CI roles managed
+        # by this very layer (including this role's own in-place updates).
+        # Account alias management is a separate Sid below because AWS IAM
+        # does not accept resource-level ARNs on the alias actions.
         Sid    = "IamScoped"
         Effect = "Allow"
         Action = "iam:*"
@@ -77,8 +78,23 @@ resource "aws_iam_role_policy" "gh_tf_apply_baseline" {
           "arn:aws:iam::${local.account_id}:role/gh-tf-*",
           "arn:aws:iam::${local.account_id}:policy/aegis-*",
           "arn:aws:iam::${local.account_id}:oidc-provider/token.actions.githubusercontent.com",
-          "arn:aws:iam::${local.account_id}:account-alias/*",
         ]
+      },
+      {
+        # Account alias — account-level operations. AWS IAM rejects any
+        # resource-level ARN on these actions ("account-alias/*" is NOT
+        # in the IAM-allowed-resource-path list); Resource: "*" is the
+        # only accepted shape. The trust policy `sub: ref:refs/heads/main`
+        # plus branch protection on main is the gate; the action set is
+        # narrowed to alias-only verbs (no other iam:* leaks through).
+        Sid    = "AccountAliasManagement"
+        Effect = "Allow"
+        Action = [
+          "iam:CreateAccountAlias",
+          "iam:DeleteAccountAlias",
+          "iam:ListAccountAliases",
+        ]
+        Resource = "*"
       },
       {
         # IAM service-linked role creation — gated to the two SLRs the
