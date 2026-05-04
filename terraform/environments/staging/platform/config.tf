@@ -45,7 +45,12 @@ locals {
 
   cluster_name_base = "${local.config.organization.name}-staging"
 
-  ci_role_arn = "arn:aws:iam::${local.account_id}:role/github-actions-terraform"
+  # Cluster-admin EKS Access Entry principal — must match the role that
+  # actually performs `terraform apply` on this layer. Per ADR-029 PR-6,
+  # `terraform-apply-workload.yml` assumes `gh-tf-apply-workload`. The in-TF
+  # `helm` / `kubernetes` / `kubectl` providers need cluster-admin to install
+  # Karpenter / ArgoCD / Kyverno / cert-manager / ESO during apply.
+  ci_role_arn = "arn:aws:iam::${local.account_id}:role/gh-tf-apply-workload"
 
   tags = merge(local.config.tags, {
     Environment = "staging"
