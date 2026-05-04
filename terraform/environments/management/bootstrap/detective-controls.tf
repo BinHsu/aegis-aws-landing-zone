@@ -7,6 +7,22 @@
 # Mgmt-account scope only at MVP; staging + shared deferred per ADR-031 Item B.
 # -----------------------------------------------------------------------------
 
+resource "time_sleep" "wait_for_apply_baseline_policy_propagation" {
+  # Cold-apply guard: AWS IAM has eventual consistency on policy updates of
+  # ~5-30 seconds. The same `terraform apply` that adds the `events:*` /
+  # `sns:*` Sids to `gh-tf-apply-baseline` ALSO creates the EventBridge rule
+  # and SNS topic, so without this sleep the assumed-role session cache may
+  # still be evaluating the OLD policy when CreateTopic / PutRule fires —
+  # AccessDeniedException on first cold-apply. PR #186's first apply hit
+  # exactly this race; rerun recovered cleanly because by then the policy had
+  # propagated. 30s is empirically sufficient for this account's policy size.
+  # `triggers` is intentionally omitted: the sleep fires on first create only,
+  # not on subsequent policy edits — once the resources exist, the race is
+  # past and re-waiting on every apply would be pure latency tax.
+  depends_on      = [aws_iam_role_policy.gh_tf_apply_baseline]
+  create_duration = "30s"
+}
+
 resource "aws_sns_topic" "security_alerts" {
   # SNS topic for Tier 3 detective alerts. Subscribers receive a notification
   # whenever the failed-OIDC-assumption rule (or any future Item B/C rule)
@@ -16,6 +32,8 @@ resource "aws_sns_topic" "security_alerts" {
   kms_master_key_id = "alias/aws/sns"
 
   tags = local.tags
+
+  depends_on = [time_sleep.wait_for_apply_baseline_policy_propagation]
 }
 
 resource "aws_sns_topic_subscription" "security_alerts_email" {
@@ -49,6 +67,8 @@ resource "aws_cloudwatch_event_rule" "failed_oidc_assumption" {
   })
 
   tags = local.tags
+
+  depends_on = [time_sleep.wait_for_apply_baseline_policy_propagation]
 }
 
 resource "aws_cloudwatch_event_target" "failed_oidc_assumption_to_sns" {
