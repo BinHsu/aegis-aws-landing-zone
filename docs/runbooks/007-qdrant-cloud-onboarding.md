@@ -215,6 +215,89 @@ The URL is stable for the lifetime of a cluster. It changes only on cluster recr
 
 ---
 
+## Inactivity timer + keep-alive (Free tier specific)
+
+Qdrant Cloud's free tier suspends clusters that receive no API traffic for **14 days**. Until the engine is deployed and actually serving traffic, the cluster sits idle and will trigger this timer.
+
+### Timeline
+
+```
+day 0     no API calls
+                    │
+day 14    suspension warning email sent (cluster still active)
+                    │
+day 16    cluster suspends   ← data preserved, cluster paused
+                    │
+day 16+21 cluster permanently deleted   ← data and cluster ID gone
+```
+
+So the absolute deadline from "first warning email" to "data permanently lost" is approximately **5 weeks** (14-day initial inactivity + ~2-day warning grace + 21-day post-suspension retention).
+
+### What suspension does NOT require
+
+A suspended cluster is NOT a recreated cluster. The cluster ID, URL, and API keys are all preserved. Reactivation = one Portal click. SSM PS values stay correct, ExternalSecret stays valid, no engine config change.
+
+The only case requiring a return to [Part 1](#part-1--sign-up-and-create-cluster) is **permanent deletion** (>5 weeks of total inactivity). At that point cluster ID changes and the URL changes; re-onboarding via Parts 1-3 is required.
+
+### Keep-alive — manual one-shot
+
+Pulls credentials from SSM PS, hits `/collections` (REST endpoint), prints HTTP code. Resets the inactivity timer. Run this if you've received a suspension warning email and don't want the cluster to suspend.
+
+```bash
+URL=$(AWS_PROFILE=aegis-staging-admin aws ssm get-parameter --region eu-central-1 \
+  --name /aegis/staging/qdrant-cloud/cluster-url --with-decryption \
+  --query Parameter.Value --output text)
+KEY=$(AWS_PROFILE=aegis-staging-admin aws ssm get-parameter --region eu-central-1 \
+  --name /aegis/staging/qdrant-cloud/api-key --with-decryption \
+  --query Parameter.Value --output text)
+REST_URL=$(echo "$URL" | sed 's|:6334|:6333|')
+curl -sS -w "\nHTTP: %{http_code}\n" -H "api-key: $KEY" "$REST_URL/collections"
+```
+
+Expected output: `{"result":{"collections":[...]},"status":"ok",...}` with HTTP 200. Empty `collections: []` is normal pre-engine-deploy.
+
+> **Why `:6333`**: the SSM PS-stored URL ends in `:6334` (Qdrant gRPC port). The REST API for `/collections` listens on `:6333`. Engine clients use 6334 (gRPC); ad-hoc keep-alive uses 6333 (REST) for human-readable response.
+
+### Keep-alive — recurring (medium-term, pre-engine-deploy)
+
+If cold-apply is going to be far in the future (>1 month) and the cluster needs to stay alive, schedule a weekly keep-alive via GitHub Actions. The workflow runs once per week, pings the cluster, exits.
+
+Sketch:
+
+```yaml
+# .github/workflows/qdrant-keepalive.yml
+name: Qdrant Cloud keep-alive
+on:
+  schedule:
+    - cron: "0 6 * * 1"   # Mondays 06:00 UTC
+  workflow_dispatch:
+permissions:
+  id-token: write
+  contents: read
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::<staging-id>:role/gh-tf-plan
+          aws-region: eu-central-1
+      - run: |
+          URL=$(aws ssm get-parameter --name /aegis/staging/qdrant-cloud/cluster-url --with-decryption --query Parameter.Value --output text)
+          KEY=$(aws ssm get-parameter --name /aegis/staging/qdrant-cloud/api-key --with-decryption --query Parameter.Value --output text)
+          REST_URL=$(echo "$URL" | sed 's|:6334|:6333|')
+          curl -fsS -H "api-key: $KEY" "$REST_URL/collections" > /dev/null
+          echo "ok"
+```
+
+Reuses `gh-tf-plan` (read-only) since it has the SSM Get permission needed. Not yet implemented — add when needed.
+
+### Once the engine is deployed
+
+This whole section becomes moot. Engine pods make Qdrant API calls during normal RAG retrieval, the inactivity timer never trips, no keep-alive infrastructure needed. Remove the keep-alive workflow when engine traffic is sustained.
+
+---
+
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |
