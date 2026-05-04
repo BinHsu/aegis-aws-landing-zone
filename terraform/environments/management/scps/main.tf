@@ -161,11 +161,10 @@ resource "aws_organizations_policy_attachment" "deny_leave_org" {
 #   - AWSControlTowerExecution / aws-controltower-* / stacksets-exec-* —
 #     Control Tower / StackSets create and modify IAM during account
 #     provisioning; required for the platform to function.
-#   - github-actions-terraform — legacy Admin role retained during the
-#     ADR-029 rollout window; will be removed when the cleanup PR drops it.
-#   - gh-tf-* — the four purpose-scoped CI roles that supersede the legacy
-#     role per ADR-029. Apply-tier members of this family legitimately create
-#     IAM roles for new infrastructure.
+#   - gh-tf-* — the four purpose-scoped CI roles per ADR-029
+#     (gh-tf-plan / gh-tf-apply-baseline / gh-tf-apply-workload /
+#     gh-tf-teardown-workload). Apply-tier members of this family legitimately
+#     create IAM roles for new infrastructure.
 #   - aegis-emergency-* — break-glass pattern aligned with
 #     `docs/principles/break-glass-apply.md`. Aspirational at present (no role
 #     of this name exists yet); the SCP allow-list reserves the namespace so
@@ -224,7 +223,6 @@ resource "aws_organizations_policy" "deny_iam_privilege_escalation" {
               "arn:aws:iam::*:role/AWSControlTowerExecution",
               "arn:aws:iam::*:role/aws-controltower-*",
               "arn:aws:iam::*:role/stacksets-exec-*",
-              "arn:aws:iam::*:role/github-actions-terraform",
               "arn:aws:iam::*:role/gh-tf-*",
               "arn:aws:iam::*:role/aegis-emergency-*",
               "arn:aws:iam::*:role/*-karpenter-controller",

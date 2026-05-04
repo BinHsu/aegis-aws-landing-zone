@@ -13,11 +13,6 @@ output "github_oidc_provider_arn" {
   value       = aws_iam_openid_connect_provider.github.arn
 }
 
-output "github_ci_role_arn" {
-  description = "IAM role ARN for GitHub Actions CI/CD"
-  value       = aws_iam_role.github_ci.arn
-}
-
 output "ecr_aegis_core_repository_url" {
   description = "ECR repository URL for the aegis-core application image"
   value       = aws_ecr_repository.aegis_core.repository_url
