@@ -82,13 +82,23 @@ resource "aws_iam_role_policy" "gh_tf_plan" {
         Resource = "arn:aws:s3:::${local.config.organization.name}-terraform-state-${local.config.accounts.shared.id}/*.tfstate"
       },
       {
-        Sid      = "StateKmsViaS3Only"
+        # KMS decryption gated by service condition. Two ViaService entries:
+        # - `s3.<region>.amazonaws.com` — for cross-account state-bucket
+        #   reads (state KMS lives in shared account)
+        # - `ssm.<region>.amazonaws.com` — for SSM PS SecureString reads
+        #   (each account's local KMS key encrypts /aegis/<env>/* secrets)
+        # Resource: "*" is bounded by the ViaService condition; without
+        # it the role cannot invoke KMS directly.
+        Sid      = "KmsForStateAndSsm"
         Effect   = "Allow"
         Action   = ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey", "kms:DescribeKey"]
-        Resource = "arn:aws:kms:${local.primary_region}:${local.config.accounts.shared.id}:key/*"
+        Resource = "arn:aws:kms:*:*:key/*"
         Condition = {
           StringEquals = {
-            "kms:ViaService" = "s3.${local.primary_region}.amazonaws.com"
+            "kms:ViaService" = [
+              "s3.${local.primary_region}.amazonaws.com",
+              "ssm.${local.primary_region}.amazonaws.com",
+            ]
           }
         }
       },
@@ -115,9 +125,12 @@ resource "aws_iam_role_policy" "gh_tf_plan" {
           "kms:GetKeyPolicy",
           "organizations:Describe*",
           "organizations:List*",
-          "sso-admin:Describe*",
-          "sso-admin:List*",
-          "sso-admin:Get*",
+          # IAM Identity Center (formerly AWS SSO) — IAM service prefix
+          # is `sso:` even though the CLI verb is `aws sso-admin <command>`.
+          # Using `sso-admin:` here returns AccessDenied on every action.
+          "sso:Describe*",
+          "sso:List*",
+          "sso:Get*",
           "identitystore:Describe*",
           "identitystore:List*",
           "ssm:Describe*",
@@ -133,6 +146,7 @@ resource "aws_iam_role_policy" "gh_tf_plan" {
           "ram:Get*",
           "ram:List*",
           "ec2:DescribeIpam*",
+          "ec2:GetIpam*",
           "fis:Get*",
           "fis:List*",
           "cognito-idp:Describe*",
