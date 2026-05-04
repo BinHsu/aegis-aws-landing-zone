@@ -71,12 +71,12 @@ jobs:
           ")
           echo "account_id=${ACCOUNT_ID}" >> "$GITHUB_OUTPUT"
 
-      - uses: aws-actions/configure-aws-credentials@v6
+      - uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
         with:
           role-to-assume: arn:aws:iam::${{ steps.acct.outputs.account_id }}:role/gh-tf-teardown-workload
           aws-region: ${{ env.AWS_REGION }}
 
-      - uses: hashicorp/setup-terraform@v4
+      - uses: hashicorp/setup-terraform@5e8dbf3c6d9deaf4193ca7a8fb23f2ac83bb6c85 # v4.0.0
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
@@ -178,12 +178,12 @@ jobs:
           ")
           echo "account_id=${ACCOUNT_ID}" >> "$GITHUB_OUTPUT"
 
-      - uses: aws-actions/configure-aws-credentials@v6
+      - uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
         with:
           role-to-assume: arn:aws:iam::${{ steps.acct.outputs.account_id }}:role/gh-tf-teardown-workload
           aws-region: ${{ env.AWS_REGION }}
 
-      - uses: hashicorp/setup-terraform@v4
+      - uses: hashicorp/setup-terraform@5e8dbf3c6d9deaf4193ca7a8fb23f2ac83bb6c85 # v4.0.0
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
@@ -234,12 +234,12 @@ jobs:
           ")
           echo "account_id=${ACCOUNT_ID}" >> "$GITHUB_OUTPUT"
 
-      - uses: aws-actions/configure-aws-credentials@v6
+      - uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
         with:
           role-to-assume: arn:aws:iam::${{ steps.acct.outputs.account_id }}:role/gh-tf-teardown-workload
           aws-region: ${{ env.AWS_REGION }}
 
-      - uses: hashicorp/setup-terraform@v4
+      - uses: hashicorp/setup-terraform@5e8dbf3c6d9deaf4193ca7a8fb23f2ac83bb6c85 # v4.0.0
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
@@ -360,12 +360,12 @@ jobs:
           ")
           echo "account_id=${ACCOUNT_ID}" >> "$GITHUB_OUTPUT"
 
-      - uses: aws-actions/configure-aws-credentials@v6
+      - uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
         with:
           role-to-assume: arn:aws:iam::${{ steps.acct.outputs.account_id }}:role/gh-tf-teardown-workload
           aws-region: ${{ env.AWS_REGION }}
 
-      - uses: hashicorp/setup-terraform@v4
+      - uses: hashicorp/setup-terraform@5e8dbf3c6d9deaf4193ca7a8fb23f2ac83bb6c85 # v4.0.0
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
