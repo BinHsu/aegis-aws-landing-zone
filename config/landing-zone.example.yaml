@@ -78,6 +78,11 @@ github:
   org: YourGitHubOrg
   infra_repo: aegis-aws-landing-zone
   app_repo: aegis-core
+  # Optional — defense-in-depth against repo rename/transfer (ADR-030 Item C).
+  # Run: gh api repos/<owner>/<repo> --jq .id
+  # If unset, OIDC trust policies fall back to repo full_name pinning only.
+  infra_repo_id: "1234567890"  # placeholder — replace with actual numeric ID
+  app_repo_id: "1234567891"    # placeholder — replace with actual numeric ID
 
 tags:
   Project: landing-zone-lab

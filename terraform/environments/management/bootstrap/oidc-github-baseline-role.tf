@@ -36,10 +36,13 @@ resource "aws_iam_role" "gh_tf_apply_baseline" {
         }
         Action = "sts:AssumeRoleWithWebIdentity"
         Condition = {
-          StringEquals = {
-            "${replace(local.github_oidc_url, "https://", "")}:aud" = "sts.amazonaws.com"
-            "${replace(local.github_oidc_url, "https://", "")}:sub" = "repo:${local.github_org}/${local.github_infra_repo}:ref:refs/heads/main"
-          }
+          StringEquals = merge(
+            {
+              "${replace(local.github_oidc_url, "https://", "")}:aud" = "sts.amazonaws.com"
+              "${replace(local.github_oidc_url, "https://", "")}:sub" = "repo:${local.github_org}/${local.github_infra_repo}:ref:refs/heads/main"
+            },
+            local.github_oidc_infra_repo_id_claim,
+          )
         }
       }
     ]

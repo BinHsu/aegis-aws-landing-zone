@@ -31,9 +31,12 @@ resource "aws_iam_role" "aegis_core_ecr" {
       }
       Action = "sts:AssumeRoleWithWebIdentity"
       Condition = {
-        StringEquals = {
-          "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-        }
+        StringEquals = merge(
+          {
+            "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+          },
+          local.github_oidc_app_repo_id_claim,
+        )
         StringLike = {
           "token.actions.githubusercontent.com:sub" = "repo:${local.github_org}/${local.github_app_repo}:ref:refs/heads/main"
 
@@ -130,9 +133,12 @@ resource "aws_iam_role" "aegis_core_cache" {
       }
       Action = "sts:AssumeRoleWithWebIdentity"
       Condition = {
-        StringEquals = {
-          "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-        }
+        StringEquals = merge(
+          {
+            "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+          },
+          local.github_oidc_app_repo_id_claim,
+        )
         StringLike = {
           "token.actions.githubusercontent.com:sub" = "repo:${local.github_org}/${local.github_app_repo}:ref:refs/heads/main"
         }
