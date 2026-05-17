@@ -43,7 +43,7 @@ where alternatives were genuinely weighed.
 | [015](015-observability-tooling.md) | Observability Tooling | **Superseded by 022** |
 | [016](016-admission-control.md) | Admission Control: Kyverno | Accepted (amended) |
 | [017](017-workload-namespace-and-rbac-model.md) | Workload Namespace and RBAC Model | Accepted |
-| [018](018-multi-region-eks-design.md) | Multi-region EKS Design | Accepted (amended) |
+| [018](018-multi-region-eks-design.md) | Multi-region EKS Design | **Superseded by 032** (§1/§2/§5–§7 still authoritative) |
 | [019](019-frontend-serving-strategy.md) | Frontend Serving Strategy — S3 + CloudFront | Accepted |
 | [020](020-fis-dr-drill.md) | Fault Injection Simulator (FIS) for DR Drills | Accepted (amended) |
 | [021](021-observability-scaling-path.md) | Observability Scaling Path | Accepted (amended) |
@@ -57,20 +57,21 @@ where alternatives were genuinely weighed.
 | [029](029-iam-permission-scope-down.md) | IAM Permission Scope-Down for `github-actions-terraform` | Accepted |
 | [030](030-tier-2b-permission-boundary-hardening.md) | Tier 2B Permission Boundary Hardening | Accepted |
 | [031](031-tier-3-detective-controls.md) | Tier 3 Detective Controls | Accepted |
+| [032](032-external-orchestration-multi-region.md) | External Orchestration for Multi-region EKS | Accepted (supersedes 018 §3–§4) |
 
 > Filenames in the table are the conventional `NNN-title.md` form. If a link
 > 404s, the on-disk title slug differs slightly — the number is authoritative.
 
 ## Reading orders by audience
 
-You do not need to read 31 ADRs front to back. Pick the path for why you are
+You do not need to read 32 ADRs front to back. Pick the path for why you are
 here. Each list is ordered so the argument builds on itself.
 
 ### Senior platform / infrastructure reviewer
 
 Understand the shape of the landing zone and why it is shaped that way.
 
-`001` → `006` → `008` → `011` → `003` → `004` → `024` → `007` → `002` → `012` → `013` → `018` → `027`
+`001` → `006` → `008` → `011` → `003` → `004` → `024` → `007` → `002` → `012` → `013` → `018` → `032` → `027`
 
 Scope boundary first (what this repo does and does not own), then the
 account/OU taxonomy, then the Control-Tower-plus-Terraform tooling split and
@@ -83,7 +84,7 @@ VPC, EKS, multi-region, and the layer-sharding discipline.
 
 Understand the failure model and how recovery is proven.
 
-`002` → `009` → `018` → `020` → `003` → `021` → `022` → `023`
+`002` → `009` → `018` → `032` → `020` → `003` → `021` → `022` → `023`
 
 Region/AZ strategy and the lifecycle/teardown model set the baseline; the
 multi-region design and the FIS DR-drill ADR are the core. State backend
