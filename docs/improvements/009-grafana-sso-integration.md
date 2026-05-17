@@ -20,7 +20,7 @@ Grafana is deployed via `kube-prometheus-stack` Helm chart (ADR-015). Authentica
 | Mechanism | Status |
 |---|---|
 | Local admin account | ✅ enabled by default — currently the **only** auth path |
-| Admin password source | `random_password` Terraform resource (one per cluster slot since 2026-04-20 workloads slot-pattern refactor); exposed as sensitive outputs `grafana_admin_password_primary` / `grafana_admin_password_slave_1` on `staging/workloads` (originally PR #78, per-slot split when workloads adopted the slot pattern) |
+| Admin password source | **Obsolete** — the in-cluster Grafana and its `random_password` admin outputs were removed by [ADR-022](../decisions/022-observability-backend-grafana-cloud.md) (observability moved to Grafana Cloud; human auth is Google OAuth via the GC portal). Row retained only as historical context for the SSO discussion below. |
 | SSO / OIDC / SAML | ❌ not configured |
 | `grafana.admin.disableLogin` | ❌ not set (local admin login is active) |
 

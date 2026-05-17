@@ -53,6 +53,28 @@ for two constraints aegis-stateless does not face:
    the existing `eks.<env>.regions[]` key — ldz does **not** adopt
    aegis-stateless's separate `regions.auto.tfvars.json`.
 
+### Industry framing
+
+This is not a bespoke design — it has recognised names, worth stating so the
+intent is legible to a reviewer:
+
+- **Architecturally** it is a **deployment-stamp** (Azure Architecture Center's
+  term) / **cell-based architecture** (AWS's term): each region is an
+  independent, self-contained, identical *cell*; the system scales and
+  isolates blast radius by replicating the cell rather than by growing a
+  shared instance.
+- **Mechanically** it is what HashiCorp later productised as **Terraform
+  Stacks** — one configuration, N "deployments", typically one per region or
+  account. ldz hand-rolls the equivalent with a `Makefile` / CI matrix loop
+  (it is not on HCP Terraform); the same result is achievable with a
+  Terragrunt `for_each` over regions. The defining property — one state file
+  per region instance — is **per-region state isolation**.
+
+The superseded ADR-018 "slot pattern" had no industry name; it was a
+repo-local coinage for "multi-region inside a single root module, worked
+around the static-provider-alias limitation". ADR-032 moves to the named,
+conventional pattern.
+
 ## Decision
 
 ### 1. One `(env, region)` per Terraform apply

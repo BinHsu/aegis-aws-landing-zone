@@ -7,10 +7,8 @@
 |---|---|---|
 | IPAM CIDR allocation | ✅ Both `eu-central-1` and `eu-west-1` regional pools provisioned and RAM-shared | From inception |
 | Config schema (`eks.<env>.regions[]` list + invariants) | ✅ Shipped in Session A | Session A (this PR) |
-| Terraform modules (`staging/network`, `staging/platform`) — `for_each(eks.regions)` refactor | ✅ Shipped in Session B (2026-04-19) | PRs [#84](https://github.com/BinHsu/aegis-aws-landing-zone/pull/84) + [#92](https://github.com/BinHsu/aegis-aws-landing-zone/pull/92) |
-| Terraform module (`staging/workloads`) — slot-pattern refactor (per-cluster GuardDuty + IRSA + namespace + Kyverno + observability) | ✅ Shipped in Session B (2026-04-20) | PR #(pending) |
-| CI plan matrix for length-1 and length-2 | ✅ Shipped in Session B (2026-04-19) — workloads NOT in matrix (same as platform: needs upstream remote_state populated) | PR [#97](https://github.com/BinHsu/aegis-aws-landing-zone/pull/97) |
-| K=2 slot ceiling hard guard (schema + `terraform_data.assert_k2_max`) | ✅ Shipped in Session B — guard now in 3 layers (network + platform + workloads) | PRs [#93](https://github.com/BinHsu/aegis-aws-landing-zone/pull/93) + #(pending) |
+| Multi-region Terraform model — `staging/network` / `platform` / `workloads` | ✅ Shipped — slot pattern in Session B (2026-04-19/20), **replaced by external orchestration per [ADR-032](../decisions/032-external-orchestration-multi-region.md) in Session D (2026-05-17)**: one region per apply, region-scoped state keys, per-region loop in CI + root `Makefile`; no provider aliases, no K=2 ceiling | PRs #84/#92/#97 (slot pattern); #208/#210/#211 (ADR-032) |
+| CI per-region plan / apply / teardown | ✅ Shipped — workflows loop over `eks.<env>.regions[]` (Session D); `platform`/`workloads`/`auth`/`observability` are not in the PR-plan matrix (need live upstream state) | PR #210 |
 | Deployed workload clusters | 1 (primary only) | Default; forker opts into more via `eks.<env>.regions` list |
 | Route 53 failover configuration | ❌ Not yet provisioned | Session B or C |
 | ECR cross-region replication | ❌ By design — Mode A default | Mode B upgrade path below |
@@ -229,19 +227,20 @@ Both `eu-central-1` and `eu-west-1` are EU regions and satisfy [ADR-002](../deci
 
 ## Lab status
 
-**Mode A slot pattern validated end-to-end** (Session C closed 2026-04-20):
+**Mode A multi-region — external orchestration ([ADR-032](../decisions/032-external-orchestration-multi-region.md), supersedes the ADR-018 slot pattern).** The model is a deployment-stamp / cell-based layout: each region is an independent cell with its own region-scoped state key, applied one region per `terraform apply`, looped externally by the root `Makefile` / CI matrix:
 
 - ✅ IPAM multi-region (both regional pools, RAM-shared).
 - ✅ Config schema `eks.<env>.regions` list (Session A).
 - ✅ Validation invariants (Session A — Python + schema).
-- ✅ Terraform `for_each(eks.regions)` refactor — **Session B done 2026-04-19/20** (network, platform sub-module, workloads sub-module, K=2 slot guard in 3 layers, CI plan matrix length-1 + length-2).
-- ✅ End-to-end apply + verify + teardown against real AWS — **Session C done 2026-04-20**. Length-2 applied to network + platform + workloads; both clusters reached Ready; Runbook 003 §9 checklist passed on core paths; teardown completed after one retry + one manual orphan-cleanup cycle. ~90 min wall including the teardown retry, ~$2 cost (teardown delay did not extend billing — EKS/NAT were already gone before the sweep-related failure). Five bugs surfaced and captured:
+- ✅ Multi-region Terraform — **slot pattern: Session B 2026-04-19/20; replaced by external orchestration (ADR-032): Session D 2026-05-17** (network / platform / workloads each handle one region per apply, partial `backend.tf` with a region-scoped key, per-region loop in CI + `Makefile`; no provider aliases, no K=2 ceiling).
+- ✅ End-to-end apply + verify + teardown against real AWS — **Session C done 2026-04-20** (under the then-current slot pattern). Length-2 applied to network + platform + workloads; both clusters reached Ready; Runbook 003 §9 checklist passed on core paths; teardown completed after one retry + one manual orphan-cleanup cycle. ~90 min wall, ~$2 cost. Five bugs surfaced and captured:
   - Incident 26: Kyverno `ClusterPolicy` CRD race against ArgoCD-managed chart sync (cold-apply)
   - Incident 27: kube-prometheus-stack node-exporter DaemonSet Pending on Fargate nodes (cold-apply)
   - Incident 28: GuardDuty EKS Runtime Monitoring agent CrashLoopBackOff (cold-apply; not fully diagnosed)
   - Incident 29: ArgoCD `application-controller` OOMKilled on cold-start reconcile (primary cluster only — asymmetric by load-ordering)
   - Incident 30: Teardown sweep step silently masks `DependencyViolation` on orphan EKS cluster SG; `|| true` + no ENI pass leaves VPC stuck
   None are slot-pattern defects; 26-29 are pre-existing issues in individual workload components that cold-apply surfaced for the first time, 30 is a pre-existing teardown-workflow defect that multi-region exercise made more likely to hit. Each incident has a Prevention section with the fix outline; a follow-up PR will codify them.
+- ⏳ ADR-032 external-orchestration cold-apply re-validation — **pending**. The refactor is code-complete and CI-plan-green; a cold-apply exercising the new region-scoped state flow (`make cold-apply` / the per-region workflow) is scheduled as its own session.
 - ❌ Mode B (ECR replication + ApplicationSet + `aegis-core` coordination) — upgrade path documented, not a lab target.
 
 Each demo session chooses 1-region (default, cheap) or 2-region (richer demo, ~$2 verified per 75-min Session C).
