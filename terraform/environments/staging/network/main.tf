@@ -1,55 +1,31 @@
 # -----------------------------------------------------------------------------
-# Staging VPCs — ADR-012 topology, ADR-018 multi-region
+# Staging VPC — ADR-012 topology, ADR-032 external-orchestration multi-region
 # -----------------------------------------------------------------------------
-# One module invocation per entry in eks.staging.regions[]. Provider alias
-# is the slot pattern: always two aliases (primary, slave_1), growing requires
-# ADR amendment. All region-specific resources live inside the module so the
-# top level stays small and reviewable.
+# One VPC, in the single region this apply targets (var.region). The
+# multi-region fan-out is external: the orchestrator runs this layer once per
+# entry in eks.staging.regions[], each with its own region-scoped state key.
 #
-# State structure: single state file for the layer — all invocations share
-# `staging/network/terraform.tfstate`. Per ADR-018 §4.
+# All region-specific resources live inside ./modules/vpc so the top level
+# stays small and reviewable.
 # -----------------------------------------------------------------------------
 
 locals {
-  # flow_logs_bucket_arn is read once at layer scope and passed into each
-  # module. Null-safe: if bootstrap has not been applied, the VPC module
-  # skips the aws_flow_log resource entirely (see module flow-logs.tf).
+  # flow_logs_bucket_arn is null-safe: if bootstrap has not been applied, the
+  # VPC module skips the aws_flow_log resource entirely (see module
+  # flow-logs.tf).
   flow_logs_bucket_arn = try(
     data.terraform_remote_state.staging_bootstrap.outputs.flow_logs_bucket_arn,
     null
   )
 }
 
-module "vpc_primary" {
+module "vpc" {
   source = "./modules/vpc"
 
-  providers = {
-    aws.this = aws.primary
-  }
-
-  region_key           = "primary"
-  region_name          = local.primary_eks_region.region
-  zones                = local.zones_by_region[local.primary_eks_region.region]
-  netmask_length       = local.vpc_config_by_region[local.primary_eks_region.region].netmask_length
-  ipam_pool_id         = local.ipam_pool_by_region[local.primary_eks_region.region]
-  flow_logs_bucket_arn = local.flow_logs_bucket_arn
-  env_name             = "staging"
-}
-
-module "vpc_slave_1" {
-  source = "./modules/vpc"
-
-  count = length(local.slave_regions) >= 1 ? 1 : 0
-
-  providers = {
-    aws.this = aws.slave_1
-  }
-
-  region_key           = "slave_1"
-  region_name          = try(local.slave_regions[0].region, local.primary_region)
-  zones                = try(local.zones_by_region[local.slave_regions[0].region], [])
-  netmask_length       = try(local.vpc_config_by_region[local.slave_regions[0].region].netmask_length, 20)
-  ipam_pool_id         = try(local.ipam_pool_by_region[local.slave_regions[0].region], "")
+  region               = local.region
+  zones                = local.zones
+  netmask_length       = local.vpc_config.netmask_length
+  ipam_pool_id         = local.ipam_pool_id
   flow_logs_bucket_arn = local.flow_logs_bucket_arn
   env_name             = "staging"
 }
