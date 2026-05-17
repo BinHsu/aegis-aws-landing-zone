@@ -10,7 +10,7 @@
 | Layer | Required state | How to verify |
 |---|---|---|
 | `staging/network` | applied, VPC + NAT up | `gh workflow run terraform-apply-workload.yml` path |
-| `staging/platform` | applied, EKS cluster Ready, Alloy Running | `kubectl --context aegis-staging-primary get nodes` → ≥1 node Ready; `kubectl -n monitoring get pods -l app.kubernetes.io/name=alloy` → Running |
+| `staging/platform` | applied, EKS cluster Ready, Alloy Running | `kubectl --context aegis-staging-eu-central-1 get nodes` → ≥1 node Ready; `kubectl -n monitoring get pods -l app.kubernetes.io/name=alloy` → Running |
 | `staging/workloads` | applied, aegis namespace + GuardDuty present | `kubectl -n aegis get all` shows workload Services; `aws guardduty list-detectors --region eu-central-1` returns the staging detector |
 | `staging/observability` | applied, grafana-operator Running | `kubectl -n observability get pods -l app.kubernetes.io/name=grafana-operator` → Running |
 | `staging/fis` | applied, experiment template exists | `terraform -chdir=terraform/environments/staging/fis output experiment_template_id` returns an ID |
@@ -21,7 +21,7 @@ If any row fails, the drill cannot produce useful signal. Apply missing layers b
 
 Open `https://<org_slug>.grafana.net` in a browser and sign in via Google OAuth (per Runbook 006 Part 3 break-glass admin). Org slug is `config.grafana_cloud.org_slug` — `aegis-staging` by default.
 
-Open **Dashboards → Kubernetes / Compute Resources / Cluster** (platform dashboard shipped by staging/observability/platform-dashboards.tf). You should see CPU + memory series for both cluster nodes, with the `cluster` label populated (value `primary` or `slave_1` per ADR-022 §External label). If series are flat at zero or the `cluster` label is missing, Alloy is not remote-writing — fix before drilling.
+Open **Dashboards → Kubernetes / Compute Resources / Cluster** (platform dashboard shipped by staging/observability/platform-dashboards.tf). You should see CPU + memory series for both cluster nodes, with the `cluster` label populated (value is the AWS region — `eu-central-1` or `eu-west-1` — per ADR-022 §External label; ADR-032 changed the label from slot names to region names). If series are flat at zero or the `cluster` label is missing, Alloy is not remote-writing — fix before drilling.
 
 Under ADR-022, `node-exporter` is no longer a separate DaemonSet. Node-level metrics come from kubelet's cAdvisor + kube-state-metrics (both scraped by Alloy via ServiceMonitors). Incident 27's Fargate-affinity pattern no longer applies.
 
@@ -95,14 +95,14 @@ Expected progression: `initiating` → `running` (within ~30 seconds). If it goe
 ### What you should see in kubectl
 
 ```bash
-kubectl --context aegis-staging-primary get nodes
+kubectl --context aegis-staging-eu-central-1 get nodes
 # within 2-3 min: all nodes → NotReady
 
-kubectl --context aegis-staging-primary get pods -n aegis
+kubectl --context aegis-staging-eu-central-1 get pods -n aegis
 # pods → Pending (ContainerCreating stuck, no nodes to schedule on)
 
-kubectl --context aegis-staging-primary get pods -n kyverno
-kubectl --context aegis-staging-primary get pods -n cert-manager
+kubectl --context aegis-staging-eu-central-1 get pods -n kyverno
+kubectl --context aegis-staging-eu-central-1 get pods -n cert-manager
 # same pattern — everything worker-hosted is stuck
 ```
 
@@ -121,7 +121,7 @@ Control-plane-hosted pods (Karpenter, ArgoCD, coredns addon) on Fargate continue
 ### 1. Verify all nodes Ready
 
 ```bash
-kubectl --context aegis-staging-primary get nodes
+kubectl --context aegis-staging-eu-central-1 get nodes
 ```
 
 Expected: all nodes → Ready. If any are still NotReady after 15 minutes:
@@ -132,7 +132,7 @@ Expected: all nodes → Ready. If any are still NotReady after 15 minutes:
 ### 2. Verify all pods Running
 
 ```bash
-kubectl --context aegis-staging-primary get pods -A | grep -vE "Running|Completed"
+kubectl --context aegis-staging-eu-central-1 get pods -A | grep -vE "Running|Completed"
 ```
 
 Expected: empty output (or the two DaemonSet pods that are known to not schedule on Fargate — node-exporter handled by PR #110, GuardDuty runtime agent is a known gap per Incident 28 / improvements/010).
