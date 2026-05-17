@@ -11,12 +11,12 @@ name: Terraform Teardown (Workload)
 # Destruction order (reverse of apply):
 #   observability → workloads → platform → network
 #
+# Multi-region (ADR-032): network / platform / workloads are destroyed once
+# per region in eks.<env>.regions[] — each job loops internally. observability
+# is primary-only. State keys are region-scoped via partial backend config.
+#
 # Observability-first ensures grafana-operator finalizers on GrafanaDashboard /
-# GrafanaContactPoint / GrafanaNotificationPolicy* CRDs complete cleanly —
-# finalizers call Grafana Cloud API to remove the remote resources, so
-# skipping this step leaves orphan dashboards + contact points on the GC
-# stack (ADR-022 §Teardown). Destroying grafana-operator's helm_release
-# before CRD deletion would strand the finalizers forever.
+# GrafanaContactPoint / GrafanaNotificationPolicy* CRDs complete cleanly.
 #
 # Preserves bootstrap layer, shared services, all other accounts.
 # Equivalent in scope to scripts/teardown/soft-teardown-workload.sh.
@@ -42,10 +42,8 @@ env:
 
 jobs:
   # Observability first — grafana-operator CRD finalizers must run while the
-  # operator pod is still alive, or else GrafanaDashboard / GrafanaContactPoint
-  # / GrafanaNotificationPolicy* resources leak on the Grafana Cloud side
-  # (ADR-022 §Teardown). Pre-delete step runs kubectl delete + finalizer wait
-  # before terraform destroy removes grafana-operator's helm_release.
+  # operator pod is still alive. Observability is primary-only (ADR-032):
+  # single state, plain backend, not region-looped.
   destroy-observability:
     name: Destroy ${{ inputs.env }}/observability
     runs-on: ubuntu-latest
@@ -90,45 +88,39 @@ jobs:
             echo "::notice::observability layer does not exist for ${{ inputs.env }} — skipping"
           fi
 
-      # Pre-delete stage: remove all grafana-operator-managed CRDs first so
-      # finalizers run while the operator pod is still alive. Two-minute wait
-      # matches ADR-022 §Teardown — long enough for Grafana Cloud API calls
-      # to complete, short enough not to stall the teardown if a finalizer
-      # is stuck.
-      #
-      # All commands tolerant of "cluster already gone" / "CRD not found" —
-      # teardown must be idempotent across re-runs after partial failures.
+      # Pre-delete grafana-operator-managed CRDs so finalizers run while the
+      # operator pod is still alive. Targets the primary-region cluster
+      # (grafana-operator is primary-only, ADR-022/ADR-032). All commands are
+      # tolerant of "cluster already gone" so teardown is re-runnable.
       - name: Pre-delete grafana-operator CRDs (finalizer flush)
         if: steps.exists.outputs.exists == 'true'
         run: |
+          PRIMARY=$(python3 -c "
+          import yaml
+          c = yaml.safe_load(open('config/landing-zone.yaml'))
+          print(next(r['name'] for r in c['regions'] if r['role'] == 'primary'))
+          ")
           CLUSTER_NAME=$(aws eks list-clusters \
-            --region ${{ env.AWS_REGION }} \
-            --query "clusters[?contains(@, 'primary')] | [0]" \
+            --region "$PRIMARY" \
+            --query "clusters[?contains(@, 'staging')] | [0]" \
             --output text 2>/dev/null || echo "None")
           if [ "$CLUSTER_NAME" = "None" ] || [ -z "$CLUSTER_NAME" ] || [ "$CLUSTER_NAME" = "null" ]; then
             echo "::notice::No primary EKS cluster found — skipping CRD pre-delete (cluster may already be gone)."
             exit 0
           fi
           if ! aws eks update-kubeconfig \
-                 --region ${{ env.AWS_REGION }} --name "$CLUSTER_NAME" 2>/dev/null; then
+                 --region "$PRIMARY" --name "$CLUSTER_NAME" 2>/dev/null; then
             echo "::notice::Could not fetch kubeconfig — skipping CRD pre-delete."
             exit 0
           fi
 
-          # Delete order: leaf resources first, then the Grafana CRD (target
-          # stack config) last. Mute timings + notification policies can be
-          # gone before dashboards — they're all independently finalized.
           echo "::notice::Deleting grafana-operator-managed CRs across all namespaces..."
           for kind in grafanadashboard grafanacontactpoint grafananotificationpolicyroute grafananotificationpolicy grafanamutetiming; do
             kubectl delete "$kind" --all -A --timeout=2m --ignore-not-found 2>/dev/null || true
           done
 
-          # Grafana CRD last. Deleting it while dashboards still existed
-          # would race finalizers against the operator's "target stack" state
-          # loss.
           kubectl delete grafana --all -A --timeout=1m --ignore-not-found 2>/dev/null || true
 
-          # Belt-and-braces: poll for CRD cleanup completion up to 2 minutes.
           echo "::notice::Waiting for finalizers to flush (up to 2 min)..."
           for i in $(seq 1 12); do
             REMAINING=$(kubectl get grafanadashboard,grafanacontactpoint,grafananotificationpolicyroute,grafananotificationpolicy,grafana -A --no-headers 2>/dev/null | wc -l | tr -d ' ')
@@ -139,7 +131,7 @@ jobs:
             echo "::notice::$REMAINING CRs still present; waiting 10s (attempt $i/12)"
             sleep 10
           done
-          echo "::warning::CRD finalizers did not complete within 2m. Proceeding with teardown — Grafana Cloud side may have orphan resources (remove manually via GC portal)."
+          echo "::warning::CRD finalizers did not complete within 2m. Proceeding — Grafana Cloud side may have orphan resources (remove manually via GC portal)."
 
       - name: Terraform Init
         if: steps.exists.outputs.exists == 'true'
@@ -152,7 +144,6 @@ jobs:
         run: terraform destroy -auto-approve -input=false -no-color
 
   # No `environment:` — approval was granted at destroy-observability.
-  # Subsequent layers run automatically once the session-level gate opens.
   destroy-workloads:
     name: Destroy ${{ inputs.env }}/workloads
     needs: destroy-observability
@@ -187,28 +178,38 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      - name: Check layer exists
-        id: exists
+      - name: Terraform Destroy — workloads (per region)
         run: |
-          if [[ -d "terraform/environments/${{ inputs.env }}/workloads" ]]; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          LAYER_DIR="terraform/environments/${{ inputs.env }}/workloads"
+          if [[ ! -d "${LAYER_DIR}" ]]; then
             echo "::notice::workloads layer does not exist for ${{ inputs.env }} — skipping"
+            exit 0
           fi
+          eval "$(python3 - <<'PY'
+          import yaml
+          c = yaml.safe_load(open('config/landing-zone.yaml'))
+          org = c['organization']['name']
+          shared = c['accounts']['shared']['id']
+          primary = next(r['name'] for r in c['regions'] if r['role'] == 'primary')
+          regions = [r['region'] for r in c.get('eks', {}).get('${{ inputs.env }}', {}).get('regions', [])]
+          print(f'BUCKET={org}-terraform-state-{shared}')
+          print(f'PRIMARY={primary}')
+          print(f'REGIONS="{" ".join(regions)}"')
+          PY
+          )"
+          for REGION in ${REGIONS}; do
+            echo "::group::workloads destroy — ${REGION}"
+            terraform -chdir="${LAYER_DIR}" init -reconfigure -input=false \
+              -backend-config="bucket=${BUCKET}" \
+              -backend-config="key=${{ inputs.env }}/${REGION}/workloads/terraform.tfstate" \
+              -backend-config="region=${PRIMARY}"
+            TF_VAR_region="${REGION}" terraform -chdir="${LAYER_DIR}" destroy \
+              -auto-approve -input=false -no-color
+            echo "::endgroup::"
+          done
 
-      - name: Terraform Init
-        if: steps.exists.outputs.exists == 'true'
-        working-directory: terraform/environments/${{ inputs.env }}/workloads
-        run: terraform init -input=false
-
-      - name: Terraform Destroy
-        if: steps.exists.outputs.exists == 'true'
-        working-directory: terraform/environments/${{ inputs.env }}/workloads
-        run: terraform destroy -auto-approve -input=false -no-color
-
-  # No `environment:` — approval was granted at destroy-observability. Subsequent
-  # layers run automatically once the session-level gate opens.
+  # No `environment:` — approval was granted at destroy-observability.
   destroy-platform:
     name: Destroy ${{ inputs.env }}/platform
     needs: destroy-workloads
@@ -243,96 +244,100 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      # Quiesce Karpenter cleanly BEFORE terraform destroy runs. Two-phase:
-      #
-      #   1. Drain NodePools — `kubectl delete nodepool --all` triggers
-      #      Karpenter (still running) to delete all its NodeClaims, which
-      #      gracefully terminates the EC2 instances it manages.
-      #   2. Scale Karpenter to 0 — once NodeClaims are gone, scale the
-      #      controller Deployment to 0 so nothing can spawn new EC2
-      #      capacity during the remainder of destroy.
-      #
-      # Without step 2, Terraform's destroy of helm_release.karpenter is
-      # racy: `helm uninstall` submits pod-delete asynchronously and
-      # returns before the Karpenter pod has actually terminated. Terraform
-      # then parallelizes onward to destroy aws_eks_fargate_profile.karpenter,
-      # which force-kills the still-terminating Karpenter pod mid-finalize.
-      # Any NodeClaim whose reconciliation was in flight at that moment
-      # leaks its EC2 — and that EC2 blocks subnet destroy later.
-      #
-      # The existing `provisioner "local-exec"` on the NodePool is the
-      # equivalent fix for local operators (runbook 002), but in CI it is
-      # effectively a no-op because the runner has no kubeconfig and the
-      # `|| true` swallows the kubectl "no context" error. This step is
-      # the CI-side equivalent; together they cover both code paths.
-      #
-      # See docs/incidents.md Incident 22 for the detection story.
-      - name: Quiesce Karpenter before destroy
+      # Quiesce Karpenter cleanly BEFORE terraform destroy — once per region.
+      # Drains NodePools (Karpenter terminates its EC2) then scales the
+      # controller to 0 so no new capacity spawns mid-destroy. Without this,
+      # destroying helm_release.karpenter races the fargate profile destroy
+      # and leaks EC2 that then blocks subnet destroy. See Incident 22.
+      - name: Quiesce Karpenter before destroy (per region)
         run: |
-          CLUSTER_NAME=$(aws eks list-clusters \
-            --region ${{ env.AWS_REGION }} \
-            --query "clusters[0]" --output text 2>/dev/null || echo "None")
-          if [ "$CLUSTER_NAME" = "None" ] || [ -z "$CLUSTER_NAME" ] || [ "$CLUSTER_NAME" = "null" ]; then
-            echo "::notice::No EKS cluster in account — skipping Karpenter quiesce."
-            exit 0
-          fi
-          if ! aws eks update-kubeconfig \
-                 --region ${{ env.AWS_REGION }} --name "$CLUSTER_NAME" 2>/dev/null; then
-            echo "::notice::Could not fetch kubeconfig — skipping Karpenter quiesce."
-            exit 0
-          fi
-          # Step 1: delete NodePools, wait for Karpenter to drain NodeClaims
-          # (→ EC2 instances terminate gracefully).
-          echo "::notice::Draining Karpenter NodePools..."
-          kubectl delete nodepool --all --timeout=10m 2>/dev/null || true
-          kubectl wait --for=delete nodeclaim --all --timeout=10m 2>/dev/null || true
-          # Step 2: scale the controller to 0 so no new NodeClaims can be
-          # created during the rest of destroy.
-          echo "::notice::Scaling Karpenter controller to 0 replicas..."
-          kubectl scale deployment karpenter -n karpenter --replicas=0 2>/dev/null || true
-          kubectl wait --for=delete pod \
-            -l app.kubernetes.io/name=karpenter -n karpenter --timeout=5m 2>/dev/null || true
+          set -uo pipefail
+          REGIONS=$(python3 -c "
+          import yaml
+          c = yaml.safe_load(open('config/landing-zone.yaml'))
+          print(' '.join(r['region'] for r in c.get('eks', {}).get('${{ inputs.env }}', {}).get('regions', [])))
+          ")
+          for REGION in ${REGIONS}; do
+            echo "::group::Karpenter quiesce — ${REGION}"
+            CLUSTER_NAME=$(aws eks list-clusters \
+              --region "$REGION" \
+              --query "clusters[?contains(@, 'staging')] | [0]" --output text 2>/dev/null || echo "None")
+            if [ "$CLUSTER_NAME" = "None" ] || [ -z "$CLUSTER_NAME" ] || [ "$CLUSTER_NAME" = "null" ]; then
+              echo "::notice::No EKS cluster in ${REGION} — skipping Karpenter quiesce."
+              echo "::endgroup::"
+              continue
+            fi
+            if ! aws eks update-kubeconfig --region "$REGION" --name "$CLUSTER_NAME" 2>/dev/null; then
+              echo "::notice::Could not fetch kubeconfig for ${REGION} — skipping quiesce."
+              echo "::endgroup::"
+              continue
+            fi
+            echo "::notice::Draining Karpenter NodePools in ${REGION}..."
+            kubectl delete nodepool --all --timeout=10m 2>/dev/null || true
+            kubectl wait --for=delete nodeclaim --all --timeout=10m 2>/dev/null || true
+            echo "::notice::Scaling Karpenter controller to 0 in ${REGION}..."
+            kubectl scale deployment karpenter -n karpenter --replicas=0 2>/dev/null || true
+            kubectl wait --for=delete pod \
+              -l app.kubernetes.io/name=karpenter -n karpenter --timeout=5m 2>/dev/null || true
+            echo "::endgroup::"
+          done
 
-      # Safety-net sweep: terminate any EC2 instance tagged as Karpenter-
-      # provisioned before Terraform runs. The quiesce step above should
-      # normally make this a no-op, but if the quiesce failed (cluster
-      # already gone, access-entry drift, state-rm recovery), this catches
-      # what's left. See docs/incidents.md Incident 19.
-      - name: Sweep orphan Karpenter-provisioned EC2 instances
+      # Safety-net sweep: terminate Karpenter-provisioned EC2 in every region
+      # before Terraform runs. See Incident 19.
+      - name: Sweep orphan Karpenter EC2 instances (per region)
         run: |
-          IDS=$(aws ec2 describe-instances \
-            --region ${{ env.AWS_REGION }} \
-            --filters "Name=tag-key,Values=karpenter.sh/nodepool" \
-                      "Name=instance-state-name,Values=running,pending,stopping,stopped" \
-            --query 'Reservations[].Instances[].InstanceId' \
-            --output text)
-          if [ -n "$IDS" ]; then
-            echo "::notice::Terminating orphan Karpenter instances: $IDS"
-            aws ec2 terminate-instances --region ${{ env.AWS_REGION }} --instance-ids $IDS
-            aws ec2 wait instance-terminated --region ${{ env.AWS_REGION }} --instance-ids $IDS
-          else
-            echo "::notice::No orphan Karpenter-tagged EC2 instances found."
-          fi
+          set -uo pipefail
+          REGIONS=$(python3 -c "
+          import yaml
+          c = yaml.safe_load(open('config/landing-zone.yaml'))
+          print(' '.join(r['region'] for r in c.get('eks', {}).get('${{ inputs.env }}', {}).get('regions', [])))
+          ")
+          for REGION in ${REGIONS}; do
+            IDS=$(aws ec2 describe-instances \
+              --region "$REGION" \
+              --filters "Name=tag-key,Values=karpenter.sh/nodepool" \
+                        "Name=instance-state-name,Values=running,pending,stopping,stopped" \
+              --query 'Reservations[].Instances[].InstanceId' \
+              --output text)
+            if [ -n "$IDS" ]; then
+              echo "::notice::Terminating orphan Karpenter instances in ${REGION}: $IDS"
+              aws ec2 terminate-instances --region "$REGION" --instance-ids $IDS
+              aws ec2 wait instance-terminated --region "$REGION" --instance-ids $IDS
+            else
+              echo "::notice::No orphan Karpenter-tagged EC2 in ${REGION}."
+            fi
+          done
 
-      - name: Check layer exists
-        id: exists
+      - name: Terraform Destroy — platform (per region)
         run: |
-          if [[ -d "terraform/environments/${{ inputs.env }}/platform" ]]; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          LAYER_DIR="terraform/environments/${{ inputs.env }}/platform"
+          if [[ ! -d "${LAYER_DIR}" ]]; then
             echo "::notice::platform layer does not exist for ${{ inputs.env }} — skipping"
+            exit 0
           fi
-
-      - name: Terraform Init
-        if: steps.exists.outputs.exists == 'true'
-        working-directory: terraform/environments/${{ inputs.env }}/platform
-        run: terraform init -input=false
-
-      - name: Terraform Destroy
-        if: steps.exists.outputs.exists == 'true'
-        working-directory: terraform/environments/${{ inputs.env }}/platform
-        run: terraform destroy -auto-approve -input=false -no-color
+          eval "$(python3 - <<'PY'
+          import yaml
+          c = yaml.safe_load(open('config/landing-zone.yaml'))
+          org = c['organization']['name']
+          shared = c['accounts']['shared']['id']
+          primary = next(r['name'] for r in c['regions'] if r['role'] == 'primary')
+          regions = [r['region'] for r in c.get('eks', {}).get('${{ inputs.env }}', {}).get('regions', [])]
+          print(f'BUCKET={org}-terraform-state-{shared}')
+          print(f'PRIMARY={primary}')
+          print(f'REGIONS="{" ".join(regions)}"')
+          PY
+          )"
+          for REGION in ${REGIONS}; do
+            echo "::group::platform destroy — ${REGION}"
+            terraform -chdir="${LAYER_DIR}" init -reconfigure -input=false \
+              -backend-config="bucket=${BUCKET}" \
+              -backend-config="key=${{ inputs.env }}/${REGION}/platform/terraform.tfstate" \
+              -backend-config="region=${PRIMARY}"
+            TF_VAR_region="${REGION}" terraform -chdir="${LAYER_DIR}" destroy \
+              -auto-approve -input=false -no-color
+            echo "::endgroup::"
+          done
 
   # No `environment:` — see destroy-platform rationale.
   destroy-network:
@@ -369,128 +374,120 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      # Safety-net sweep: clear EKS-auto-created network interfaces and
-      # security groups in the target VPC before Terraform tries to destroy
-      # the VPC. EKS creates a cluster SG (tagged aws:eks:cluster-name) and
-      # control-plane ENIs that are NOT managed by any Terraform resource —
-      # AWS releases them asynchronously after the cluster is deleted, and
-      # any ENI still in the `available` state will block SG delete, which
-      # in turn blocks subnet delete with DependencyViolation.
-      #
-      # Order matters: ENIs first, then SGs. Reverse order hits the exact
-      # DependencyViolation that the sweep exists to prevent.
-      #
-      # Fail loudly: if the sweep cannot clear a resource, the step exits
-      # non-zero instead of masking the error with `|| true`. A silent
-      # sweep-failure was the root cause of Incident 30 — the step claimed
-      # success while AWS was rejecting the delete.
-      #
-      # See docs/incidents.md Incidents 20 + 30.
-      - name: Sweep orphan EKS ENIs + security groups in target VPC
+      # Safety-net sweep: clear EKS-auto-created ENIs + security groups in
+      # every target VPC before Terraform destroys it. Order: ENIs first, then
+      # SGs. Fail loudly — a silent sweep failure was the root cause of
+      # Incident 30. See Incidents 20 + 30.
+      - name: Sweep orphan EKS ENIs + security groups (per region)
         run: |
           set -eo pipefail
-
-          # Filter by component tags rather than by Name tag: PR-c (#84)
-          # refactored the VPC name from `<env>-vpc` to `<env>-<region_key>-vpc`
-          # (e.g. `staging-primary-vpc`). Matching on Name alone would silently
-          # return no VPC and skip the sweep. The component-tag filter also
-          # matches multi-region VPCs (primary + slave_1) — the for-loop below
-          # iterates across all matched VPC IDs so both regions get swept.
-          VPC_IDS=$(aws ec2 describe-vpcs \
-            --region ${{ env.AWS_REGION }} \
-            --filters "Name=tag:Project,Values=landing-zone-lab" \
-                      "Name=tag:Environment,Values=${{ inputs.env }}" \
-                      "Name=tag:Component,Values=network" \
-            --query 'Vpcs[].VpcId' --output text 2>/dev/null || echo "")
-          if [ -z "$VPC_IDS" ]; then
-            echo "::notice::No VPCs tagged for ${{ inputs.env }}/network in this region; nothing to sweep."
-            exit 0
-          fi
-
-          for VPC_ID in $VPC_IDS; do
-            echo "::notice::Sweeping VPC $VPC_ID"
-
-            # Step 1: delete orphan ENIs (status=available). These are the
-            # control-plane ENIs AWS hasn't reclaimed yet after cluster delete.
-            ENI_IDS=$(aws ec2 describe-network-interfaces \
-              --region ${{ env.AWS_REGION }} \
-              --filters "Name=vpc-id,Values=$VPC_ID" \
-                        "Name=status,Values=available" \
-              --query 'NetworkInterfaces[].NetworkInterfaceId' \
-              --output text)
-            for ENI in $ENI_IDS; do
-              echo "::notice::Deleting orphan ENI $ENI"
-              if ! aws ec2 delete-network-interface \
-                     --region ${{ env.AWS_REGION }} \
-                     --network-interface-id "$ENI" 2> /tmp/eni-err.log; then
-                echo "::error::Failed to delete ENI $ENI:"
-                cat /tmp/eni-err.log
-                exit 1
-              fi
-            done
-
-            # Step 2: delete orphan EKS cluster SGs (tagged aws:eks:cluster-name).
-            SG_IDS=$(aws ec2 describe-security-groups \
-              --region ${{ env.AWS_REGION }} \
-              --filters "Name=vpc-id,Values=$VPC_ID" \
-                        "Name=tag-key,Values=aws:eks:cluster-name" \
-              --query 'SecurityGroups[].GroupId' \
-              --output text)
-            for SG in $SG_IDS; do
-              echo "::notice::Deleting orphan EKS SG $SG"
-              if ! aws ec2 delete-security-group \
-                     --region ${{ env.AWS_REGION }} \
-                     --group-id "$SG" 2> /tmp/sg-err.log; then
-                echo "::error::Failed to delete SG $SG:"
-                cat /tmp/sg-err.log
-                exit 1
-              fi
-            done
-
-            # Step 3: verify no available-state ENIs remain before handing off
-            # to terraform destroy. Control-plane ENI reclaim is asynchronous;
-            # poll for up to 5 minutes.
-            echo "::notice::Verifying VPC $VPC_ID is clear of available ENIs"
-            for i in $(seq 1 30); do
-              REMAINING=$(aws ec2 describe-network-interfaces \
-                --region ${{ env.AWS_REGION }} \
-                --filters "Name=vpc-id,Values=$VPC_ID" \
-                          "Name=status,Values=available" \
-                --query 'length(NetworkInterfaces)' --output text)
-              if [ "$REMAINING" = "0" ]; then
-                break
-              fi
-              echo "::notice::$REMAINING ENIs still available in VPC $VPC_ID; waiting 10s (attempt $i/30)"
-              sleep 10
-            done
-            if [ "$REMAINING" != "0" ]; then
-              echo "::error::VPC $VPC_ID still has $REMAINING available ENIs after 5m; aborting teardown"
-              aws ec2 describe-network-interfaces \
-                --region ${{ env.AWS_REGION }} \
-                --filters "Name=vpc-id,Values=$VPC_ID" \
-                          "Name=status,Values=available" \
-                --query 'NetworkInterfaces[].[NetworkInterfaceId,Description,Groups[].GroupName]' \
-                --output text
-              exit 1
+          REGIONS=$(python3 -c "
+          import yaml
+          c = yaml.safe_load(open('config/landing-zone.yaml'))
+          print(' '.join(r['region'] for r in c.get('eks', {}).get('${{ inputs.env }}', {}).get('regions', [])))
+          ")
+          for REGION in ${REGIONS}; do
+            echo "::group::ENI/SG sweep — ${REGION}"
+            # Filter by component tags — the VPC Name tag is region-scoped
+            # (staging-<region>-vpc) so a Name match would be brittle.
+            VPC_IDS=$(aws ec2 describe-vpcs \
+              --region "$REGION" \
+              --filters "Name=tag:Project,Values=landing-zone-lab" \
+                        "Name=tag:Environment,Values=${{ inputs.env }}" \
+                        "Name=tag:Component,Values=network" \
+              --query 'Vpcs[].VpcId' --output text 2>/dev/null || echo "")
+            if [ -z "$VPC_IDS" ]; then
+              echo "::notice::No VPCs tagged for ${{ inputs.env }}/network in ${REGION}; nothing to sweep."
+              echo "::endgroup::"
+              continue
             fi
+
+            for VPC_ID in $VPC_IDS; do
+              echo "::notice::Sweeping VPC $VPC_ID in ${REGION}"
+
+              ENI_IDS=$(aws ec2 describe-network-interfaces \
+                --region "$REGION" \
+                --filters "Name=vpc-id,Values=$VPC_ID" \
+                          "Name=status,Values=available" \
+                --query 'NetworkInterfaces[].NetworkInterfaceId' \
+                --output text)
+              for ENI in $ENI_IDS; do
+                echo "::notice::Deleting orphan ENI $ENI"
+                if ! aws ec2 delete-network-interface \
+                       --region "$REGION" \
+                       --network-interface-id "$ENI" 2> /tmp/eni-err.log; then
+                  echo "::error::Failed to delete ENI $ENI:"
+                  cat /tmp/eni-err.log
+                  exit 1
+                fi
+              done
+
+              SG_IDS=$(aws ec2 describe-security-groups \
+                --region "$REGION" \
+                --filters "Name=vpc-id,Values=$VPC_ID" \
+                          "Name=tag-key,Values=aws:eks:cluster-name" \
+                --query 'SecurityGroups[].GroupId' \
+                --output text)
+              for SG in $SG_IDS; do
+                echo "::notice::Deleting orphan EKS SG $SG"
+                if ! aws ec2 delete-security-group \
+                       --region "$REGION" \
+                       --group-id "$SG" 2> /tmp/sg-err.log; then
+                  echo "::error::Failed to delete SG $SG:"
+                  cat /tmp/sg-err.log
+                  exit 1
+                fi
+              done
+
+              echo "::notice::Verifying VPC $VPC_ID is clear of available ENIs"
+              REMAINING="unknown"
+              for i in $(seq 1 30); do
+                REMAINING=$(aws ec2 describe-network-interfaces \
+                  --region "$REGION" \
+                  --filters "Name=vpc-id,Values=$VPC_ID" \
+                            "Name=status,Values=available" \
+                  --query 'length(NetworkInterfaces)' --output text)
+                if [ "$REMAINING" = "0" ]; then
+                  break
+                fi
+                echo "::notice::$REMAINING ENIs still available in $VPC_ID; waiting 10s (attempt $i/30)"
+                sleep 10
+              done
+              if [ "$REMAINING" != "0" ]; then
+                echo "::error::VPC $VPC_ID still has $REMAINING available ENIs after 5m; aborting teardown"
+                exit 1
+              fi
+            done
+            echo "::endgroup::"
           done
 
-      - name: Check layer exists
-        id: exists
+      - name: Terraform Destroy — network (per region)
         run: |
-          if [[ -d "terraform/environments/${{ inputs.env }}/network" ]]; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          LAYER_DIR="terraform/environments/${{ inputs.env }}/network"
+          if [[ ! -d "${LAYER_DIR}" ]]; then
             echo "::notice::network layer does not exist for ${{ inputs.env }} — skipping"
+            exit 0
           fi
-
-      - name: Terraform Init
-        if: steps.exists.outputs.exists == 'true'
-        working-directory: terraform/environments/${{ inputs.env }}/network
-        run: terraform init -input=false
-
-      - name: Terraform Destroy
-        if: steps.exists.outputs.exists == 'true'
-        working-directory: terraform/environments/${{ inputs.env }}/network
-        run: terraform destroy -auto-approve -input=false -no-color
+          eval "$(python3 - <<'PY'
+          import yaml
+          c = yaml.safe_load(open('config/landing-zone.yaml'))
+          org = c['organization']['name']
+          shared = c['accounts']['shared']['id']
+          primary = next(r['name'] for r in c['regions'] if r['role'] == 'primary')
+          regions = [r['region'] for r in c.get('eks', {}).get('${{ inputs.env }}', {}).get('regions', [])]
+          print(f'BUCKET={org}-terraform-state-{shared}')
+          print(f'PRIMARY={primary}')
+          print(f'REGIONS="{" ".join(regions)}"')
+          PY
+          )"
+          for REGION in ${REGIONS}; do
+            echo "::group::network destroy — ${REGION}"
+            terraform -chdir="${LAYER_DIR}" init -reconfigure -input=false \
+              -backend-config="bucket=${BUCKET}" \
+              -backend-config="key=${{ inputs.env }}/${REGION}/network/terraform.tfstate" \
+              -backend-config="region=${PRIMARY}"
+            TF_VAR_region="${REGION}" terraform -chdir="${LAYER_DIR}" destroy \
+              -auto-approve -input=false -no-color
+            echo "::endgroup::"
+          done
