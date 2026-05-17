@@ -110,7 +110,13 @@ BACKEND_FILES=$(find "${REPO_ROOT}/terraform" -name "backend.tf" -not -path "*/.
 COUNT=0
 
 for f in ${BACKEND_FILES}; do
-  if grep -q 'backend "s3"' "$f"; then
+  # Skip partial-backend layers (ADR-032). The staging workload layers
+  # (network / platform / workloads) declare `backend "s3"` with no
+  # bucket / key / region literals — the orchestrator (root Makefile, CI)
+  # supplies a region-scoped key via `terraform init -backend-config=`.
+  # They have no `bucket =` line, so detect that and leave them alone;
+  # this script only templates full-literal baseline backends.
+  if grep -q 'backend "s3"' "$f" && grep -qE '^[[:space:]]*bucket[[:space:]]*=' "$f"; then
     # Replace bucket value
     sed -i '' -E "s|bucket[[:space:]]*=[[:space:]]*\"[^\"]*\"|bucket       = \"${BUCKET_NAME}\"|" "$f"
     # Replace region value
