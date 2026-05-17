@@ -71,17 +71,14 @@ jobs:
           - env: staging/fis
             account_id: "251774439261"
           # -----------------------------------------------------------------
-          # staging/observability — Grafana Cloud identities + grafana-operator
-          # (primary-only, ADR-022/ADR-032). Single state, plain backend.
+          # NOT plan-able in PR CI — staging/auth and staging/observability
+          # are intentionally excluded from this matrix. Both read the
+          # staging/platform layer's Terraform state (cluster endpoint / CA),
+          # and platform is a workload-tier layer whose state does not exist
+          # until a cold-apply (ADR-032 region-scoped key). This is the same
+          # reason staging/platform and staging/workloads are not planned in
+          # PR CI. They are exercised by terraform-apply-workload.yml.
           # -----------------------------------------------------------------
-          - env: staging/observability
-            account_id: "251774439261"
-          # -----------------------------------------------------------------
-          # staging/auth — Cognito User Pool (ADR-026). Baseline-tier peer
-          # layer, conditional on config.cognito.
-          # -----------------------------------------------------------------
-          - env: staging/auth
-            account_id: "251774439261"
 
     steps:
       - uses: actions/checkout@v6
