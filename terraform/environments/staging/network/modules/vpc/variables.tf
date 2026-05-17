@@ -1,10 +1,5 @@
-variable "region_key" {
-  description = "Role-based key for this region (e.g. \"primary\", \"slave_1\"). Used in resource name tags so multiple VPCs within a single state file are human-distinguishable."
-  type        = string
-}
-
-variable "region_name" {
-  description = "AWS region name (e.g. \"eu-central-1\"). Purely informational within the module — the actual region is determined by the passed-in provider."
+variable "region" {
+  description = "AWS region name (e.g. \"eu-central-1\"). Used in resource Name tags. The actual region is set by the layer's default provider — this layer applies one region per state file (ADR-032)."
   type        = string
 }
 
@@ -19,7 +14,7 @@ variable "netmask_length" {
 }
 
 variable "ipam_pool_id" {
-  description = "Regional IPAM pool ID to allocate this VPC's CIDR from. Must be a pool whose locale matches region_name."
+  description = "Regional IPAM pool ID to allocate this VPC's CIDR from. Must be a pool whose locale matches the region."
   type        = string
 }
 
@@ -30,6 +25,6 @@ variable "flow_logs_bucket_arn" {
 }
 
 variable "env_name" {
-  description = "Environment label for resource Name tags (e.g. \"staging\"). Combined with region_key to produce names like \"staging-primary-vpc\"."
+  description = "Environment label for resource Name tags (e.g. \"staging\"). Combined with region to produce names like \"staging-eu-central-1-vpc\"."
   type        = string
 }
