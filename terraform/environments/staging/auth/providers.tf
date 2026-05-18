@@ -14,7 +14,7 @@
 # reconciled manifests rather than adding a second kubectl provider.
 #
 # Same lazy-evaluation pattern as observability: provider blocks
-# reference `local.clusters.primary.*` which resolves at apply time
+# reference `local.platform.*` which resolves at apply time
 # after the terraform_remote_state data source returns. On cold apply
 # without platform applied yet, the check "platform_layer_applied" in
 # config.tf surfaces a readable error.
@@ -31,24 +31,24 @@ provider "aws" {
 }
 
 provider "kubernetes" {
-  host                   = try(local.clusters.primary.cluster_endpoint, "")
-  cluster_ca_certificate = try(base64decode(local.clusters.primary.cluster_certificate_authority_data), "")
+  host                   = try(local.platform.cluster_endpoint, "")
+  cluster_ca_certificate = try(base64decode(local.platform.cluster_certificate_authority_data), "")
 
   exec {
     api_version = "client.authentication.k8s.io/v1beta1"
     command     = "aws"
-    args        = ["eks", "get-token", "--cluster-name", try(local.clusters.primary.cluster_name, ""), "--region", local.primary_region]
+    args        = ["eks", "get-token", "--cluster-name", try(local.platform.cluster_name, ""), "--region", local.primary_region]
   }
 }
 
 provider "kubectl" {
-  host                   = try(local.clusters.primary.cluster_endpoint, "")
-  cluster_ca_certificate = try(base64decode(local.clusters.primary.cluster_certificate_authority_data), "")
+  host                   = try(local.platform.cluster_endpoint, "")
+  cluster_ca_certificate = try(base64decode(local.platform.cluster_certificate_authority_data), "")
   load_config_file       = false
 
   exec {
     api_version = "client.authentication.k8s.io/v1beta1"
     command     = "aws"
-    args        = ["eks", "get-token", "--cluster-name", try(local.clusters.primary.cluster_name, ""), "--region", local.primary_region]
+    args        = ["eks", "get-token", "--cluster-name", try(local.platform.cluster_name, ""), "--region", local.primary_region]
   }
 }
