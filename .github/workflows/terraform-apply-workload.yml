@@ -1,8 +1,13 @@
 name: Terraform Apply (Workload)
 
 # workflow_dispatch-only. Applies cost-incurring workload layers for a
-# specified environment. Each job is gated by the `workload-apply` GitHub
-# Environment which requires an explicit approval click by the operator.
+# specified environment. The first job is gated by the `workload-apply`
+# GitHub Environment, which requires an explicit approval click.
+#
+# Multi-region (ADR-032): network / platform / workloads are applied once
+# per region in eks.<env>.regions[] — the job loops internally. observability
+# is primary-only and applied once. State keys are region-scoped
+# (<env>/<region>/<layer>/terraform.tfstate) via partial backend config.
 #
 # Start-of-session command:
 #   gh workflow run terraform-apply-workload.yml -f env=staging
@@ -31,7 +36,8 @@ env:
 
 jobs:
   # Network layer runs first. Creates VPC, NAT Gateway, subnets, Gateway
-  # endpoints. Cost starts as soon as NAT Gateway exists (~$0.045/hr).
+  # endpoints — once per region. Cost starts as soon as a NAT Gateway exists
+  # (~$0.045/hr each).
   apply-network:
     name: Apply ${{ inputs.env }}/network
     runs-on: ubuntu-latest
@@ -61,7 +67,7 @@ jobs:
           fi
           echo "account_id=${ACCOUNT_ID}" >> "$GITHUB_OUTPUT"
 
-      - uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+      - uses: aws-actions/configure-aws-credentials@d979d5b3a71173a29b74b5b88418bfda9437d885 # v6.1.1
         with:
           role-to-assume: arn:aws:iam::${{ steps.acct.outputs.account_id }}:role/gh-tf-apply-workload
           aws-region: ${{ env.AWS_REGION }}
@@ -70,32 +76,46 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      - name: Check layer exists
-        id: exists
+      - name: Terraform Apply — network (per region)
         run: |
-          if [[ -d "terraform/environments/${{ inputs.env }}/network" ]]; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          LAYER_DIR="terraform/environments/${{ inputs.env }}/network"
+          if [[ ! -d "${LAYER_DIR}" ]]; then
             echo "::notice::network layer does not exist for ${{ inputs.env }} — nothing to apply"
+            exit 0
           fi
+          eval "$(python3 - <<'PY'
+          import yaml
+          c = yaml.safe_load(open('config/landing-zone.yaml'))
+          org = c['organization']['name']
+          shared = c['accounts']['shared']['id']
+          primary = next(r['name'] for r in c['regions'] if r['role'] == 'primary')
+          regions = [r['region'] for r in c.get('eks', {}).get('${{ inputs.env }}', {}).get('regions', [])]
+          print(f'BUCKET={org}-terraform-state-{shared}')
+          print(f'PRIMARY={primary}')
+          print(f'REGIONS="{" ".join(regions)}"')
+          PY
+          )"
+          if [[ -z "${REGIONS}" ]]; then
+            echo "::notice::no eks.${{ inputs.env }}.regions configured — nothing to apply"
+            exit 0
+          fi
+          for REGION in ${REGIONS}; do
+            echo "::group::network apply — ${REGION}"
+            terraform -chdir="${LAYER_DIR}" init -reconfigure -input=false \
+              -backend-config="bucket=${BUCKET}" \
+              -backend-config="key=${{ inputs.env }}/${REGION}/network/terraform.tfstate" \
+              -backend-config="region=${PRIMARY}"
+            TF_VAR_region="${REGION}" terraform -chdir="${LAYER_DIR}" apply \
+              -auto-approve -input=false -no-color
+            echo "::endgroup::"
+          done
 
-      - name: Terraform Init
-        if: steps.exists.outputs.exists == 'true'
-        working-directory: terraform/environments/${{ inputs.env }}/network
-        run: terraform init -input=false
-
-      - name: Terraform Apply
-        if: steps.exists.outputs.exists == 'true'
-        working-directory: terraform/environments/${{ inputs.env }}/network
-        run: terraform apply -auto-approve -input=false -no-color
-
-  # Platform layer runs after network. Creates EKS cluster, Karpenter on
-  # Fargate, ArgoCD, AWS Load Balancer Controller, etc. Phase 3c and beyond.
-  # Currently this layer does not exist — job will skip gracefully.
-  # No `environment:` — approval was granted at apply-network. Subsequent
-  # layers run automatically once the first layer's gate opens. This trades
-  # per-layer approval for a single session-level intent confirmation.
+  # Platform layer runs after network. Creates the EKS cluster, Karpenter on
+  # Fargate, ArgoCD, AWS Load Balancer Controller, etc. — once per region.
+  # No `environment:` — approval was granted at apply-network; subsequent
+  # layers run automatically once that gate opens (single session-level
+  # intent confirmation).
   apply-platform:
     name: Apply ${{ inputs.env }}/platform
     needs: apply-network
@@ -121,7 +141,7 @@ jobs:
           ")
           echo "account_id=${ACCOUNT_ID}" >> "$GITHUB_OUTPUT"
 
-      - uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+      - uses: aws-actions/configure-aws-credentials@d979d5b3a71173a29b74b5b88418bfda9437d885 # v6.1.1
         with:
           role-to-assume: arn:aws:iam::${{ steps.acct.outputs.account_id }}:role/gh-tf-apply-workload
           aws-region: ${{ env.AWS_REGION }}
@@ -130,27 +150,42 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      - name: Check layer exists
-        id: exists
+      - name: Terraform Apply — platform (per region)
         run: |
-          if [[ -d "terraform/environments/${{ inputs.env }}/platform" ]]; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          LAYER_DIR="terraform/environments/${{ inputs.env }}/platform"
+          if [[ ! -d "${LAYER_DIR}" ]]; then
             echo "::notice::platform layer does not exist for ${{ inputs.env }} — nothing to apply"
+            exit 0
           fi
+          eval "$(python3 - <<'PY'
+          import yaml
+          c = yaml.safe_load(open('config/landing-zone.yaml'))
+          org = c['organization']['name']
+          shared = c['accounts']['shared']['id']
+          primary = next(r['name'] for r in c['regions'] if r['role'] == 'primary')
+          regions = [r['region'] for r in c.get('eks', {}).get('${{ inputs.env }}', {}).get('regions', [])]
+          print(f'BUCKET={org}-terraform-state-{shared}')
+          print(f'PRIMARY={primary}')
+          print(f'REGIONS="{" ".join(regions)}"')
+          PY
+          )"
+          if [[ -z "${REGIONS}" ]]; then
+            echo "::notice::no eks.${{ inputs.env }}.regions configured — nothing to apply"
+            exit 0
+          fi
+          for REGION in ${REGIONS}; do
+            echo "::group::platform apply — ${REGION}"
+            terraform -chdir="${LAYER_DIR}" init -reconfigure -input=false \
+              -backend-config="bucket=${BUCKET}" \
+              -backend-config="key=${{ inputs.env }}/${REGION}/platform/terraform.tfstate" \
+              -backend-config="region=${PRIMARY}"
+            TF_VAR_region="${REGION}" terraform -chdir="${LAYER_DIR}" apply \
+              -auto-approve -input=false -no-color
+            echo "::endgroup::"
+          done
 
-      - name: Terraform Init
-        if: steps.exists.outputs.exists == 'true'
-        working-directory: terraform/environments/${{ inputs.env }}/platform
-        run: terraform init -input=false
-
-      - name: Terraform Apply
-        if: steps.exists.outputs.exists == 'true'
-        working-directory: terraform/environments/${{ inputs.env }}/platform
-        run: terraform apply -auto-approve -input=false -no-color
-
-  # Workloads layer — application-specific resources. Phase 3c+.
+  # Workloads layer — application-specific resources, once per region.
   # No `environment:` — see apply-platform rationale.
   apply-workloads:
     name: Apply ${{ inputs.env }}/workloads
@@ -177,7 +212,7 @@ jobs:
           ")
           echo "account_id=${ACCOUNT_ID}" >> "$GITHUB_OUTPUT"
 
-      - uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+      - uses: aws-actions/configure-aws-credentials@d979d5b3a71173a29b74b5b88418bfda9437d885 # v6.1.1
         with:
           role-to-assume: arn:aws:iam::${{ steps.acct.outputs.account_id }}:role/gh-tf-apply-workload
           aws-region: ${{ env.AWS_REGION }}
@@ -186,33 +221,46 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      - name: Check layer exists
-        id: exists
+      - name: Terraform Apply — workloads (per region)
         run: |
-          if [[ -d "terraform/environments/${{ inputs.env }}/workloads" ]]; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          LAYER_DIR="terraform/environments/${{ inputs.env }}/workloads"
+          if [[ ! -d "${LAYER_DIR}" ]]; then
             echo "::notice::workloads layer does not exist for ${{ inputs.env }} — nothing to apply"
+            exit 0
           fi
-
-      - name: Terraform Init
-        if: steps.exists.outputs.exists == 'true'
-        working-directory: terraform/environments/${{ inputs.env }}/workloads
-        run: terraform init -input=false
-
-      - name: Terraform Apply
-        if: steps.exists.outputs.exists == 'true'
-        working-directory: terraform/environments/${{ inputs.env }}/workloads
-        run: terraform apply -auto-approve -input=false -no-color
+          eval "$(python3 - <<'PY'
+          import yaml
+          c = yaml.safe_load(open('config/landing-zone.yaml'))
+          org = c['organization']['name']
+          shared = c['accounts']['shared']['id']
+          primary = next(r['name'] for r in c['regions'] if r['role'] == 'primary')
+          regions = [r['region'] for r in c.get('eks', {}).get('${{ inputs.env }}', {}).get('regions', [])]
+          print(f'BUCKET={org}-terraform-state-{shared}')
+          print(f'PRIMARY={primary}')
+          print(f'REGIONS="{" ".join(regions)}"')
+          PY
+          )"
+          if [[ -z "${REGIONS}" ]]; then
+            echo "::notice::no eks.${{ inputs.env }}.regions configured — nothing to apply"
+            exit 0
+          fi
+          for REGION in ${REGIONS}; do
+            echo "::group::workloads apply — ${REGION}"
+            terraform -chdir="${LAYER_DIR}" init -reconfigure -input=false \
+              -backend-config="bucket=${BUCKET}" \
+              -backend-config="key=${{ inputs.env }}/${REGION}/workloads/terraform.tfstate" \
+              -backend-config="region=${PRIMARY}"
+            TF_VAR_region="${REGION}" terraform -chdir="${LAYER_DIR}" apply \
+              -auto-approve -input=false -no-color
+            echo "::endgroup::"
+          done
 
   # Observability layer — Grafana Cloud downstream identities + grafana-operator
   # (primary-only) + platform Grafana*/PrometheusRule CRDs. ADR-022 PR-2.
+  # Primary-only (ADR-032): NOT region-scoped — one state, plain backend.
   # Runs after workloads because team-webhooks ExternalSecret targets the
   # `aegis` namespace, which is created by workloads.
-  # No `environment:` — approval was granted at apply-network. If config does
-  # not include a grafana_cloud block, the whole layer plans to zero resources
-  # (observability_enabled gate in config.tf).
   apply-observability:
     name: Apply ${{ inputs.env }}/observability
     needs: apply-workloads
@@ -238,7 +286,7 @@ jobs:
           ")
           echo "account_id=${ACCOUNT_ID}" >> "$GITHUB_OUTPUT"
 
-      - uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+      - uses: aws-actions/configure-aws-credentials@d979d5b3a71173a29b74b5b88418bfda9437d885 # v6.1.1
         with:
           role-to-assume: arn:aws:iam::${{ steps.acct.outputs.account_id }}:role/gh-tf-apply-workload
           aws-region: ${{ env.AWS_REGION }}

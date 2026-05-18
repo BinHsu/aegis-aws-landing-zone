@@ -39,3 +39,11 @@ Thumbs.db
 # scope-of-claims, conservative-by-design choices) lives in
 # docs/interview-notes.md, which IS committed.
 docs/personal/
+
+# Project-local tool bin — populated by scripts/install-tools.sh (SHA-pinned
+# tflint / gitleaks / kubeconform / jq). Not committed; reproducible on any
+# machine by re-running the script. The Makefile prepends ./bin to PATH.
+/bin/
+
+# Obsidian vault metadata — local note-taking workspace, not project state.
+.obsidian/

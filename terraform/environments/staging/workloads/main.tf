@@ -1,47 +1,33 @@
 # -----------------------------------------------------------------------------
-# Workloads — slot pattern, one module instance per cluster slot
+# Workloads — ADR-032 external-orchestration multi-region
 # -----------------------------------------------------------------------------
-# Mirrors staging/platform/main.tf. Length-1 config instantiates only
-# module.workloads_primary; length-2 also instantiates module.workloads_slave_1.
-# Each instance gets its own provider quad (aws / kubernetes / kubectl)
-# bound to that slot's region + cluster, and its own GuardDuty detector,
-# IRSA role, namespace, NetworkPolicies, observability App, Argo Rollouts
-# App. (Kyverno + cert-manager live in the platform layer per ADR-016 — see
+# Workloads on the single cluster this apply targets (var.region): GuardDuty
+# detector, engine IRSA role, namespace, NetworkPolicies, observability App,
+# Argo Rollouts App. The multi-region fan-out is external — the orchestrator
+# runs this layer once per entry in eks.staging.regions[].
+#
+# (Kyverno + cert-manager live in the platform layer per ADR-016 — see
 # Incident 26 for why.)
+#
+# The ./modules/eks-workloads module is unchanged from the slot-pattern era —
+# it still declares `<type>.this` configuration aliases; the layer maps its
+# default providers onto them.
 # -----------------------------------------------------------------------------
 
-module "workloads_primary" {
+module "workloads" {
   source = "./modules/eks-workloads"
 
   providers = {
-    aws.this        = aws.primary
-    kubernetes.this = kubernetes.primary
-    kubectl.this    = kubectl.primary
+    aws.this        = aws
+    kubernetes.this = kubernetes
+    kubectl.this    = kubectl
   }
 
-  region_key        = "primary"
-  region_name       = local.primary_eks_region.region
-  cluster_name      = local.clusters.primary.cluster_name
-  oidc_provider_arn = local.clusters.primary.oidc_provider_arn
-  oidc_provider_url = local.clusters.primary.oidc_provider_url
-  tags              = local.tags
-}
-
-module "workloads_slave_1" {
-  source = "./modules/eks-workloads"
-
-  count = length(local.slave_regions) >= 1 ? 1 : 0
-
-  providers = {
-    aws.this        = aws.slave_1
-    kubernetes.this = kubernetes.slave_1
-    kubectl.this    = kubectl.slave_1
-  }
-
-  region_key        = "slave_1"
-  region_name       = try(local.slave_regions[0].region, local.primary_region)
-  cluster_name      = try(local.clusters.slave_1.cluster_name, "")
-  oidc_provider_arn = try(local.clusters.slave_1.oidc_provider_arn, "")
-  oidc_provider_url = try(local.clusters.slave_1.oidc_provider_url, "")
+  # region_key and region_name both carry the AWS region under ADR-032.
+  region_key        = local.region
+  region_name       = local.region
+  cluster_name      = local.cluster.cluster_name
+  oidc_provider_arn = local.cluster.oidc_provider_arn
+  oidc_provider_url = local.cluster.oidc_provider_url
   tags              = local.tags
 }

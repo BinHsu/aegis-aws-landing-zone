@@ -15,25 +15,12 @@ env:
 
 jobs:
   plan:
-    # variant field is optional — when set, appears in the job name so matrix
-    # rows for the same env but different config shapes are distinguishable
-    # (see `staging/network (multi-region)` below).
-    name: Plan ${{ matrix.env }}${{ matrix.variant && format(' ({0})', matrix.variant) || '' }}
+    name: Plan ${{ matrix.env }}
     # -----------------------------------------------------------------------
-    # Concurrency — serialize matrix rows that share the same env + branch
-    # -----------------------------------------------------------------------
-    # Terraform's S3 backend with `use_lockfile = true` (per ADR-003) does
-    # conditional-put on a `.tflock` sidecar object. Two plans against the
-    # SAME state key hit a race: first planner writes tflock, second's
-    # if-none-match PutObject returns 412 PreconditionFailed.
-    # `-lock-timeout=10m` helps with normal retryable contention but not
-    # with the 412-then-404 corner case observed in CI when two matrix
-    # rows (e.g. staging/network length-1 + length-2) start concurrently.
-    #
-    # This concurrency group forces same-env rows within the same PR branch
-    # to queue serially (`cancel-in-progress: false`). Different branches /
-    # different envs continue to run in parallel — throughput cost is only
-    # the extra variant row.
+    # Concurrency — serialize matrix rows that share the same env + branch.
+    # Terraform's S3 backend (`use_lockfile = true`, ADR-003) conditional-puts
+    # a `.tflock` sidecar; same-key concurrent plans race on it. Different
+    # envs / branches still run in parallel.
     # -----------------------------------------------------------------------
     concurrency:
       group: plan-${{ matrix.env }}-${{ github.head_ref || github.ref_name }}
@@ -55,70 +42,43 @@ jobs:
             account_id: "251774439261"
           # -----------------------------------------------------------------
           # staging/secrets-persistent — Path-B SSM PS shells for SaaS
-          # credentials (Qdrant, Grafana Cloud bootstrap, Slack webhook).
-          # Baseline-tier per ADR-028. Plan against live state should show
-          # "no changes" once applied. Catches drift on the 4-resource
-          # scope enumerated in ADR-028 §Decision; first-apply also runs
-          # the import block adopting the pre-existing
-          # /aegis/staging/grafana-cloud/bootstrap-token AWS resource.
+          # credentials. Baseline-tier per ADR-028.
           # -----------------------------------------------------------------
           - env: staging/secrets-persistent
             account_id: "251774439261"
-          - env: staging/network
-            account_id: "251774439261"
           # -----------------------------------------------------------------
-          # staging/network (multi-region) — length-2 variant per ADR-018
-          # -----------------------------------------------------------------
-          # Same layer, same account, same secret-sourced config — but a
-          # python-yaml patch step below appends a slave region entry
-          # BEFORE init+plan, exercising the module.vpc_slave_1 code path
-          # that the default single-region config leaves count=0.
-          #
-          # Reason this matters: PR-c (#84) refactored network to
-          # for_each(eks.regions) with two slot-pattern provider aliases.
-          # Without this variant, CI would only exercise the length-1
-          # path; a regression in the length-2 module invocation
-          # (cluster_slave_1 providers, cross-field checks, IPAM DR pool
-          # reference) would go undetected until Session C.
+          # staging/network — ADR-032 external orchestration. Partial backend:
+          # the Init step detects the absence of a `bucket =` literal and
+          # supplies a region-scoped key. CI plans the PRIMARY region — region
+          # is a plain `var.region` now, so one region exercises the whole
+          # code path (there is no length-2-specific path post-slot-pattern).
+          # platform / workloads are not plan-able in PR CI: they require live
+          # upstream state. They are exercised by terraform-apply-workload.yml.
           # -----------------------------------------------------------------
           - env: staging/network
             account_id: "251774439261"
-            variant: multi-region
           # -----------------------------------------------------------------
-          # staging/edge — new layer shipped in PR #94. Plan against live
-          # state should show "no changes". Catches future drift.
+          # staging/edge — CloudFront + ACM + Route53 (ADR-019). Plan-only in
+          # CI; apply manually. Plan against live state should show "no
+          # changes" once applied.
           # -----------------------------------------------------------------
           - env: staging/edge
             account_id: "251774439261"
           # -----------------------------------------------------------------
-          # staging/fis — FIS DR drill Terraservice (ADR-020). Same pattern
-          # as staging/edge: plan-only in CI, apply manually per runbook 005.
-          # FIS templates cost $0 idle; experiments cost < $0.01 each.
+          # staging/fis — FIS DR drill Terraservice (ADR-020). Plan-only in CI,
+          # apply manually per runbook 005.
           # -----------------------------------------------------------------
           - env: staging/fis
             account_id: "251774439261"
           # -----------------------------------------------------------------
-          # staging/observability — new layer shipped in ADR-022 PR-2.
-          # Provisions Grafana Cloud downstream identities + grafana-operator
-          # (primary-only) + platform Grafana* + PrometheusRule CRDs.
-          # Plan against live state should show "no changes" once applied.
-          # Catches future drift on Grafana Cloud resources, SSM PS paths,
-          # or grafana-operator chart version bumps.
+          # NOT plan-able in PR CI — staging/auth and staging/observability
+          # are intentionally excluded from this matrix. Both read the
+          # staging/platform layer's Terraform state (cluster endpoint / CA),
+          # and platform is a workload-tier layer whose state does not exist
+          # until a cold-apply (ADR-032 region-scoped key). This is the same
+          # reason staging/platform and staging/workloads are not planned in
+          # PR CI. They are exercised by terraform-apply-workload.yml.
           # -----------------------------------------------------------------
-          - env: staging/observability
-            account_id: "251774439261"
-          # -----------------------------------------------------------------
-          # staging/auth — Cognito User Pool for cloud-mode aegis auth
-          # (ADR-026). Baseline-tier peer layer, conditional on
-          # config.cognito — without the block the whole plan is empty.
-          # Plan against live state should show "no changes" once applied.
-          # Catches drift on the User Pool schema (immutable attributes),
-          # app client callback/logout URL lists, and the ExternalSecret
-          # CRD shape. The CI secret LANDING_ZONE_CONFIG provides the
-          # cognito: block so this row is meaningful across PR cycles.
-          # -----------------------------------------------------------------
-          - env: staging/auth
-            account_id: "251774439261"
 
     steps:
       - uses: actions/checkout@v6
@@ -131,46 +91,31 @@ jobs:
           EOFCONFIG
 
       # -----------------------------------------------------------------------
-      # Multi-region config patch — variant-gated
+      # Resolve backend config — used only by partial-backend layers (ADR-032).
+      # Exports BUCKET / PRIMARY, and TF_VAR_region so a region-scoped layer
+      # plans the primary region. Layers that declare `variable "region"`
+      # (network) consume it; layers that don't silently ignore TF_VAR_region.
       # -----------------------------------------------------------------------
-      # For the `staging/network (multi-region)` matrix row, append the slave
-      # region entry + its VPC sizing BEFORE terraform init. Uses python+yaml
-      # (both preinstalled on ubuntu-latest) rather than yq so no extra
-      # binary download is needed.
-      #
-      # The patch is idempotent against any secret-sourced config that
-      # already has or doesn't have eks.staging.regions / accounts.staging.vpcs
-      # — setdefault + direct overwrite handles both shapes.
-      # -----------------------------------------------------------------------
-      - name: Patch config for multi-region variant
-        if: matrix.variant == 'multi-region'
+      - name: Resolve backend config
         run: |
-          python3 <<'PY'
+          set -euo pipefail
+          eval "$(python3 - <<'PY'
           import yaml
-          with open("config/landing-zone.yaml") as f:
-              c = yaml.safe_load(f)
-
-          # Append slave region to eks.staging.regions[]
-          c.setdefault("eks", {}).setdefault("staging", {})["regions"] = [
-              {"region": "eu-central-1", "role": "primary", "mode": "active"},
-              {"region": "eu-west-1", "role": "slave", "mode": "pilot_light"},
-          ]
-
-          # Ensure accounts.staging.vpcs has sizing for the DR region.
-          # The check "vpc_sizing_present_for_every_eks_region" in
-          # staging/network/config.tf would fail loudly without this.
-          c["accounts"]["staging"].setdefault("vpcs", {})["eu-west-1"] = {
-              "netmask_length": 22,
-              "ipam_pool": "eu-west-1",
-          }
-
-          with open("config/landing-zone.yaml", "w") as f:
-              yaml.safe_dump(c, f, default_flow_style=False, sort_keys=False)
+          c = yaml.safe_load(open('config/landing-zone.yaml'))
+          org = c['organization']['name']
+          shared = c['accounts']['shared']['id']
+          primary = next(r['name'] for r in c['regions'] if r['role'] == 'primary')
+          print(f'BUCKET={org}-terraform-state-{shared}')
+          print(f'PRIMARY={primary}')
           PY
-          echo "--- multi-region config patched ---"
-          python3 -c "import yaml; c=yaml.safe_load(open('config/landing-zone.yaml')); print('eks.staging.regions length:', len(c['eks']['staging']['regions'])); print('vpcs keys:', list(c['accounts']['staging']['vpcs'].keys()))"
+          )"
+          {
+            echo "BUCKET=${BUCKET}"
+            echo "PRIMARY=${PRIMARY}"
+            echo "TF_VAR_region=${PRIMARY}"
+          } >> "$GITHUB_ENV"
 
-      - uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+      - uses: aws-actions/configure-aws-credentials@d979d5b3a71173a29b74b5b88418bfda9437d885 # v6.1.1
         with:
           role-to-assume: arn:aws:iam::${{ matrix.account_id }}:role/gh-tf-plan
           aws-region: ${{ env.AWS_REGION }}
@@ -181,24 +126,26 @@ jobs:
 
       - name: Terraform Init
         working-directory: terraform/environments/${{ matrix.env }}
-        run: terraform init -input=false
+        run: |
+          set -euo pipefail
+          if grep -qE '^[[:space:]]*bucket[[:space:]]*=' backend.tf; then
+            # Full-literal backend — baseline / primary-only layers.
+            terraform init -input=false
+          else
+            # Partial backend (ADR-032) — supply a region-scoped key. CI plans
+            # the primary region.
+            ENV="${{ matrix.env }}"
+            terraform init -reconfigure -input=false \
+              -backend-config="bucket=${BUCKET}" \
+              -backend-config="key=${ENV%/*}/${PRIMARY}/${ENV##*/}/terraform.tfstate" \
+              -backend-config="region=${PRIMARY}"
+          fi
 
       - name: Terraform Plan
         working-directory: terraform/environments/${{ matrix.env }}
         id: plan
         # -lock-timeout=10m serializes concurrent plans that hit the same state
-        # file. Triggered by Dependabot bulk rebases (Incident 23 aftermath): 10
-        # PRs rebased within seconds → 10 matrix runs race for the same S3 lock
-        # → 9 fail immediately with default -lock-timeout=0. 10 min is generous
-        # for plan (plan itself runs ~30s), negligible in the no-contention case.
-        #
-        # Multi-region variant: this job runs plan against the SAME remote
-        # state as the default length-1 variant. Plan is read-only (does not
-        # lock for writes in detailed-exitcode 0/2 paths), so the two matrix
-        # rows do not fight. If a future change makes plan acquire a write
-        # lock (e.g. refresh-against-stale-state), these two rows would need
-        # a serialization mechanism (needs: on the matrix or explicit
-        # locking); flag for that future change.
+        # file (Dependabot bulk rebases — Incident 23 aftermath).
         run: terraform plan -no-color -input=false -detailed-exitcode -lock-timeout=10m
         continue-on-error: true
 
@@ -221,18 +168,12 @@ jobs:
         if: github.event_name == 'pull_request'
         env:
           # Pass user-controlled strings through env rather than direct
-          # template interpolation — the previous pattern stuffed
-          # steps.plan.outputs.stdout straight into a JS template literal,
-          # which breaks the instant plan output contains a backtick (`) or
-          # `${` sequence. Alloy Helm values + kubectl_manifest YAML in the
-          # staging/observability layer exposed this (SyntaxError "Unexpected
-          # identifier 'alloy'" on 2026-04-23). Reading via process.env gives
-          # us a plain JS string — no re-parsing of its contents.
+          # template interpolation — plan output can contain backticks or
+          # `${` sequences that break a JS template literal.
           PLAN_STDOUT: ${{ steps.plan.outputs.stdout }}
           PLAN_ICON: ${{ steps.status.outputs.icon }}
           PLAN_SUMMARY: ${{ steps.status.outputs.summary }}
           MATRIX_ENV: ${{ matrix.env }}
-          VARIANT_SUFFIX: ${{ matrix.variant && format(' ({0})', matrix.variant) || '' }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
           ACTOR: ${{ github.actor }}
         with:
@@ -241,11 +182,10 @@ jobs:
             const icon       = process.env.PLAN_ICON       || '';
             const summary    = process.env.PLAN_SUMMARY    || '';
             const matrixEnv  = process.env.MATRIX_ENV      || '';
-            const variant    = process.env.VARIANT_SUFFIX  || '';
             const headRef    = process.env.HEAD_REF        || '';
             const actor      = process.env.ACTOR           || '';
 
-            const output = `### ${icon} Terraform Plan: \`${matrixEnv}\`${variant}
+            const output = `### ${icon} Terraform Plan: \`${matrixEnv}\`
 
             **Result:** ${summary}
 
