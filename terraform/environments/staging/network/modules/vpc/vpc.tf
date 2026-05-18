@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# Per-region VPC module — ADR-012 topology, parameterized per ADR-018
+# Per-region VPC module — ADR-012 topology, ADR-032 external orchestration
 # -----------------------------------------------------------------------------
 # Three-AZ VPC with public/private subnet split, single NAT Gateway (lab
 # compromise — production uses 3), Gateway endpoints for S3 + DynamoDB,
@@ -8,10 +8,10 @@
 # CIDR allocated dynamically from the IPAM regional pool passed in via
 # `ipam_pool_id`. Specific CIDR is known-after-apply.
 #
-# This module is invoked once per entry in `eks.<env>.regions[]` — primary
-# always, slave_1 conditionally. All resources use the per-region provider
-# `aws.this`, so each invocation creates its VPC in the correct region
-# without any region string appearing in this file.
+# This module is invoked once per layer apply, using the layer's default
+# provider — the layer applies exactly one region per state file, so no
+# provider alias appears here. No region string is hardcoded: `var.region`
+# is supplied by the orchestrator.
 # -----------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------
@@ -19,8 +19,6 @@
 # -----------------------------------------------------------------------------
 
 resource "aws_vpc" "this" {
-  provider = aws.this
-
   ipv4_ipam_pool_id   = var.ipam_pool_id
   ipv4_netmask_length = var.netmask_length
 
@@ -28,7 +26,7 @@ resource "aws_vpc" "this" {
   enable_dns_support   = true
 
   tags = {
-    Name = "${var.env_name}-${var.region_key}-vpc"
+    Name = "${var.env_name}-${var.region}-vpc"
   }
 }
 
@@ -42,8 +40,6 @@ resource "aws_vpc" "this" {
 # -----------------------------------------------------------------------------
 
 resource "aws_subnet" "public" {
-  provider = aws.this
-
   count = length(var.zones)
 
   vpc_id                  = aws_vpc.this.id
@@ -52,15 +48,13 @@ resource "aws_subnet" "public" {
   map_public_ip_on_launch = false # Nothing in public subnets needs auto-public-IP
 
   tags = {
-    Name                     = "${var.env_name}-${var.region_key}-public-${var.zones[count.index]}"
+    Name                     = "${var.env_name}-${var.region}-public-${var.zones[count.index]}"
     Tier                     = "public"
     "kubernetes.io/role/elb" = "1"
   }
 }
 
 resource "aws_subnet" "private" {
-  provider = aws.this
-
   count = length(var.zones)
 
   vpc_id            = aws_vpc.this.id
@@ -68,7 +62,7 @@ resource "aws_subnet" "private" {
   cidr_block        = cidrsubnet(aws_vpc.this.cidr_block, 3, count.index + 4)
 
   tags = {
-    Name                              = "${var.env_name}-${var.region_key}-private-${var.zones[count.index]}"
+    Name                              = "${var.env_name}-${var.region}-private-${var.zones[count.index]}"
     Tier                              = "private"
     "kubernetes.io/role/internal-elb" = "1"
   }
@@ -79,12 +73,10 @@ resource "aws_subnet" "private" {
 # -----------------------------------------------------------------------------
 
 resource "aws_internet_gateway" "this" {
-  provider = aws.this
-
   vpc_id = aws_vpc.this.id
 
   tags = {
-    Name = "${var.env_name}-${var.region_key}-igw"
+    Name = "${var.env_name}-${var.region}-igw"
   }
 }
 
@@ -93,25 +85,21 @@ resource "aws_internet_gateway" "this" {
 # -----------------------------------------------------------------------------
 
 resource "aws_eip" "nat" {
-  provider = aws.this
-
   domain = "vpc"
 
   tags = {
-    Name = "${var.env_name}-${var.region_key}-nat-eip"
+    Name = "${var.env_name}-${var.region}-nat-eip"
   }
 
   depends_on = [aws_internet_gateway.this]
 }
 
 resource "aws_nat_gateway" "this" {
-  provider = aws.this
-
   allocation_id = aws_eip.nat.id
   subnet_id     = aws_subnet.public[0].id # AZ-a
 
   tags = {
-    Name = "${var.env_name}-${var.region_key}-nat-a"
+    Name = "${var.env_name}-${var.region}-nat-a"
   }
 
   depends_on = [aws_internet_gateway.this]
@@ -126,8 +114,6 @@ resource "aws_nat_gateway" "this" {
 # -----------------------------------------------------------------------------
 
 resource "aws_route_table" "public" {
-  provider = aws.this
-
   vpc_id = aws_vpc.this.id
 
   route {
@@ -136,13 +122,11 @@ resource "aws_route_table" "public" {
   }
 
   tags = {
-    Name = "${var.env_name}-${var.region_key}-public-rt"
+    Name = "${var.env_name}-${var.region}-public-rt"
   }
 }
 
 resource "aws_route_table" "private" {
-  provider = aws.this
-
   vpc_id = aws_vpc.this.id
 
   route {
@@ -151,13 +135,11 @@ resource "aws_route_table" "private" {
   }
 
   tags = {
-    Name = "${var.env_name}-${var.region_key}-private-rt"
+    Name = "${var.env_name}-${var.region}-private-rt"
   }
 }
 
 resource "aws_route_table_association" "public" {
-  provider = aws.this
-
   count = length(aws_subnet.public)
 
   subnet_id      = aws_subnet.public[count.index].id
@@ -165,8 +147,6 @@ resource "aws_route_table_association" "public" {
 }
 
 resource "aws_route_table_association" "private" {
-  provider = aws.this
-
   count = length(aws_subnet.private)
 
   subnet_id      = aws_subnet.private[count.index].id
@@ -186,33 +166,27 @@ resource "aws_route_table_association" "private" {
 # in .tf" rule.
 # -----------------------------------------------------------------------------
 
-data "aws_region" "current" {
-  provider = aws.this
-}
+data "aws_region" "current" {}
 
 resource "aws_vpc_endpoint" "s3" {
-  provider = aws.this
-
   vpc_id            = aws_vpc.this.id
   service_name      = "com.amazonaws.${data.aws_region.current.region}.s3"
   vpc_endpoint_type = "Gateway"
   route_table_ids   = [aws_route_table.private.id, aws_route_table.public.id]
 
   tags = {
-    Name = "${var.env_name}-${var.region_key}-vpce-s3"
+    Name = "${var.env_name}-${var.region}-vpce-s3"
   }
 }
 
 resource "aws_vpc_endpoint" "dynamodb" {
-  provider = aws.this
-
   vpc_id            = aws_vpc.this.id
   service_name      = "com.amazonaws.${data.aws_region.current.region}.dynamodb"
   vpc_endpoint_type = "Gateway"
   route_table_ids   = [aws_route_table.private.id, aws_route_table.public.id]
 
   tags = {
-    Name = "${var.env_name}-${var.region_key}-vpce-dynamodb"
+    Name = "${var.env_name}-${var.region}-vpce-dynamodb"
   }
 }
 
@@ -227,12 +201,10 @@ resource "aws_vpc_endpoint" "dynamodb" {
 # -----------------------------------------------------------------------------
 
 resource "aws_default_security_group" "this" {
-  provider = aws.this
-
   vpc_id = aws_vpc.this.id
 
   # No ingress, no egress — deny all
   tags = {
-    Name = "${var.env_name}-${var.region_key}-default-sg-denyall"
+    Name = "${var.env_name}-${var.region}-default-sg-denyall"
   }
 }

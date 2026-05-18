@@ -1,0 +1,15 @@
+# tools.lock — SHA256 pins for scripts/install-tools.sh
+#
+# Each line:  <tool>-<version>-<os>-<arch>  <sha256>
+#
+# This file is intentionally committed. It is the integrity pin for the
+# project toolchain: scripts/install-tools.sh verifies every download against
+# the checksum recorded here and aborts on mismatch.
+#
+# It is populated by trust-on-first-use: the first contributor on a given
+# platform runs `./scripts/install-tools.sh --update-lock`, which records the
+# checksum for each (tool, version, os, arch) it downloads, and commits the
+# result. Subsequent runs — and CI — verify against these committed values.
+#
+# When a pinned version is bumped in install-tools.sh, re-run --update-lock so
+# the new entries are recorded, then commit this file in the same change.

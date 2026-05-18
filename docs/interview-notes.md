@@ -23,7 +23,7 @@ This split is explicit for a reason: a hands-on architect's value comes from shi
 The project value is execution and discipline, layered together:
 
 - **Execution**: the entire repo is working code — Terraform applies cleanly, CI applies to a live AWS organization, the EKS platform bootstraps end-to-end in one workflow dispatch. See the [Phase table in README](../README.md#phases) for what's actually deployed on `main`, not aspirations.
-- 28 [Architecture Decision Records](decisions/) (including several "Design iteration" sections documenting *reversed* decisions honestly)
+- 32 [Architecture Decision Records](decisions/) (including several "Design iteration" sections documenting *reversed* decisions honestly — e.g. ADR-018 → ADR-032)
 - 34 [incident postmortems](incidents.md) (each written after the fact in a consistent format, never softened retroactively)
 - A 4-workflow CI/CD split shaped by cost profile (not template copy-paste)
 - Runbooks covering both the happy path and the "here is how to debug when it breaks" diagnostic order
@@ -263,7 +263,9 @@ This doc is frame-level. For the actual substance:
 
 ---
 
-*Last updated: 2026-04-24 — ldz #101 closed: ACM cert for `aegis-api.staging.binhsu.org` materialized via baseline dispatch (PRs #143 + #145 closed the CI apply gap for `staging/edge/`). ADR-027 added (intra-environment Terraservice layer sharding discipline; sibling of ADR-024 at finer granularity). ADR-026 promoted Partially Accepted → Accepted after Cognito User Pool went live end-to-end. Qdrant Cloud scaffold shipped per aegis-core ldz #141 (SSM + ExternalSecret, mirrors the team-webhooks pattern). Cold-apply gate now fully cleared — next session candidate is joint big-bang validation. ADR count 26→27; runbook count unchanged at 8; incidents unchanged at 32.*
+*Last updated: 2026-05-17 — Borrowed proven patterns from the `aegis-stateless` sibling repo. ADR-032 added: external-orchestration multi-region (a deployment-stamp / cell-based layout, mechanically a hand-rolled equivalent of HashiCorp Terraform Stacks) — supersedes the ADR-018 "slot pattern" (§3/§4 only). The three workload layers were refactored: one region per `terraform apply`, region-scoped state keys, per-region loop in CI + a new root `Makefile`; no provider aliases, no K=2 ceiling. Also shipped: gitleaks pre-commit hook, a SHA-pinned project toolchain (`scripts/install-tools.sh`), `docs/finops.md` cost model, `docs/evidence/` convention, `docs/decisions/README.md` ADR reading guide; CLAUDE.md naming discipline tightened to the full repo name for AWS-account-global resources. ADR count 31→32; runbook count unchanged at 8; incidents unchanged. Cold-apply re-validation of the ADR-032 flow is pending (scheduled as its own session).*
+
+*Previous: 2026-04-24 — ldz #101 closed: ACM cert for `aegis-api.staging.binhsu.org` materialized via baseline dispatch (PRs #143 + #145 closed the CI apply gap for `staging/edge/`). ADR-027 added (intra-environment Terraservice layer sharding discipline; sibling of ADR-024 at finer granularity). ADR-026 promoted Partially Accepted → Accepted after Cognito User Pool went live end-to-end. Qdrant Cloud scaffold shipped per aegis-core ldz #141 (SSM + ExternalSecret, mirrors the team-webhooks pattern). Cold-apply gate now fully cleared — next session candidate is joint big-bang validation. ADR count 26→27; runbook count unchanged at 8; incidents unchanged at 32.*
 
 *Previous: 2026-04-21 (PM) — ADR-022 implementation shipped as 4 PRs (platform-layer ESO + prometheus-operator-crds + kube-state-metrics + Grafana Alloy; new `staging/observability/` peer layer with grafana-operator + GC tokens; kube-prometheus-stack removed from workloads; teardown workflow CRD pre-delete). Observability backend now lives in Grafana Cloud; in-cluster Prometheus + Grafana are gone. ADR count unchanged at 24; incidents unchanged at 32 (code-only session, no cold-apply).*
 
