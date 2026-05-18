@@ -1,7 +1,23 @@
 # 009. Lifecycle and Teardown Strategy
 
 ## Status
-Accepted
+Accepted — workload-teardown scope moved to the Platform tier by [ADR-033](033-landing-zone-scope-correction-account-fabric.md)
+
+> **Amendment — ADR-033, 2026-05-18.** The account-fabric descope changes what
+> this ADR's teardown paths apply to:
+> - **`soft-teardown-workload.sh`** destroyed the `network` / `platform` /
+>   `workloads` Terraservice layers. Those layers are now Platform tier and
+>   live in the `aegis-platform` repository; the per-session soft-teardown
+>   went with them. The landing-zone account fabric has no cost-incurring
+>   per-session layers — its baseline (Organizations, SCPs, Identity Center,
+>   the state bucket, IPAM) is ~$5/month always-on and is not torn down
+>   between sessions.
+> - **`hard-teardown-landing-zone.sh`** and **`nuke-workload-account.sh`**
+>   remain in scope — account closure and account-level resource cleanup are
+>   account-lifecycle operations the account fabric still owns.
+> The **`CloseAccount` rejection** (the three AWS platform constraints) and the
+> **two-script safety-UX** principle are unchanged. The per-session EKS/NAT
+> cost model moved to the Platform tier with its layers.
 
 ## Context
 A lab landing zone will be spun up, torn down, and spun up again repeatedly over the project's lifetime. The per-session cost model, the per-session operational overhead, and the blast radius of any teardown operation are all downstream of how teardown is designed. A badly designed teardown is either too expensive to run frequently (discouraging use), too easy to trigger accidentally (dangerous), or both. A well-designed teardown has multiple paths, each with clearly differentiated safety UX, each targeting the right level of operation for its use case.

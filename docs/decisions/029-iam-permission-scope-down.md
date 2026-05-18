@@ -2,7 +2,28 @@
 
 ## Status
 
-Accepted (2026-05-03).
+Accepted (2026-05-03) — reduced to a 2-role split by the [ADR-033](033-landing-zone-scope-correction-account-fabric.md) descope.
+
+> **Amendment — ADR-033, 2026-05-18.** This ADR specified a **4-role split**
+> per account: `gh-tf-plan`, `gh-tf-apply-baseline`, `gh-tf-apply-workload`,
+> `gh-tf-teardown-workload`. The ADR-033 account-fabric descope removed the
+> workload Terraservice layers (`network`, `platform`, `workloads`,
+> `observability`, `fis`) and their CI workflows. With them go the two
+> workload-tier roles: **`gh-tf-apply-workload`** and
+> **`gh-tf-teardown-workload`** are deleted. What remains is a **2-role split**
+> — `gh-tf-plan` (read-only, `pull_request`) and `gh-tf-apply-baseline`
+> (`ref:refs/heads/main`) — in the `aegis-management`, `aegis-shared`, and
+> `aegis-staging` accounts. The `gh-tf-apply-baseline` permission policy in
+> `staging/bootstrap` was likewise trimmed: the Cognito / CloudFront / ACM /
+> Route53 / ECR / Bazel-cache / SSM surfaces it carried for the `edge` /
+> `auth` / `secrets-persistent` layers were removed with those layers. The
+> ADR's **core thesis is unchanged and still in force** — STS is the security
+> boundary, `gh-tf-plan` read-only closes fork-PR-OIDC as a blast-radius class,
+> identity is keyed off the OIDC `sub` claim. The 4-role tables, "8 role-policy
+> pairs", the rollout plan, and Appendix A.1/A.3 below are the historical
+> record of the scope-down as executed in May 2026; the four
+> `github-actions-aegis-core-*` roles in Appendix A.1 were also removed with
+> the Platform-tier layers they served.
 
 ## Context
 

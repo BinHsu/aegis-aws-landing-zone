@@ -1,7 +1,19 @@
 # 001. Landing Zone Scope Boundary
 
 ## Status
-Accepted
+Accepted — in-scope list amended by [ADR-033](033-landing-zone-scope-correction-account-fabric.md)
+
+> **Amendment — ADR-033, 2026-05-18.** The **in-scope list** below is partly
+> superseded. ADR-033 corrected this project's scope to the AWS *account
+> fabric* only: AWS Organizations and OUs, Service Control Policies, Identity
+> Center, account bootstrap/vending, and the centralized security/audit
+> baseline. The in-scope rows for the **EKS cluster + Karpenter**, **ArgoCD**,
+> and **Prometheus/Grafana observability** are no longer landing-zone scope —
+> they are a *Platform tier* and have been physically extracted to the
+> `aegis-platform` repository. Read those rows as historical; ADR-033
+> §Decision is the authoritative scope. The **out-of-scope** list, the
+> **management account boundary**, and the **reproducibility requirement**
+> below are unaffected and remain in force.
 
 ## Context
 A landing zone can expand indefinitely. AWS Organizations, SCPs, Identity Center, networking, compute, observability, security services, compliance frameworks — each is its own multi-month project at enterprise scale. Without an explicit scope boundary, a portfolio-sized lab will either drift into incomplete coverage of too many areas, or exhaust its budget and time on foundational infrastructure before reaching the parts that demonstrate the hands-on skills it was built to showcase.

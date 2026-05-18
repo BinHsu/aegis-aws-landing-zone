@@ -2,7 +2,19 @@
 
 ## Status
 
-Accepted (2026-04-21).
+Accepted (2026-04-21) — domain narrowed to the account fabric by [ADR-033](033-landing-zone-scope-correction-account-fabric.md).
+
+> **Amendment — ADR-033, 2026-05-18.** ADR-033 descoped this repository to the
+> AWS account fabric; the Platform-tier layers (`network`, `platform`,
+> `workloads`, `observability`, `edge`, `auth`, `fis`) were extracted to the
+> `aegis-platform` repository. This ADR is **not superseded** — its reasoning
+> (single repo, logical isolation via state/IAM/CI, the GitOps-only-apply risk
+> calculus, the five split triggers) holds unchanged; it simply now governs a
+> smaller repository. In the isolation-mechanisms table below, the
+> `terraform-apply-workload.yml` rows no longer exist here (they moved with the
+> workload layers); the `terraform-apply-baseline.yml` + `terraform-plan.yml`
+> rows remain. ADR-027 (intra-environment layer sharding), cross-referenced in
+> §Related, was a Platform-tier ADR and was relocated with that tier.
 
 ## Context
 
@@ -115,6 +127,6 @@ This is a staff / principal-level answer. The senior version collapses to "we do
 - [ADR-003](003-terraform-backend-bootstrap.md) — per-layer state isolation; the mechanism that makes single-repo safe
 - [ADR-007](007-infra-app-repository-split.md) — landing-zone vs aegis-core repo split (orthogonal to this ADR; that split is chosen, this one is declined)
 - [ADR-009](009-lifecycle-and-teardown-strategy.md) — teardown patterns that rely on layer boundaries inside the repo
-- [ADR-027](027-intra-environment-layer-sharding.md) — sibling framework at a finer granularity. ADR-024 governs repo boundaries; ADR-027 governs Terraservice-layer boundaries within one environment.
+- ADR-027 (Intra-environment Terraservice layer sharding) — sibling framework at a finer granularity, relocated to the `aegis-platform` repo by the ADR-033 descope. ADR-024 governs repo boundaries; ADR-027 governed Terraservice-layer boundaries within one environment.
 - `docs/principles/break-glass-apply.md` — the exception-tracking mechanism that lets GitOps-only discipline hold under pressure
 - [CLAUDE.md](../../CLAUDE.md) Technical Standards §Terraform + Cost Guardrails — the operational conventions this ADR depends on

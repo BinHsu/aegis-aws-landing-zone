@@ -30,8 +30,8 @@ resource "aws_ram_sharing_with_organization" "main" {}
 #   2. Delegate IPAM admin to the account that hosts IPAM (aegis-shared per
 #      ADR-004 Mode B and ADR-006).
 #
-# Without this, staging/network apply fails with:
-#   "Account <id> is not monitored by IPAM ipam-<id>."
+# Without this, a Platform-tier VPC apply (in the aegis-platform repo) fails
+# with: "Account <id> is not monitored by IPAM ipam-<id>."
 # -----------------------------------------------------------------------------
 
 # Delegates IPAM admin to the shared account, which is required because

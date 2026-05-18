@@ -5,16 +5,15 @@
 # level, but must be EXPLICITLY ASSIGNED to each target account that should
 # accept them. An assignment is what causes AWS to lazily create the
 # corresponding `AWSReservedSSO_<PermissionSet>_<hash>` IAM role in the target
-# account. Without the assignment, the role simply does not exist there, and
-# any downstream resource that references it (e.g., EKS Access Entries in
-# staging/platform) will fail to resolve at plan time.
+# account. Without the assignment, the role simply does not exist there.
 #
-# This file exists because the staging/platform layer needs the PlatformAdmin
-# SSO role to be present in the staging account so that it can map the role
-# to Kubernetes cluster-admin via an Access Entry. Assignment in this layer
-# (management/bootstrap) MUST apply before staging/platform — which is already
-# the apply order in terraform-apply-baseline.yml (baseline layers run before
-# workload layers).
+# This layer assigns PlatformAdmin to the operator in the staging account so
+# that (a) the operator has human admin access to the account and (b) the
+# `aegis-emergency-break-glass` role in staging/bootstrap — whose trust policy
+# keys on the `AWSReservedSSO_PlatformAdmin_*` role — has a principal to trust.
+# Platform-tier consumers (e.g. EKS Access Entries in the `aegis-platform`
+# repo) rely on the same reserved role being present; this assignment is their
+# account-fabric prerequisite.
 # -----------------------------------------------------------------------------
 
 # Discover the Identity Center instance (there is exactly one per organization).
@@ -46,10 +45,9 @@ data "aws_identitystore_user" "bin" {
 # -----------------------------------------------------------------------------
 # Assigning PlatformAdmin to staging creates the reserved role
 # `AWSReservedSSO_PlatformAdmin_<hash>` in the staging account on next SSO
-# sync, which is what staging/platform/access-entries.tf discovers and maps
-# to Kubernetes cluster-admin. See ADR-013 (Operator access) for why Access
-# Entries + Identity Center is the chosen mechanism (not aws-auth ConfigMap,
-# not long-lived IAM users).
+# sync. The operator uses it for direct account access and break-glass
+# recovery; the Platform tier (`aegis-platform`) additionally maps it to
+# Kubernetes cluster-admin via an EKS Access Entry.
 # -----------------------------------------------------------------------------
 # -----------------------------------------------------------------------------
 # IMPORTANT (see docs/incidents.md Incident 9): before adding NEW assignment

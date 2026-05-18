@@ -4,8 +4,8 @@
 
 This directory holds the Architecture Decision Records (ADRs) for the AWS
 landing zone. An ADR captures a significant design choice — account placement,
-tooling, multi-region strategy, security posture — at the moment it was made,
-together with the alternatives that were rejected and the trade-offs accepted.
+tooling, security posture — at the moment it was made, together with the
+alternatives that were rejected and the trade-offs accepted.
 
 **Conventions**
 
@@ -14,6 +14,14 @@ together with the alternatives that were rejected and the trade-offs accepted.
 - **Status**: `Accepted` | `Superseded by NNN` | `Deprecated`. A superseded ADR
   is *not* deleted — it stays as a historical record; only its `Status` line
   changes. Amendments are annotated inline at the top of the affected ADR.
+- **Relocation exception**: an ADR whose *entire subject* moved to another
+  repository — as happened in the ADR-033 account-fabric descope, when EKS,
+  ArgoCD, observability, edge, auth and FIS were reclassified as a Platform
+  tier — is *removed* from this directory rather than kept as a tombstone. The
+  `v1.0.0` git tag preserves the full pre-descope ADR set; the
+  [Relocated ADRs](#relocated-adrs--adr-033-descope) note below records which
+  numbers moved and why. This differs from supersession (same repo, decision
+  changed) — relocation means the decision is no longer *this repo's* to own.
 - **Rule**: AI agents and contributors must check this directory before
   proposing architecture. If a decision is already recorded, follow it; if you
   believe it should change, discuss first — do not silently override.
@@ -26,86 +34,80 @@ where alternatives were genuinely weighed.
 
 | ADR | Title | Status |
 |-----|-------|--------|
-| [001](001-landing-zone-scope-boundary.md) | Landing Zone Scope Boundary | Accepted |
+| [001](001-landing-zone-scope-boundary.md) | Landing Zone Scope Boundary | Accepted (amended by 033) |
 | [002](002-region-and-availability-zone-strategy.md) | Region and Availability Zone Strategy | Accepted |
 | [003](003-terraform-backend-bootstrap.md) | Terraform Backend Bootstrap and State Layout | Accepted |
 | [004](004-deployment-configuration-contract.md) | Deployment Configuration Contract | Accepted |
 | [005](005-compliance-framework-iso-27001.md) | Compliance Framework — ISO 27001 Mapping | Accepted |
 | [006](006-account-taxonomy-and-ou-structure.md) | Account Taxonomy and OU Structure | Accepted |
-| [007](007-infra-app-repository-split.md) | Infrastructure / Application Repository Split | Accepted |
+| [007](007-infra-app-repository-split.md) | Infrastructure / Application Repository Split | Accepted (amended by 033) |
 | [008](008-landing-zone-tooling-control-tower-hybrid.md) | Landing Zone Tooling — Control Tower + Terraform Hybrid | Accepted |
-| [009](009-lifecycle-and-teardown-strategy.md) | Lifecycle and Teardown Strategy | Accepted |
+| [009](009-lifecycle-and-teardown-strategy.md) | Lifecycle and Teardown Strategy | Accepted (amended by 033) |
 | [010](010-shared-account-bootstrap-sequence.md) | Shared Account Bootstrap Sequence | Accepted |
 | [011](011-account-provisioning-two-path-strategy.md) | Account Provisioning Strategy — Two-Path Design | Accepted |
-| [012](012-vpc-topology-and-egress-strategy.md) | VPC Topology and Egress Strategy | Accepted |
-| [013](013-eks-architecture.md) | EKS Architecture | Accepted |
-| [014](014-alb-session-affinity.md) | ALB Session Affinity for gRPC Workloads | Accepted |
-| [015](015-observability-tooling.md) | Observability Tooling | **Superseded by 022** |
-| [016](016-admission-control.md) | Admission Control: Kyverno | Accepted (amended) |
-| [017](017-workload-namespace-and-rbac-model.md) | Workload Namespace and RBAC Model | Accepted |
-| [018](018-multi-region-eks-design.md) | Multi-region EKS Design | **Superseded by 032** (§1/§2/§5–§7 still authoritative) |
-| [019](019-frontend-serving-strategy.md) | Frontend Serving Strategy — S3 + CloudFront | Accepted |
-| [020](020-fis-dr-drill.md) | Fault Injection Simulator (FIS) for DR Drills | Accepted (amended) |
-| [021](021-observability-scaling-path.md) | Observability Scaling Path | Accepted (amended) |
-| [022](022-observability-backend-grafana-cloud.md) | Observability Backend: Grafana Cloud Free Tier | Accepted (supersedes 015) |
-| [023](023-observability-responsibility-model.md) | Observability Responsibility Model | Accepted |
-| [024](024-landing-zone-repo-topology.md) | Landing-zone Terraform Repo Topology | Accepted |
-| [025](025-qdrant-backend-cloud-free-tier.md) | Qdrant Backend — Cloud Free Tier | Accepted |
-| [026](026-cognito-auth-user-pool.md) | Cognito User Pool — Cloud-mode Auth | Accepted |
-| [027](027-intra-environment-layer-sharding.md) | Intra-environment Terraservice Layer Sharding Discipline | Accepted |
-| [028](028-persistent-saas-credential-isolation.md) | Persistent SaaS-credential Isolation | Accepted |
-| [029](029-iam-permission-scope-down.md) | IAM Permission Scope-Down for `github-actions-terraform` | Accepted |
+| [012](012-ipam-and-cidr-allocation.md) | IPAM and Org-Wide CIDR Allocation | Accepted (amended; was "VPC Topology and Egress Strategy") |
+| [024](024-landing-zone-repo-topology.md) | Landing-zone Terraform Repo Topology | Accepted (amended by 033) |
+| [029](029-iam-permission-scope-down.md) | IAM Permission Scope-Down for `github-actions-terraform` | Accepted (amended by 033) |
 | [030](030-tier-2b-permission-boundary-hardening.md) | Tier 2B Permission Boundary Hardening | Accepted |
 | [031](031-tier-3-detective-controls.md) | Tier 3 Detective Controls | Accepted |
-| [032](032-external-orchestration-multi-region.md) | External Orchestration for Multi-region EKS | Accepted (supersedes 018 §3–§4) |
-| [033](033-landing-zone-scope-correction-account-fabric.md) | Landing-zone Scope Correction — Account Fabric | Accepted (supersedes 001 scope-list; phased) |
+| [033](033-landing-zone-scope-correction-account-fabric.md) | Landing-zone Scope Correction — Account Fabric | Accepted (supersedes 001 scope-list) |
 
 > Filenames in the table are the conventional `NNN-title.md` form. If a link
 > 404s, the on-disk title slug differs slightly — the number is authoritative.
 
+## Relocated ADRs — ADR-033 descope
+
+ADRs **013–023, 025–028, and 032** are intentionally absent. They recorded
+**Platform-tier** decisions — EKS architecture, ALB session affinity,
+observability tooling and backend, admission control, workload namespace/RBAC,
+multi-region EKS and its external-orchestration successor, frontend serving,
+FIS DR drills, Cognito auth, and the Qdrant vector-DB backend. ADR-033
+reclassified all of that as an extractable Platform tier; the ADRs were
+removed from this repo with the layers they governed. The **`v1.0.0` git tag**
+is the historical record — `git show v1.0.0:docs/decisions/013-eks-architecture.md`
+and so on. ADR numbers are never reused, so the gaps are permanent and
+intentional.
+
 ## Reading orders by audience
 
-You do not need to read 33 ADRs front to back. Pick the path for why you are
+You do not need to read every ADR front to back. Pick the path for why you are
 here. Each list is ordered so the argument builds on itself.
 
 ### Senior platform / infrastructure reviewer
 
-Understand the shape of the landing zone and why it is shaped that way.
+Understand the shape of the account fabric and why it is shaped that way.
 
-`001` → `033` → `006` → `008` → `011` → `003` → `004` → `024` → `007` → `002` → `012` → `013` → `018` → `032` → `027`
+`001` → `033` → `006` → `008` → `011` → `003` → `004` → `024` → `007` → `002` → `012`
 
-Scope boundary first (what this repo does and does not own) — read `001`
-immediately with `033`, which corrects that scope down to the account fabric and
-reclassifies EKS/ArgoCD/observability as an extractable Platform tier. Then the
-account/OU taxonomy, the Control-Tower-plus-Terraform tooling split, and how
-accounts are provisioned. State layout and the config contract explain how the
-code is parameterised; the repo-topology and infra/app-split ADRs explain the
-tier model. The tail (`002`–`027`) is the workload substrate: regions, VPC, EKS,
-multi-region, and the layer-sharding discipline.
+Scope boundary first — read `001` immediately with `033`, which corrects that
+scope down to the account fabric and reclassifies EKS/ArgoCD/observability as
+an extractable Platform tier. Then the account/OU taxonomy, the
+Control-Tower-plus-Terraform tooling split, and how accounts are provisioned.
+State layout and the config contract explain how the code is parameterised;
+the repo-topology and infra/app-split ADRs explain the tier model. `002` and
+`012` close it out: the region strategy and the org-wide IPAM that the fabric
+hands to Platform-tier consumers.
 
-### Reliability / DR reviewer
+### Reliability / recovery reviewer
 
-Understand the failure model and how recovery is proven.
+Understand the failure model of the control plane itself.
 
-`002` → `009` → `018` → `032` → `020` → `003` → `021` → `022` → `023`
+`002` → `009` → `003`
 
 Region/AZ strategy and the lifecycle/teardown model set the baseline; the
-multi-region design and the FIS DR-drill ADR are the core. State backend
-explains recovery of the control plane itself; the three observability ADRs
-explain how a drill is *observed* (the dashboard is the evidence).
+state-backend ADR explains recovery of the Terraform control plane — the one
+piece of durable state the account fabric owns.
 
 ### Security reviewer
 
 Understand the guardrails and the blast-radius controls.
 
-`001` → `005` → `006` → `008` → `016` → `017` → `029` → `030` → `031` → `028` → `011` → `026`
+`001` → `005` → `006` → `008` → `029` → `030` → `031` → `011`
 
 Scope and the ISO 27001 mapping frame the compliance intent; account taxonomy
-and tooling show where SCP guardrails sit. Kyverno and the namespace/RBAC model
-are the in-cluster controls. `029`–`031` are the IAM scope-down ladder
-(permission scope-down → permission boundary → detective controls); `028`
-covers SaaS-credential isolation. `011` and `026` cover account provisioning
-and human/workload authentication.
+and tooling show where SCP guardrails sit. `029`–`031` are the IAM scope-down
+ladder (permission scope-down → permission boundary → detective controls).
+`011` covers account provisioning.
 
 ### Forker / new contributor
 
@@ -114,6 +116,6 @@ The minimum to understand the repo before touching anything.
 `001` → `033` → `004` → `024` → `008` → `009`
 
 What the repo is for and how its scope was corrected (`033` descopes it to the
-account fabric), how config drives it, how the one repo is isolated internally,
-what tooling it assumes, and the lifecycle/teardown rules that keep a fork from
-running up a bill.
+account fabric), how config drives it, how the one repo is isolated
+internally, what tooling it assumes, and the lifecycle/teardown rules that keep
+a fork from running up a bill.

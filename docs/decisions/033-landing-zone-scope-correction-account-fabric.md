@@ -2,7 +2,22 @@
 
 ## Status
 
-Accepted (2026-05-17).
+Accepted (2026-05-17). **Physical extraction executed 2026-05-18** — see the update note below.
+
+> **Update — 2026-05-18 (v2 descope executed).** Path A is complete. The
+> physical extraction described below as "deferred to a dedicated future
+> migration phase" has now been performed: the Platform-tier Terraform layers,
+> their ADRs (013–023, 025–028, 032), and their runbooks (002–008) were
+> removed from this repository, the CI workflows and config schema were
+> trimmed, and `aegis-aws-landing-zone` now physically contains only the
+> account fabric. **Open Question 1 is resolved** — the Platform-tier
+> destination is a new repository, **`aegis-platform`** (cross-repo #214; that
+> repo also becomes the no-review-gate GitOps Deploy source). Where the text
+> below says the extraction is "deferred", "pending review", or that the
+> destination is "not named", read it as done as of this date. The Platform
+> layers themselves are recovered from the `v1.0.0` git tag by whoever stands
+> up `aegis-platform` — this repository does not perform the move. The body
+> below is otherwise preserved as written at decision time.
 
 **Execution is phased (path A):** this ADR *records the boundary decision* now;
 the *physical extraction* of the Platform-tier layers is deferred to a dedicated
@@ -222,7 +237,7 @@ These are deliberately left unresolved; resolving them is cross-repo work.
   widens from two repos to a tier model (amendment pending review).
 - [ADR-024](024-landing-zone-repo-topology.md) — landing-zone internal topology;
   remains valid, narrower domain. Its documented split triggers are what fired.
-- [ADR-013](013-eks-architecture.md) — the EKS architecture; the canonical
-  Platform-tier ADR, re-homed at extraction time.
+- ADR-013 (EKS architecture) — the canonical Platform-tier ADR; relocated to
+  the `aegis-platform` repo, recoverable from the `v1.0.0` tag.
 - Cross-repo `aegis-aws-landing-zone#214` — the GitOps deploy-repo RFC whose
   contract counterparty this ADR shifts.

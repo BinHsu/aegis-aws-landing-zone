@@ -3,7 +3,7 @@
 # =============================================================================
 # Copy this file to landing-zone.yaml and fill in your real values.
 # landing-zone.yaml is gitignored — never commit real account IDs or emails.
-# See ADR-004 for the contract rationale.
+# See ADR-004 for the contract rationale, ADR-033 for the account-fabric scope.
 # JSON Schema: config/schema.json
 # =============================================================================
 
@@ -37,24 +37,10 @@ accounts:
     id: "555555555555"
     email: "aws-aegis-staging@example.com"
     ou: Workloads
-    vpcs:
-      eu-central-1:
-        netmask_length: 20
-        ipam_pool: eu-central-1
-      eu-west-1:
-        netmask_length: 22
-        ipam_pool: eu-west-1
   prod:
     id: "666666666666"
     email: "aws-aegis-prod@example.com"
     ou: Workloads
-    vpcs:
-      eu-central-1:
-        netmask_length: 20
-        ipam_pool: eu-central-1
-      eu-west-1:
-        netmask_length: 22
-        ipam_pool: eu-west-1
 
 regions:
   - name: eu-central-1
@@ -77,12 +63,10 @@ sso:
 github:
   org: YourGitHubOrg
   infra_repo: aegis-aws-landing-zone
-  app_repo: aegis-core
   # Optional — defense-in-depth against repo rename/transfer (ADR-030 Item C).
   # Run: gh api repos/<owner>/<repo> --jq .id
   # If unset, OIDC trust policies fall back to repo full_name pinning only.
   infra_repo_id: "1234567890"  # placeholder — replace with actual numeric ID
-  app_repo_id: "1234567891"    # placeholder — replace with actual numeric ID
 
 tags:
   Project: landing-zone-lab
@@ -98,6 +82,9 @@ budget:
   alert_emails:
     - your-email@example.com
 
+# Org-wide IPAM (ADR-012) — the account fabric's CIDR allocation authority.
+# Regional pools are RAM-shared to the whole organization; Platform-tier VPCs
+# (in the aegis-platform repo) draw non-overlapping CIDRs from them.
 ipam:
   top_cidr: "10.0.0.0/8"
   pools:
@@ -112,120 +99,3 @@ control_tower:
     - eu-central-1
     - eu-west-1
   kms_key_alias: "alias/aegis-control-tower-key"
-
-# EKS platform configuration (optional — only environments that deploy the
-# platform layer need an entry). See ADR-013 for version / endpoint rationale
-# and docs/runbooks/002-eks-access.md for the public-IP operational contract.
-eks:
-  staging:
-    version: "1.32"
-    public_access_cidrs:
-      # Default: 0.0.0.0/0 — open endpoint, AWS IAM SigV4 + Access Entries +
-      # SSO session expiry are the primary auth layers. This matches EKS
-      # Blueprints and the majority of CI-managed EKS reference architectures.
-      #
-      # Tighter options (documented in ADR-013 "Design iteration"):
-      #   - Option Z (corporate): include GitHub Actions published IP
-      #     ranges from https://api.github.com/meta -> .actions (~50 CIDRs)
-      #   - Option Y (strict):    self-hosted GH Actions runners inside
-      #     the VPC, then restrict to operator /32 + runner subnet CIDR
-      - "0.0.0.0/0"
-    # EKS compute footprint — subset of top-level regions[].
-    # Length 1 (default): single-region cluster, cheapest demo.
-    # Length 2+: multi-region with primary + slave(s).
-    # See docs/decisions/018-multi-region-eks-design.md for the full spec,
-    # docs/improvements/008-workload-multi-region.md for Mode A vs Mode B.
-    regions:
-      - region: eu-central-1
-        role: primary
-        mode: active
-      # Uncomment to enable multi-region pilot light DR (~$2 per 4h session).
-      # The region must also be declared in the top-level regions[] list.
-      # - region: eu-west-1
-      #   role: slave
-      #   mode: pilot_light
-  # prod:
-  #   version: "1.32"
-  #   public_access_cidrs:
-  #     - "203.0.113.1/32"
-  #   regions:
-  #     - region: eu-central-1
-  #       role: primary
-  #       mode: active
-
-# Grafana Cloud free tier — observability backend (ADR-022).
-# Optional: present this block to enable the platform observability stack
-# (External Secrets Operator, prometheus-operator-crds, kube-state-metrics,
-# Grafana Alloy). Omit to deploy the EKS platform without observability.
-# Runbook 006 documents the one-time Grafana Cloud signup that produces the
-# values below.
-# grafana_cloud:
-#   org_slug: aegis-staging
-#   # Mimir Prometheus remote_write endpoint — copy from Grafana Cloud stack
-#   # details page ("Prometheus" tile → "Details" → "URL"). NOT derivable from
-#   # org_slug alone; the hostname varies by stack provisioning region.
-#   mimir_url: "https://prometheus-prod-NN-prod-eu-west-N.grafana.net/api/prom/push"
-#   # Numeric user ID for Mimir HTTP basic auth — copy from same stack details
-#   # page ("Username / Instance ID" field). Password is the alloy-token
-#   # provisioned by Terraform in staging/observability/ (PR-2).
-#   mimir_user_id: "1234567"
-
-# Cognito User Pool — cloud-mode auth for aegis (ADR-026).
-# Optional: present this block to enable the staging/auth peer layer.
-# Provisions a Cognito User Pool with a single SPA app client, five SSM PS
-# SecureString parameters carrying the pool identifiers, and an
-# ExternalSecret that syncs three of them into the `aegis` namespace as a
-# K8s Secret consumed by aegis-core's gateway Deployment.
-#
-# Omit to deploy the landing zone without an auth layer — baseline apply
-# still succeeds, staging/auth plans zero resources.
-#
-# Runbook 008 documents first-operator setup (admin user invite, Hosted UI
-# login verification, token smoke test).
-# cognito:
-#   # Cognito-provided hosted UI domain prefix. Full URL:
-#   # <prefix>.auth.<region>.amazoncognito.com. Globally unique within
-#   # the region — pick a different prefix on collision.
-#   domain_prefix: aegis-staging
-#   # SPA callback URLs — aegis-core-confirmed 2026-04-23 on aegis-core #76.
-#   # Must match the SPA's OAuth redirect target exactly (scheme, host,
-#   # path, no trailing slash drift). Cognito accepts in-place updates
-#   # without recreate.
-#   callback_urls:
-#     - "https://aegis-app.staging.<your-domain>/auth/callback"  # substitute domain.name
-#   # Logout redirect URLs — where Cognito sends the user after global
-#   # logout. Cognito accepts in-place updates without recreate.
-#   logout_urls:
-#     - "https://aegis-app.staging.<your-domain>/"  # substitute domain.name
-#   # Password policy — NIST SP 800-63B aligned defaults. Omit any
-#   # subfield to inherit the lab default; omit the whole block to
-#   # inherit all defaults.
-#   password_policy:
-#     minimum_length: 12
-#     require_lowercase: true
-#     require_uppercase: true
-#     require_numbers: true
-#     require_symbols: true
-#   # MFA posture. OFF (lab default) | OPTIONAL | ON. ON requires every
-#   # user to enroll a factor before login works — not recommended for MVP.
-#   mfa_configuration: OFF
-
-# Qdrant Cloud vector-DB scaffold (ADR-025, cross-repo ldz #141).
-# Optional: present with `enabled: true` to provision the Qdrant SSM PS
-# placeholders (/aegis/staging/qdrant-cloud/{cluster-url,api-key}) and the
-# ExternalSecret that reconciles them into K8s Secret `qdrant-credentials`
-# in ns `aegis` for the aegis-engine Deployment.
-#
-# Values are operator-managed — Terraform only creates the SecureString
-# shells. After the first apply, fill the real cluster URL + API key via:
-#
-#   aws ssm put-parameter --region eu-central-1 \
-#     --name /aegis/staging/qdrant-cloud/cluster-url \
-#     --type SecureString --key-id alias/aegis-staging-secrets \
-#     --value 'https://<cluster-uuid>.eu-central-1-0.aws.cloud.qdrant.io:6334' \
-#     --overwrite
-#
-# Runbook 007 documents first-time Qdrant Cloud signup + the API key
-# rotation cadence (90 days).
-# qdrant_cloud:
-#   enabled: true

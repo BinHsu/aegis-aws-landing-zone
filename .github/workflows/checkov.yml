@@ -54,12 +54,8 @@ jobs:
           # CKV_AWS_274 (AdministratorAccess policy) — intentional for lab per
           #   ADR-001 scope boundary and inline comments in oidc-github.tf.
           #   Production should scope down to per-environment minimum permissions.
-          # CKV2_AWS_3  (GuardDuty org-wide) — check requires org-level
-          #   delegated admin setup. This lab enables GuardDuty per-account
-          #   in staging/workloads (Phase 4c). Org-wide delegation via the
-          #   security account is a future hardening item.
-          # CKV2_AWS_11 (VPC Flow Logs) — RESOLVED in Phase 4b. Flow Logs
-          #   enabled in staging/network/flow-logs.tf → S3 in staging account.
+          # CKV2_AWS_3  (GuardDuty org-wide) — org-wide GuardDuty delegated-admin
+          #   setup via the security account is a future hardening item.
 
       - name: Upload SARIF to GitHub Security tab
         if: always()

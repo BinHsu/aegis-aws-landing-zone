@@ -1,7 +1,21 @@
 # 007. Infrastructure / Application Repository Split
 
 ## Status
-Accepted
+Accepted — widened to a tier model by [ADR-033](033-landing-zone-scope-correction-account-fabric.md)
+
+> **Amendment — ADR-033, 2026-05-18.** This ADR's two-repo "Pointer / Payload"
+> split is now a **multi-tier model**. The "Pointer" repository
+> (`aegis-aws-landing-zone`) was descoped to the AWS account fabric; the EKS
+> cluster, ArgoCD, the cluster add-ons, and the **root ArgoCD `Application`
+> custom resource** — described below as living in this repo — moved to the
+> `aegis-platform` **Platform-tier** repository. The GitOps K8s deploy
+> manifests (the "Payload" `apps/` tree) also moved into `aegis-platform` as
+> the no-review-gate GitOps source (cross-repo #214). Current tiers: **Landing
+> Zone** (`aegis-aws-landing-zone`, account fabric) → **Platform**
+> (`aegis-platform`, cluster + ArgoCD + GitOps deploy source) → **App**
+> (`aegis-core`, application code + signed images). The infra/app *separation
+> principle* this ADR argues for is unchanged and validated — it simply now
+> has more than two tiers. See ADR-033 §"The tier model".
 
 ## Context
 A GitOps-based multi-account AWS deployment has two fundamentally different kinds of change flowing into the cluster: infrastructure changes (VPC, EKS, IAM, node groups, ingress controllers) and application changes (code, container images, Kubernetes manifests). These two kinds of change have wildly different cadences, blast radii, review requirements, and ownership boundaries. Putting them into one repository — a monorepo — forces every application change through infrastructure review, and every infrastructure change through application awareness. This creates review bottlenecks, ownership confusion, and cognitive overload.

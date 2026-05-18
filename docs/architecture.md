@@ -1,9 +1,11 @@
-<!-- session-close-review: Mermaid diagrams reflect current phase status and resource topology -->
+<!-- session-close-review: Mermaid diagrams reflect the account-fabric scope (Org/OU/SCP, Identity Center, OIDC, IPAM, baseline CI/CD) and current layer topology -->
 # Architecture
 
 This document is the authoritative visual reference for the `aegis-aws-landing-zone` deployment. Every diagram is **Mermaid** (text-based, GitHub-rendered) — no static images, no external renderers, no drift risk. Edit the diagram when you edit the code.
 
 Each diagram is cross-referenced to the Architecture Decision Record (ADR) that owns the underlying reasoning. When the diagram and an ADR disagree, the ADR wins and the diagram needs fixing in the same PR.
+
+> **Scope note.** Per [ADR-033](decisions/033-landing-zone-scope-correction-account-fabric.md), this repository owns the **AWS account fabric only**: AWS Organizations and OUs, Service Control Policies, IAM Identity Center, account bootstrap and vending, the Terraform S3 state backend, the GitHub OIDC identity provider, the centralized security/audit baseline, and the org-wide IPAM. Everything previously here that was a *consumer* of the fabric — VPC/network, EKS, ArgoCD, cluster add-ons, observability, edge, auth — is now the **Platform tier** and lives in the separate `aegis-platform` repository.
 
 ---
 
@@ -15,20 +17,20 @@ AWS Organizations structure with the six accounts, three OUs, and SCP attachment
 flowchart TB
   Org["AWS Organization<br/>(your org id)<br/>Control Tower home: eu-central-1"]
 
-  Mgmt["aegis-management<br/><br/>Organizations<br/>SCPs<br/>Identity Center<br/>Billing<br/>RAM org-sharing<br/>EventBridge + SNS<br/>(Tier 3 detective)"]
+  Mgmt["aegis-management<br/><br/>Organizations<br/>SCPs<br/>Identity Center<br/>Billing<br/>RAM org-sharing"]
 
   subgraph Security["OU: Security (Control Tower-managed)"]
     Sec["aegis-security<br/><br/>GuardDuty<br/>Security Hub<br/>Config admin"]
-    Log["aegis-logarchive<br/><br/>CloudTrail archive<br/>Config archive<br/>VPC Flow Logs"]
+    Log["aegis-logarchive<br/><br/>CloudTrail archive<br/>Config archive"]
   end
 
   subgraph Infra["OU: Infrastructure"]
-    Shared["aegis-shared<br/><br/>Terraform state bucket<br/>IPAM pools<br/>GitHub OIDC<br/>AFT (not deployed)"]
+    Shared["aegis-shared<br/><br/>Terraform state bucket<br/>IPAM pools<br/>GitHub OIDC<br/>AFT (committed, not deployed)"]
   end
 
   subgraph Work["OU: Workloads"]
-    Stg["aegis-staging<br/><br/>EKS 1.32 · Karpenter · ArgoCD<br/>Grafana Alloy · grafana-operator (primary) · Kyverno<br/>GuardDuty · ECR"]
-    Prd["aegis-prod<br/><br/>(not yet provisioned)"]
+    Stg["aegis-staging<br/><br/>bootstrap only<br/>(Platform tier lives in aegis-platform)"]
+    Prd["aegis-prod<br/><br/>bootstrap only<br/>(not yet provisioned beyond bootstrap)"]
   end
 
   Org --> Mgmt
@@ -40,7 +42,9 @@ flowchart TB
   Mgmt -. SCPs .-> Work
 ```
 
-**Custom SCPs attached to Root** (see [ADR](decisions/006-account-taxonomy-and-ou-structure.md) and [terraform/environments/management/scps](../terraform/environments/management/scps/)):
+The `aegis-staging` and `aegis-prod` accounts are vended and bootstrapped by this repo (state backend access, GitHub OIDC role). The workloads that run *inside* them are provisioned by the Platform-tier repo `aegis-platform`.
+
+**Custom SCPs attached to Root** (see [ADR-006](decisions/006-account-taxonomy-and-ou-structure.md) and [terraform/environments/management/scps](../terraform/environments/management/scps/)):
 
 - `deny-root-user-actions` — blocks root in member accounts (ISO 27001 A.8.2)
 - `deny-iam-user-creation` — SSO-only access (ISO 27001 A.8.2)
@@ -77,14 +81,16 @@ sequenceDiagram
   Note over Dev,GH: Review plan, resolve findings, approve
 
   Dev->>GH: merge PR (signed merge commit)
-  GH->>GHA: trigger terraform-apply
+  GH->>GHA: trigger terraform-apply-baseline
   GHA->>OIDC: same OIDC flow, main-branch subject
   GHA->>TF: terraform apply -auto-approve
-  TF->>AWS: create/update/destroy resources
+  TF->>AWS: create/update resources
   AWS-->>TF: applied state
 ```
 
-**Required status checks on main** (branch protection): 5× `Plan ${env}` + `Checkov IaC Security Scan`. See [Runbook Part 10.3](runbooks/001-bootstrap-aws-account.md).
+Every layer in this repo is a baseline layer: cheap, persistent, and auto-applied on merge to main via `terraform-apply-baseline.yml`. There are no cost-incurring workload layers and no manual-dispatch apply/teardown path in this repo — those belonged to the Platform tier and now live in `aegis-platform` ([ADR-033](decisions/033-landing-zone-scope-correction-account-fabric.md)).
+
+**Required status checks on main** (branch protection): `Plan` jobs for every baseline layer + `Checkov IaC Security Scan`. See [Runbook Part 10.3](runbooks/001-bootstrap-aws-account.md).
 
 ---
 
@@ -106,7 +112,7 @@ flowchart LR
 
   subgraph AWS["AWS IAM Principals"]
     sso_roles["AWSReservedSSO_PlatformAdmin_*<br/>(4 accounts: management,<br/>shared, staging, prod)"]
-    ci_roles["gh-tf-plan / gh-tf-apply-baseline<br/>(3 accounts: management, shared, staging)<br/>+ gh-tf-apply-workload / gh-tf-teardown-workload<br/>(staging only)<br/>+ aegis-emergency-break-glass<br/>(3 accounts; PlatformAdmin trust)"]
+    ci_roles["gh-tf-plan / gh-tf-apply-baseline<br/>(3 accounts: management, shared, staging)<br/>+ aegis-emergency-break-glass<br/>(3 accounts; PlatformAdmin trust)"]
   end
 
   bin --> ps
@@ -119,13 +125,15 @@ flowchart LR
   style AWS fill:#e8f5e9,stroke:#2e7d32
 ```
 
+The GitHub OIDC identity provider is an account-scoped singleton owned by this repo; the Platform-tier repo `aegis-platform` reuses it via a `data "aws_iam_openid_connect_provider"` lookup rather than creating its own.
+
 **Forbidden (enforced by SCP `deny-iam-user-creation`):** creating IAM users, creating access keys, attaching user policies.
 
 ---
 
 ## 4. State and IPAM (Shared Services)
 
-What lives in the `aegis-shared` account, and how other accounts consume its services. See [ADR-003](decisions/003-terraform-backend-bootstrap.md), [ADR-004](decisions/004-deployment-configuration-contract.md), [ADR-012](decisions/012-vpc-topology-and-egress-strategy.md).
+What lives in the `aegis-shared` account, and how other accounts consume its services. See [ADR-003](decisions/003-terraform-backend-bootstrap.md), [ADR-004](decisions/004-deployment-configuration-contract.md), [ADR-012](decisions/012-ipam-and-cidr-allocation.md).
 
 ```mermaid
 flowchart TB
@@ -150,8 +158,8 @@ flowchart TB
 
   subgraph consumers["Consumer accounts (via OrgID condition)"]
     mgmt["management: reads/writes<br/>management/bootstrap/tfstate<br/>management/scps/tfstate"]
-    stg["staging: reads/writes<br/>staging/bootstrap/tfstate<br/>+ allocates from IPAM pools<br/>(Phase 3)"]
-    prd["prod: same pattern<br/>(Phase 3+)"]
+    stg["staging: reads/writes<br/>staging/bootstrap/tfstate<br/>+ Platform tier allocates<br/>VPC CIDRs from IPAM pools"]
+    prd["prod: same pattern"]
   end
 
   bucket -. s3:GetObject + PutObject<br/>condition: aws:PrincipalOrgID<br/>+ ArnLike on gh-tf-* /<br/>aegis-emergency-* /<br/>SSO PlatformAdmin .-> mgmt
@@ -161,13 +169,15 @@ flowchart TB
   ram -. allocate-cidr .-> prd
 ```
 
-**State key convention:** `<account>/<layer>/terraform.tfstate`. Currently live: management/bootstrap, management/scps, shared/bootstrap, shared/ipam, staging/bootstrap, prod/bootstrap.
+IPAM is the org-wide CIDR allocation authority ([ADR-012](decisions/012-ipam-and-cidr-allocation.md)): it RAM-shares regional pools to the whole organization, and the Platform-tier VPCs in `aegis-platform` allocate their CIDRs from those pools via `ipv4_ipam_pool_id` rather than hand-planning ranges. The pools live here; the VPCs that consume them do not.
+
+**State key convention:** `<account>/<layer>/terraform.tfstate`. Live layers: management/bootstrap, management/scps, shared/bootstrap, shared/ipam, shared/aft, staging/bootstrap, prod/bootstrap.
 
 ---
 
 ## 5. Deployment Order and Dependencies
 
-Which Terraform layers must apply first. Encoded in [`.github/workflows/terraform-apply.yml`](../.github/workflows/terraform-apply.yml).
+Which Terraform layers must apply first.
 
 ```mermaid
 flowchart LR
@@ -184,7 +194,7 @@ flowchart LR
   A -.->|SCPs applied<br/>last to avoid<br/>self-locking| E
 ```
 
-Rationale documented inline in `terraform-apply.yml`. Violations of this order caused real incidents (PR #8, PR #9).
+`prod/bootstrap` follows the same pattern as `staging/bootstrap`. SCPs apply last to avoid self-locking the principal that applies them. Violations of this order caused real incidents (PR #8, PR #9).
 
 ---
 
@@ -194,6 +204,7 @@ Rationale documented inline in `terraform-apply.yml`. Violations of this order c
 - Setup from zero: [Runbook 001](runbooks/001-bootstrap-aws-account.md)
 - Terraform code: [terraform/environments/](../terraform/environments/)
 - CI workflows: [.github/workflows/](../.github/workflows/)
+- Platform tier (EKS, ArgoCD, observability, edge, auth): the separate `aegis-platform` repository — see [ADR-033](decisions/033-landing-zone-scope-correction-account-fabric.md).
 
 ## Drift policy
 

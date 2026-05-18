@@ -125,7 +125,7 @@ This email is expected, not a problem. It does not signify that AWS has begun re
    - **Email recipients**: `aws-aegis-management@your-domain.org` plus your personal email (e.g. Gmail) as a redundancy channel. Budget alert notifications are free regardless of recipient count. Adding a second email ensures you receive cost warnings even if your domain's email routing has an outage.
 5. Create.
 
-The $30 cap covers the approximately $5/month persistent Control Tower baseline plus per-session ephemeral workload costs plus headroom for spikes, sized against the cost model in ADR-009.
+The $30 cap covers the approximately $5/month persistent account-fabric baseline (Control Tower, AWS Config recorder, CloudTrail, S3 log storage) plus headroom for spikes, sized against the cost model in ADR-009. This repo provisions only the account fabric — there are no per-session cost-incurring layers.
 
 ### 3.5.3 Create a daily budget alarm
 
@@ -406,7 +406,7 @@ Keep the default: **Opted in / Enabled**. The sub-option **AWS Control Tower to 
 
 Leave at the default: **Not enabled**.
 
-AWS Backup is intentionally not enabled in this project until Phase 3 introduces stateful workloads. The landing zone has no stateful data through Phase 2 and minimal stateful data until Phase 3 EKS workloads exist. Enabling AWS Backup now would accumulate snapshot storage cost for resources that do not need protection. A future Phase 3 ADR will define the workload backup strategy, including organization-level backup policies for `aegis-prod` stateful resources, cross-region copy to `eu-west-1`, and Backup Vault Lock for immutability aligned with ISO 27001 Annex A.8.13.
+AWS Backup is intentionally not enabled in this project. The account fabric has no stateful data — its only durable store is the Terraform state bucket, which is protected by S3 versioning and `prevent_destroy` (see `docs/improvements/001-state-backend-spof.md`). Workload backup strategy belongs to the Platform tier, which has been extracted to the `aegis-platform` repository per [ADR-033](../decisions/033-landing-zone-scope-correction-account-fabric.md).
 
 ### 4.5 Step 4 — Review and enable AWS Control Tower
 
@@ -760,7 +760,7 @@ aws sso login --sso-session aegis
 export AWS_PROFILE=aegis-management-admin
 ```
 
-All subsequent `terraform`, `aws`, or `kubectl` commands (when EKS is in place) use the SSO session. The session lasts 8 hours by default. When it expires, simply re-run `aws sso login`.
+All subsequent `terraform` and `aws` commands use the SSO session. The session lasts 8 hours by default. When it expires, simply re-run `aws sso login`.
 
 ### 7.2 Switching accounts
 
@@ -818,7 +818,7 @@ This file should not exist or should be empty of `aegis-*` content. If it does c
      This is the step that actually triggers IPAM to auto-create resource discoveries for member accounts.
   5. **Only then** create the IPAM (in `shared/ipam` Terraform). An IPAM created before steps 1-4 has its monitoring scope stuck at single-account and must be destroyed and recreated to pick up org integration.
 
-  If the IPAM was created out of order, the fix is: complete steps 1-4, then `terraform destroy` and `terraform apply` on `shared/ipam`. Pool IDs change; downstream state (staging/network, etc.) will re-read the new IDs from the remote state.
+  If the IPAM was created out of order, the fix is: complete steps 1-4, then `terraform destroy` and `terraform apply` on `shared/ipam`. Pool IDs change; downstream consumers (the Platform-tier VPC layers in the `aegis-platform` repo) re-read the new IDs from this layer's remote state.
 
   See also [Incident 7](../incidents.md#incident-7--ipam-delegated-admin-not-configured-for-cross-account-vpc-allocation) for the full story of discovering this sequence the hard way.
 
@@ -1259,4 +1259,4 @@ With this runbook complete, you have:
 - Organization-wide SCPs (root user, IAM user, leave org).
 - Repository set to public with branch protection on main.
 
-Phase 2 begins with GitHub Actions workflows: `terraform-plan.yml` (on PR) and `terraform-apply.yml` (on merge to main).
+Phase 2 begins with GitHub Actions workflows: `terraform-plan.yml` (on PR) and `terraform-apply-baseline.yml` (on merge to main).

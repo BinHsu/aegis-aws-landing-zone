@@ -1,15 +1,14 @@
 name: Terraform Apply (Baseline)
 
-# Auto-applies "baseline" Terraservices layers on push to main.
-# Baseline layers are the ones whose always-on cost is negligible
-# (< $10/mo total): account-level bootstrap, SCPs, state bucket, IPAM.
+# Auto-applies the account-fabric Terraservice layers on push to main.
+# After the ADR-033 descope this workflow applies the *entire* repository —
+# Organizations + SCPs, the shared-account bootstrap + org-wide IPAM, and the
+# per-account bootstrap layers. All of it is negligible always-on cost
+# (< $10/mo): no NAT, no EKS, no workload compute. The Platform-tier layers
+# that used to require a separate approval-gated workflow moved out of this
+# repository entirely.
 #
-# Workload layers (network with NAT, platform with EKS, workloads) are
-# deliberately NOT in this workflow. They require explicit operator intent
-# via terraform-apply-workload.yml (workflow_dispatch, approval-gated).
-#
-# See ADR-009 (lifecycle + teardown) and the "workflow split by cost profile"
-# pattern documented there.
+# See ADR-009 (lifecycle) and ADR-033 (account-fabric descope).
 
 on:
   push:
@@ -18,25 +17,23 @@ on:
       - 'terraform/environments/management/**'
       - 'terraform/environments/shared/**'
       - 'terraform/environments/staging/bootstrap/**'
-      - 'terraform/environments/staging/secrets-persistent/**'
-      - 'terraform/environments/staging/auth/**'
-      - 'terraform/environments/staging/edge/**'
       - 'terraform/environments/prod/bootstrap/**'
       - 'config/**'
 
-  # Manual safety valve — mirrors terraform-apply-workload.yml's dispatch
-  # trigger. Use when:
+  # Manual safety valve. Use when:
   #   - A baseline layer was added in a PR that didn't touch any path-filter
-  #     directory (e.g., a CI-only PR adding the layer to the matrix; the
+  #     directory (e.g. a CI-only PR adding the layer to the matrix; the
   #     push trigger won't fire).
   #   - A previous auto-apply failed mid-matrix and you want to re-run
   #     without a no-op code commit.
   #   - First-time apply of a new baseline layer on a cold environment.
-  #
-  # Behavior is identical to push: runs the full matrix serially. No inputs
-  # because baseline is cheap and the matrix is fast; per-layer targeting
-  # would add config surface for marginal benefit.
   workflow_dispatch:
+
+# Serialize apply runs across the whole workflow. A burst of PR merges would
+# otherwise start overlapping runs that race the S3 state lock (Incident 38).
+concurrency:
+  group: terraform-apply-baseline
+  cancel-in-progress: false
 
 permissions:
   id-token: write
@@ -54,8 +51,9 @@ jobs:
       fail-fast: false
       max-parallel: 1
       matrix:
+        # Order documented inline — foundation first, SCPs last so the
+        # guardrails do not interfere with the resources they govern.
         include:
-          # Order documented inline — foundation first, SCPs last
           - env: management/bootstrap
             account_id: "186052668286"
           - env: shared/bootstrap
@@ -66,92 +64,6 @@ jobs:
             account_id: "251774439261"
           - env: management/scps
             account_id: "186052668286"
-          # -----------------------------------------------------------------
-          # staging/secrets-persistent — Path-B SSM PS shells (ADR-028)
-          # -----------------------------------------------------------------
-          # Baseline-tier peer layer. Owns the 4 Path-B SSM PS shells for
-          # SaaS credentials whose source-of-truth is an external SaaS
-          # portal (Qdrant cluster-url + api-key, Grafana Cloud bootstrap-
-          # token, Slack webhook URL). All four are SecureStrings encrypted
-          # with alias/aegis-staging-secrets — essentially free at lab
-          # scale.
-          #
-          # Excluded from terraform-apply-workload.yml AND
-          # terraform-teardown-workload.yml. The whole point of this layer
-          # is that its resources survive workload teardown cycles
-          # (Incident 33 + 34 → ADR-028).
-          #
-          # Ordered AFTER staging/bootstrap (KMS alias dependency) and
-          # BEFORE staging/auth (clusters secret-related layers together).
-          # No dependency on management/scps (no IAM resources).
-          #
-          # First-apply caveat: the imports.tf block adopts the pre-
-          # existing /aegis/staging/grafana-cloud/bootstrap-token AWS
-          # resource into TF state. Forkers must run Runbook 006 §Part 2
-          # (manual put of the bootstrap-token from Grafana Cloud portal)
-          # before first apply, otherwise the import fails with "no SSM
-          # parameter found". Same prerequisite as pre-ADR-028.
-          # -----------------------------------------------------------------
-          - env: staging/secrets-persistent
-            account_id: "251774439261"
-          # -----------------------------------------------------------------
-          # staging/auth — Cognito User Pool (ADR-026)
-          # -----------------------------------------------------------------
-          # Baseline-tier peer layer. Cognito User Pool is essentially free at
-          # lab scale (free tier = 50k MAU permanent) so it sits in auto-apply
-          # alongside the other baseline layers.
-          #
-          # Ordered AFTER staging/bootstrap (needs the KMS alias
-          # alias/aegis-staging-secrets for SSM PS SecureString encryption)
-          # and AFTER management/scps (SCPs guard all staging resources so
-          # they must exist by the time we create IAM + Cognito resources).
-          #
-          # Cold-cycle caveat: the kubectl_manifest step that creates the
-          # `cognito-config` ExternalSecret targets the `aegis` namespace,
-          # which is owned by staging/workloads (workload-tier, not
-          # auto-applied). On a brand-new environment where workloads has
-          # not been applied yet, this matrix row fails with
-          # `namespaces "aegis" not found` — the AWS-side resources (user
-          # pool, app client, domain, SSM params, IAM role) still apply
-          # cleanly. Operator applies workloads via
-          # terraform-apply-workload.yml, then re-dispatches baseline to
-          # land the ExternalSecret. Same cold-cycle shape as
-          # staging/observability (ADR-022).
-          #
-          # prevent_destroy = true on the User Pool + SSM params + IAM role
-          # means subsequent workload cycles do not touch this layer's AWS
-          # resources. The layer is stable across workload cycles.
-          # -----------------------------------------------------------------
-          - env: staging/auth
-            account_id: "251774439261"
-          # -----------------------------------------------------------------
-          # staging/edge — CloudFront + S3 (frontend) + ALB ACM (api) + Route53
-          # delegated zone + OIDC role (ADR-019)
-          # -----------------------------------------------------------------
-          # Baseline-tier peer layer. All resources are either free tier
-          # (ACM cert, Route53 zone $0.50/mo, IAM) or bill-on-use with ~$0
-          # idle (CloudFront, S3). Safe for auto-apply.
-          #
-          # Ordered AFTER staging/bootstrap (needs the GitHub OIDC provider
-          # created there for `oidc-aegis-core-frontend` role's trust policy)
-          # and AFTER management/scps (SCPs guard all staging resources).
-          #
-          # Unlike staging/auth, this layer has NO kubectl_manifest step and
-          # NO dependency on the workloads namespace — all resources are
-          # account-level AWS primitives. It applies cleanly on a cold
-          # environment without the "apply workloads, then re-dispatch
-          # baseline" dance.
-          #
-          # Route53 ALIAS record for `aegis-api.staging.<domain>` is
-          # intentionally NOT created by this layer — the ALB DNS does not
-          # exist at apply time (LBC provisions it only after aegis-core's
-          # Ingress syncs post-cold-apply). Operator runs the copy-pasteable
-          # command printed by `terraform output -raw api_route53_creation_hint`
-          # after the cluster is live. external-dns automation is a future
-          # follow-up.
-          # -----------------------------------------------------------------
-          - env: staging/edge
-            account_id: "251774439261"
 
     steps:
       - uses: actions/checkout@v6
