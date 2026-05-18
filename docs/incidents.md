@@ -2961,6 +2961,49 @@ The new SNS topic and EventBridge rule then `depends_on = [time_sleep.wait_for_a
 
 ---
 
+## Incident 38 — Concurrent baseline-apply runs race the S3 state lock; pre-existing auth↔platform remote-state drift surfaced (2026-05-18)
+
+**Date**: 2026-05-18 (v1.0.0 release prep; Dependabot PRs #197–#205, ADR-033 PR #216)
+**Severity**: S4
+**Duration**: ~30 min detect + recover
+
+### Symptom
+
+After nine Dependabot PRs were merged in a roughly 30-second burst during v1.0.0 release prep, `terraform-apply-baseline.yml` reported 7 of 8 layer jobs failed. The genuine baseline layers (`management/bootstrap`, `management/scps`, `shared/bootstrap`, `shared/ipam`, `staging/bootstrap`, `staging/secrets-persistent`) failed with `Error acquiring the state lock` / `api error PreconditionFailed`. `staging/auth` failed differently: `Unable to find remote state ... data.terraform_remote_state.staging_platform`.
+
+### Root cause
+
+Two independent causes converged on one wall of red.
+
+1. **No concurrency guard on `terraform-apply-baseline.yml`.** Each merge to `main` triggers a baseline-apply run. Nine merges in ~30 seconds spawned overlapping runs that contended for the same S3 state-lock objects. The loser of each race failed with `PreconditionFailed` on the lock `PutObject` — failing at lock *acquisition*, before any plan or apply, so each such failure was a clean no-op that changed nothing.
+2. **`staging/auth` reads a torn-down workload layer's state.** `data.terraform_remote_state.staging_platform` resolves to a backend key with no stored state, because `staging/platform` is a workload layer and the environment is torn down. This is pre-existing drift from the ADR-032 multi-region refactor (#210, 2026-05-17), independent of this session — a baseline-apply on a push the previous evening had already failed the same way.
+
+### Detection
+
+`gh run list --workflow="Terraform Apply (Baseline)"` showed a wall of `completed/failure`. `gh run view --log-failed` separated the two error classes. Run history showed a failure that pre-dated the session, isolating cause 2 as not session-induced.
+
+### Resolution
+
+Re-ran the latest baseline-apply run once, with no other baseline-apply runs active:
+
+```bash
+gh run rerun <run-id>
+```
+
+With no contention every genuine baseline layer acquired its lock and applied cleanly under AWS provider 6.44. `staging/auth` stayed red, as expected — its failure is structural, not transient. No `terraform force-unlock` was needed: the contention failures never held a lock to leave stale.
+
+### Prevention
+
+- Add a `concurrency:` group to `terraform-apply-baseline.yml` (`group: baseline-apply`, `cancel-in-progress: false`) so baseline applies serialize instead of racing. Until that lands, do not merge multiple baseline-touching PRs in a burst — pace them.
+- `staging/auth`'s dependency on a workload layer is the deeper issue. Under ADR-033 `staging/auth` is reclassified to the Platform tier and extracts out of the landing zone in v2; the cross-tier remote-state read is resolved there. Until v2, a red `staging/auth` baseline-apply *while the environment is torn down* is expected — do not treat it as a regression.
+
+### Lessons
+
+- "All plan CI green" does not imply "apply will succeed." Plan jobs run isolated; apply jobs contend for shared state. A repo with apply-on-merge automation needs a CI concurrency guard or paced merges — the absence of both is a latent defect that only surfaces under a merge burst.
+- When a batch operation yields a wall of failures, separate transient from structural before reacting. Here six failures were transient (lock races, cleared by one serial re-run) and one was structural (a missing dependency). Blind re-running would have "fixed" six and left the seventh looking new; dating the structural one against run history is what classified it correctly.
+
+---
+
 ## Adding a new incident
 
 Append new sections at the bottom, before this footer, using the format:
