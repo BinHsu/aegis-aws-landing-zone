@@ -1,11 +1,11 @@
-<!-- session-close-review: recruiter-facing narrative; scope reflects the account-fabric descope (ADR-033); ADR/incident/runbook counts in §2.6 must agree with the actual file set -->
+<!-- session-close-review: recruiter-facing narrative; scope reflects the account-fabric scope; ADR/incident/runbook counts in §2.6 must agree with the actual file set -->
 # Interview Notes
 
 A reader's guide for recruiters, hiring managers, and technical leadership reviewing this project as a portfolio artifact. Different from the rest of the repo, this document is written *about* the project rather than *inside* it — its job is to frame scope, stance, and what a conversation could productively cover.
 
 > **Forking this repo?** This document is portfolio-framing, not operational guidance — start with [`README.md`](../README.md) for the architecture overview and [`docs/runbooks/`](runbooks/) for how-to walk-throughs.
 
-> **Scope note.** Per [ADR-033](decisions/033-landing-zone-scope-correction-account-fabric.md) this repository owns the **AWS account fabric** — multi-account governance, SCPs, Identity Center, account vending, the security/audit baseline, the GitHub OIDC provider, and org-wide IPAM. The workload **Platform tier** (EKS, ArgoCD, observability, edge, auth) was extracted to a separate repository, `aegis-platform`. This document frames the account-fabric repo. Where it touches the Platform tier it says so explicitly.
+> **Scope note.** This repository owns the **AWS account fabric** — multi-account governance, SCPs, Identity Center, account vending, the security/audit baseline, the GitHub OIDC provider, and org-wide IPAM. Cluster, GitOps, and workload concerns run in a separate platform repository and are out of scope here. This document frames the account-fabric repo.
 
 **Time budget**:
 - Recruiter / HR / hunter: read all of this doc (~8 min).
@@ -25,7 +25,7 @@ This split is explicit for a reason: a hands-on architect's value comes from shi
 The project value is execution and discipline, layered together:
 
 - **Execution**: the entire repo is working code — Terraform applies cleanly, CI applies to a live AWS organization, the account fabric bootstraps end-to-end from a documented runbook. See the [README](../README.md) for what's actually deployed on `main`.
-- A set of [Architecture Decision Records](decisions/) covering every load-bearing governance choice — including [ADR-033](decisions/033-landing-zone-scope-correction-account-fabric.md), which documents a *reversed scope decision* honestly (the project once bundled a workload platform; ADR-033 corrects that).
+- A set of [Architecture Decision Records](decisions/) covering every load-bearing governance choice, several with honest "Design iteration" sections documenting decisions that were revisited.
 - [Incident postmortems](incidents.md), each written after the fact in a consistent format, never softened retroactively.
 - A CI/CD design shaped by the no-static-credentials principle — `terraform-plan` on PR, `terraform-apply-baseline` on merge — not template copy-paste.
 - A runbook covering both the happy path and the "here is how to debug when it breaks" diagnostic order.
@@ -52,14 +52,14 @@ Each entry: what was built → where to look in the repo → the kind of questio
 
 ### 2.2 CI/CD — OIDC-federated, no static credentials
 
-**Built**: GitHub Actions workflows for the account fabric — `terraform-plan.yml` comments the plan on every PR, `terraform-apply-baseline.yml` auto-applies on merge to main, `checkov.yml` runs the IaC security scan. OIDC federation throughout; zero static AWS credentials in the repo. Because every layer here is a cheap persistent baseline, there is no manual-dispatch / approval-gated apply path — that pattern belonged to the Platform tier.
+**Built**: GitHub Actions workflows for the account fabric — `terraform-plan.yml` comments the plan on every PR, `terraform-apply-baseline.yml` auto-applies on merge to main, `checkov.yml` runs the IaC security scan. OIDC federation throughout; zero static AWS credentials in the repo. Every layer here is a cheap persistent baseline, so a single auto-apply workflow covers all of it — there is no manual-dispatch / approval-gated apply path.
 
 **Where to look**:
 - [`docs/decisions/009-lifecycle-and-teardown-strategy.md`](decisions/009-lifecycle-and-teardown-strategy.md)
 - [`.github/workflows/`](../.github/workflows/) — the three workflows
 - [`scripts/teardown/hard-teardown-landing-zone.sh`](../scripts/teardown/) — project-end teardown with triple confirmation
 
-**Likely questions**: why OIDC instead of IAM users (zero-static-credentials principle + Incident 8 shows awareness of OIDC subject-claim nuance); what happens on rollback (`git revert` + CI re-apply — see [`docs/principles/change-review-discipline.md`](principles/change-review-discipline.md) §2.4); why is there no per-session teardown (the account fabric has no idle-billing resources — see [`docs/finops.md`](finops.md)).
+**Likely questions**: why OIDC instead of IAM users (zero-static-credentials principle, OIDC subject-claim scoping per ADR-014); what happens on rollback (`git revert` + CI re-apply — see [`docs/principles/change-review-discipline.md`](principles/change-review-discipline.md) §2.4); why is there no per-session teardown (the account fabric has no idle-billing resources — see [`docs/finops.md`](finops.md)).
 
 ### 2.3 Account bootstrap and vending
 
@@ -75,7 +75,7 @@ Each entry: what was built → where to look in the repo → the kind of questio
 
 ### 2.4 Org-wide IPAM — the CIDR allocation authority
 
-**Built**: AWS IPAM (Advanced Tier) in `aegis-shared`, RAM-shared to the whole organization. Top pool 10.0.0.0/8, per-region pools. Any consumer — the Platform-tier repo today, a second platform repo tomorrow — allocates VPC CIDRs via `ipv4_ipam_pool_id` with no hand-planned CIDR math. The account fabric owns the *allocation authority*; it does not own the VPCs that consume it.
+**Built**: AWS IPAM (Advanced Tier) in `aegis-shared`, RAM-shared to the whole organization. Top pool 10.0.0.0/8, per-region pools. Any downstream consumer allocates VPC CIDRs via `ipv4_ipam_pool_id` with no hand-planned CIDR math. The account fabric owns the *allocation authority*; it does not own the VPCs that consume it.
 
 **Where to look**:
 - [`docs/decisions/012-ipam-and-cidr-allocation.md`](decisions/012-ipam-and-cidr-allocation.md)
@@ -99,7 +99,7 @@ Each entry: what was built → where to look in the repo → the kind of questio
 ### 2.6 Operational discipline (ADRs, incidents, runbook)
 
 **Built**: three layers of operational writing with explicit rules in [`CLAUDE.md`](../CLAUDE.md):
-- **ADRs** in [`docs/decisions/`](decisions/), supersede-in-place style — "Design iteration" sections note evolution; ADR-033 demonstrates a full scope correction with the prior broad-scope era frozen at the `v1.0.0` git tag.
+- **ADRs** in [`docs/decisions/`](decisions/), supersede-in-place style — "Design iteration" sections note where a decision was revisited.
 - **Incidents** in [`docs/incidents.md`](incidents.md), append-only, standard format.
 - **Runbook** — [`docs/runbooks/001-bootstrap-aws-account.md`](runbooks/001-bootstrap-aws-account.md), the account-fabric bootstrap walk-through; CLAUDE.md rule requires AI agents to read the layer's runbook before operating on it.
 
@@ -109,17 +109,17 @@ Each entry: what was built → where to look in the repo → the kind of questio
 - [`docs/incidents.md`](incidents.md) — the postmortems
 - [`docs/principles/`](principles/) — 2 cross-cutting discipline docs (change-review, break-glass-apply)
 
-**Likely questions**: show me a real incident (Incidents 6, 7 cover the widest angle for the account fabric — CMK recovery within the KMS grace window, and hidden cross-account prerequisites for IPAM); what does the ADR format give you that code comments don't (ADRs preserve *why* even when *what* is obvious from code); how do you keep this discipline consistent (CLAUDE.md rules + pre-commit hooks + AI reminders — not willpower); walk me through ADR-033 (a scope correction triggered by a real cross-repo resource-name collision — see §5).
+**Likely questions**: show me a real incident (Incidents 6, 7 cover the widest angle for the account fabric — CMK recovery within the KMS grace window, and hidden cross-account prerequisites for IPAM); what does the ADR format give you that code comments don't (ADRs preserve *why* even when *what* is obvious from code); how do you keep this discipline consistent (CLAUDE.md rules + pre-commit hooks + AI reminders — not willpower).
 
 ### 2.7 Cross-repo coordination
 
-**Built**: a durable coordination protocol between independently-maintained repositories. The account fabric (`aegis-aws-landing-zone`) vends accounts, OIDC, and IPAM pools that the Platform-tier repo (`aegis-platform`) and the application repo (`aegis-core`) consume. Standing GitHub Issues serve as the contract surface; label semantics (`cross-repo`, `cross-repo/blocking`, `cross-repo/fyi`) govern urgency. Either side can open issues on the other.
+**Built**: a durable coordination protocol between independently-maintained repositories. The account fabric (`aegis-aws-landing-zone`) vends accounts, OIDC, and IPAM pools that downstream platform and application repositories consume. Standing GitHub Issues serve as the contract surface; label semantics (`cross-repo`, `cross-repo/blocking`, `cross-repo/fyi`) govern urgency. Either side can open issues on the other.
 
 **Where to look**:
 - [README §Cross-repo coordination](../README.md#cross-repo-coordination)
 - [`CLAUDE.md`](../CLAUDE.md) "Cross-repo coordination" section (operational rules for AI agents)
 
-**Likely questions**: why Issues instead of a shared config file or API contract (audit trail + async-first — agents and humans both see the same history); how do you prevent drift between the contract and reality (CLAUDE.md rule: PRs that change the platform surface must update the standing issue in the same PR); how did this multi-repo shape come about (ADR-033 — the resource-name collision that revealed a landing zone and a platform are different repos with different consumers).
+**Likely questions**: why Issues instead of a shared config file or API contract (audit trail + async-first — agents and humans both see the same history); how do you prevent drift between the contract and reality (CLAUDE.md rule: PRs that change the platform-facing surface must update the standing issue in the same PR); why a multi-repo shape (a landing zone and a platform are different things with different consumers — they belong in separate repositories).
 
 ### 2.8 Cost governance
 
@@ -130,7 +130,7 @@ Each entry: what was built → where to look in the repo → the kind of questio
 - [`docs/finops.md`](finops.md) — the account-fabric cost model
 - [`scripts/teardown/`](../scripts/teardown/) — the hard teardown (project-end) and emergency cloud-nuke scripts
 
-**Likely questions**: what does the account fabric cost idle (~$5/month — Control Tower baseline; see `docs/finops.md`); why no per-session teardown discipline here (there is nothing that bills while idle — that discipline lives with the Platform tier in `aegis-platform`); what is the one usage-priced line item (IPAM Advanced tier, ~$0 idle, cents per month once a consumer allocates).
+**Likely questions**: what does the account fabric cost idle (~$5/month — Control Tower baseline; see `docs/finops.md`); why no per-session teardown discipline here (there is nothing that bills while idle); what is the one usage-priced line item (IPAM Advanced tier, ~$0 idle, cents per month once a consumer allocates).
 
 ---
 
@@ -156,24 +156,24 @@ Positive statements of what this project demonstrates, paired with explicit stat
 ### What is claimed
 
 - **Cross-cutting architectural design of an AWS account fabric**: composing AWS Organizations, Control Tower, SCPs, Identity Center, IPAM, the security/audit baseline, and a no-static-credentials CI/CD pipeline into a working multi-account governance foundation, with explicit decisions (ADRs) and documented trade-offs.
-- **Definitional judgment**: distinguishing an account fabric (vends and governs accounts) from a platform (runs workloads inside them) — and correcting the project's scope on a concrete signal ([ADR-033](decisions/033-landing-zone-scope-correction-account-fabric.md)). The correction itself is a claimed competency.
+- **Definitional judgment**: distinguishing an account fabric (vends and governs accounts) from a platform (runs workloads inside them), and scoping the repository to the fabric alone so it stays reusable under any platform.
 - **Operational discipline**: ADRs + incident postmortems + a bootstrap runbook + 2 cross-cutting principle docs, each written to a consistent format, never softened retroactively.
 - **Production-shaped patterns** — not production-*hardened* (the lab is single-operator, single-region-primary, no SOC 2 audit trail). The patterns are transferable to production; the lab itself isn't production.
 - **Reproducibility**: a single `config/landing-zone.yaml` + two shell scripts land the whole account fabric in a fresh AWS organization. Fork-and-deploy is not a slogan here; it's tested.
 
 ### What is NOT claimed
 
-- **Kubernetes / EKS hands-on as a deliverable of this repo.** The project once bundled an EKS reference platform; per [ADR-033](decisions/033-landing-zone-scope-correction-account-fabric.md) that Platform tier was extracted to the separate `aegis-platform` repository. EKS, Karpenter, ArgoCD, cluster admission control, and IRSA are *not* this repo's claimed work. The account fabric *enables* a platform (it vends the accounts, the OIDC provider, and the IPAM pools a platform consumes) but does not *contain* one.
-- **GitOps / continuous delivery hands-on.** ArgoCD and the app-of-apps pattern are Platform-tier concerns in `aegis-platform`. This repo's CI/CD is Terraform plan/apply for the account fabric only.
-- **Observability at scale.** Grafana Cloud, Alloy, and the in-cluster observability stack moved with the Platform tier. The account fabric's "observability" is CloudTrail + AWS Config + GuardDuty — audit and detection, not application telemetry.
-- **Edge / CDN and application auth.** CloudFront/ACM/Route53 and the Cognito User Pool are Platform-tier concerns, extracted to `aegis-platform`.
+- **Kubernetes / EKS hands-on as a deliverable of this repo.** EKS, Karpenter, ArgoCD, cluster admission control, and IRSA are platform concerns and out of scope here. The account fabric *enables* a platform (it vends the accounts, the OIDC provider, and the IPAM pools a platform consumes) but does not *contain* one.
+- **GitOps / continuous delivery hands-on.** ArgoCD and the app-of-apps pattern are platform concerns. This repo's CI/CD is Terraform plan/apply for the account fabric only.
+- **Observability at scale.** The in-cluster observability stack is a platform concern. The account fabric's "observability" is CloudTrail + AWS Config + GuardDuty — audit and detection, not application telemetry.
+- **Edge / CDN and application auth.** CloudFront/ACM/Route53 and an application auth layer are platform concerns and out of scope here.
 - **IAM policy authoring as a specialty.** SCPs and the state-bucket / OIDC trust policies are written here, but a deeper specialist would minimize them further or generate them from a higher-level abstraction. The policies are reviewable in one place by design; at enterprise scale, finer-grained per-environment IAM paths are the documented pivot.
 - **DR testing.** Control Tower governs two regions (eu-central-1 primary, eu-west-1 DR), but no DR failover has been tested end-to-end. The DR region is set up for future work; the state-backend cross-region replica is a documented improvement, not an implemented one.
 - **Compliance audit readiness.** ISO 27001 alignment is the guardrail ([ADR-005](decisions/005-compliance-framework-iso-27001.md)). The fabric demonstrates the *patterns* — SCP guardrails, immutable audit trail, encryption-by-default — not the completeness of a SOC 2 / PCI / HIPAA audit-ready control set.
 
 ### Positive framing for the interview
 
-> "I'm a hands-on architect — I design cross-cutting systems and build them myself, line by line. This repo is the AWS account fabric: the multi-account governance foundation a team stands up before any workload. It once also carried a reference Kubernetes platform; partway through I recognized that a landing zone and a platform are different things with different consumers, wrote an ADR explaining the signal that revealed it, and split them. That correction is the senior signal — not that I got the boundary right first, but that I noticed it was wrong and fixed it deliberately, with the reasoning on record."
+> "I'm a hands-on architect — I design cross-cutting systems and build them myself, line by line. This repo is the AWS account fabric: the multi-account governance foundation a team stands up before any workload. It is scoped deliberately to the fabric — Organizations, OUs, SCPs, Identity Center, account vending, IPAM, the security baseline — and stops there, because a landing zone and the platform that runs on it are different things with different consumers. Keeping that boundary crisp is what keeps the fabric reusable under any platform; the definitional clarity is the senior signal."
 
 ---
 
@@ -186,13 +186,13 @@ AWS Control Tower landing zone + management account IAM + cold root. [Runbook 00
 IAM Identity Center, SSO user, permission set, cross-account IAM; Terraform state bucket with CMK in `aegis-shared`. Incident 5 (cross-account `kms:Decrypt` with `aws/s3`) landed here.
 
 ### Phase 2 — GitOps pipeline (done)
-GitHub OIDC, GitHub Actions workflows for the account fabric (plan on PR, apply-baseline on merge), Checkov + pre-commit. Incidents 3, 6 (CMK destroyed by CI), 8 (OIDC subject claims) landed here.
+GitHub OIDC, GitHub Actions workflows for the account fabric (plan on PR, apply-baseline on merge), Checkov + pre-commit. Incidents 3 and 6 (CMK destroyed by CI) landed here.
 
-### The broad-scope era (done, then corrected)
-The project went on to build a full workload Platform tier — EKS, Karpenter, ArgoCD, observability, edge, Cognito auth, FIS DR drilling — inside this same repository. It worked and was cold-applied end to end. The history of that work is preserved: the ADRs and incidents that documented it are archived against the `v1.0.0` git tag, which froze the broad-scope repository before the contraction.
+### Phase 3 — IPAM (done)
+Org-wide AWS IPAM in `aegis-shared`, RAM-shared to the whole organization as the conflict-free CIDR allocation authority. Incident 7 (IPAM delegated admin not configured for cross-account allocation) landed here.
 
-### The scope correction — ADR-033 (done)
-A sibling repository deploying into the same AWS account collided twice on globally-namespaced resource names (an IAM role and an ECR repo, both defaulting to a bare `aegis-` prefix). That collision is only possible because *more than one repo runs workloads in these accounts* — which made a latent design error visible: a landing zone vends and governs accounts, and the things that run *inside* those accounts are platforms, and platforms are plural. [ADR-033](decisions/033-landing-zone-scope-correction-account-fabric.md) corrects the scope: this repository contracts to the account fabric only, and the Platform tier moves to a new repository, `aegis-platform`, recoverable from the `v1.0.0` tag. This is the story to lead with in a senior interview — a deliberate, reasoned scope correction on a concrete signal.
+### Phase 4 — Security baseline (done)
+Organization-wide CloudTrail and AWS Config feeding `aegis-logarchive`, GuardDuty org-wide, and the layered IAM scope-down ladder (ADR-014–016 — CI OIDC role scope-down, permission-boundary hardening, and the detective control that alerts on a failed OIDC assumption).
 
 ---
 
@@ -204,7 +204,6 @@ This doc is frame-level. For the actual substance:
 |---|---|
 | "Walk me through the architectural decisions" | [`docs/decisions/`](decisions/) |
 | "Show me real failures and what you learned" | [`docs/incidents.md`](incidents.md) |
-| "Show me the scope-correction reasoning" | [`docs/decisions/033-landing-zone-scope-correction-account-fabric.md`](decisions/033-landing-zone-scope-correction-account-fabric.md) |
 | "How do I reproduce this?" | [`docs/runbooks/001-bootstrap-aws-account.md`](runbooks/001-bootstrap-aws-account.md) |
 | "How would an AI agent work on this?" | [`CLAUDE.md`](../CLAUDE.md) |
 | "What does the config contract look like?" | [`config/landing-zone.example.yaml`](../config/landing-zone.example.yaml) + [`config/schema.json`](../config/schema.json) + [ADR-004](decisions/004-deployment-configuration-contract.md) |
@@ -212,4 +211,4 @@ This doc is frame-level. For the actual substance:
 
 ---
 
-*Last updated: 2026-05-18 — Descoped to the AWS account fabric per [ADR-033](decisions/033-landing-zone-scope-correction-account-fabric.md). The workload Platform tier (EKS, ArgoCD, observability, edge, Cognito auth, FIS) was extracted to the separate `aegis-platform` repository; the broad-scope era is frozen at the `v1.0.0` git tag. Competency inventory, scope-of-claims, and narrative arc rewritten to frame an account fabric rather than an EKS platform — and to present the scope correction itself as a portfolio-positive senior-judgment signal.*
+*This document frames the AWS account fabric: multi-account governance, SCPs, Identity Center, account vending, the security/audit baseline, the GitHub OIDC provider, and org-wide IPAM. Cluster, GitOps, and workload concerns run in a separate platform repository and are out of scope here.*

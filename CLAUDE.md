@@ -4,11 +4,11 @@
 
 - **Artifact Language**: All code, comments, commit messages, documentation, ADRs, runbooks, diagrams, and any file written to the repo MUST be in English. No exceptions.
 
-## Scope — account fabric only (ADR-033)
+## Scope — account fabric only
 
 This repository is the **account fabric**, and only the account fabric: AWS Organizations and the OU structure, Service Control Policies, IAM Identity Center (SSO), account bootstrap & vending (the Control-Tower-plus-Terraform hybrid, AFT, the Terraform S3 state backend, the GitHub OIDC identity provider), the org-wide IPAM (the RAM-shared CIDR allocation authority — ADR-012), and the centralized security/audit baseline (CloudTrail organization trail, AWS Config, GuardDuty).
 
-It does **not** own VPC/network, EKS, Karpenter, ArgoCD, cluster add-ons (Kyverno, cert-manager, External Secrets Operator), observability, the edge layer, Cognito auth, FIS, IRSA, or workload namespaces/RBAC. Those are the **Platform tier**, extracted to the `aegis-platform` repository per ADR-033. Before proposing anything cluster-, workload-, or Kubernetes-shaped, stop — it belongs in `aegis-platform`, not here. A change that introduces a billing-while-idle resource (NAT, EKS, ALB, EC2, RDS) is itself a signal the change is in the wrong repo.
+It does **not** own VPC/network, EKS, Karpenter, ArgoCD, cluster add-ons, observability, the edge layer, auth, FIS, IRSA, or workload namespaces/RBAC. Those are a separate Platform tier. Before proposing anything cluster-, workload-, or Kubernetes-shaped, stop — it does not belong here. A change that introduces a billing-while-idle resource (NAT, EKS, ALB, EC2, RDS) is itself a signal the change is in the wrong repo.
 
 ## Technical Standards
 
@@ -22,8 +22,8 @@ It does **not** own VPC/network, EKS, Karpenter, ArgoCD, cluster add-ons (Kyvern
 - **Naming**: `snake_case` for resources, descriptive names (e.g., `deny_non_eu_regions`)
 
 ### GitHub Actions
-- **OIDC only**: No static AWS credentials anywhere. GitHub OIDC → `aws-actions/configure-aws-credentials`. The OIDC trust split is a 2-role model per account — `gh-tf-plan` (read-only, `pull_request`) and `gh-tf-apply-baseline` (`ref:refs/heads/main`); see ADR-029.
-- **Workflow pattern**: `plan` on PR (comment plan output), `apply` on merge to main. Every layer in this repo is baseline-tier (negligible always-on cost), so a single `terraform-apply-baseline.yml` auto-applies all of it — there is no separate approval-gated workload workflow (that distinction moved to the Platform tier).
+- **OIDC only**: No static AWS credentials anywhere. GitHub OIDC → `aws-actions/configure-aws-credentials`. The OIDC trust split is a 2-role model per account — `gh-tf-plan` (read-only, `pull_request`) and `gh-tf-apply-baseline` (`ref:refs/heads/main`); see ADR-014.
+- **Workflow pattern**: `plan` on PR (comment plan output), `apply` on merge to main. Every layer in this repo is baseline-tier (negligible always-on cost), so a single `terraform-apply-baseline.yml` auto-applies all of it — there is no separate approval-gated workload workflow.
 - **Runners**: GitHub-hosted runners.
 - **Rule: AI must wait for ALL CI jobs to pass before merging a PR.** Checkov passing alone is not sufficient — every Terraform Plan job in the matrix must also be green. A partial green is not mergeable. If any job fails, diagnose and fix before merging; do not merge with known failures.
 
@@ -43,7 +43,7 @@ It does **not** own VPC/network, EKS, Karpenter, ArgoCD, cluster add-ons (Kyvern
 
 ### Architecture Decision Records (ADRs)
 - **Location**: `docs/decisions/NNN-title.md`
-- **Numbering**: Sequential, zero-padded (001, 002, ...). Never reused — gaps left by relocated ADRs are permanent.
+- **Numbering**: Sequential, zero-padded (001, 002, ...). The current set is 001–016, contiguous.
 - **When to write**: Any significant design choice where alternatives were considered.
 - **Format**: `# NNN. Title` / `## Status` / `## Context` / `## Decision` / `## Alternatives Considered` / `## Consequences`.
 - **Rule: AI agents must check `docs/decisions/` before proposing architecture.** If a decision has already been made and recorded, follow it. If you believe it should change, discuss with the user first — do not silently override.
@@ -55,7 +55,7 @@ It does **not** own VPC/network, EKS, Karpenter, ArgoCD, cluster add-ons (Kyvern
 - **Format**: Symptom / Root cause / Detection / Resolution / Prevention / Lessons. Each entry is a standalone postmortem.
 - **Rule: AI agents must append a new incident entry to `docs/incidents.md` whenever a deployment failure, state-recovery episode, cross-account permission mistake, or other non-trivial gotcha occurs during the session.**
 - **Rule: AI must remind the user to record the incident before closing out a debugging session.**
-- **Rule: Never edit an existing incident to soften the story after the fact.** Correct factual errors only. (Incidents from the pre-ADR-033 era that describe EKS/Platform-tier work stay as historical record — they were true when written.)
+- **Rule: Never edit an existing incident to soften the story after the fact.** Correct factual errors only. The historical record matters more than retroactive polish.
 
 ### Layer-specific runbooks
 
@@ -141,11 +141,11 @@ aegis-aws-landing-zone/
     └── evidence/                   # Apply / verification evidence
 ```
 
-The Platform tier (VPC, EKS, ArgoCD, cluster add-ons, observability, edge, auth, FIS) lives in the separate `aegis-platform` repository — see ADR-033.
+Cluster, GitOps, and workload concerns are a separate Platform tier and out of scope here.
 
 ## Cost Guardrails
 
-- **Set a daily and a monthly budget cap with alerts in the management account.** The account fabric's always-on cost is ~$5/month (Control Tower + AWS Config recorder + organizational CloudTrail + S3 log storage) plus IPAM advanced tier (~$0 idle — billed per actively-managed IP). There are no per-session cost-incurring layers in this repo: no EKS, no NAT Gateway, no ALB. Those live in the Platform-tier repo `aegis-platform`.
+- **Set a daily and a monthly budget cap with alerts in the management account.** The account fabric's always-on cost is ~$5/month (Control Tower + AWS Config recorder + organizational CloudTrail + S3 log storage) plus IPAM advanced tier (~$0 idle — billed per actively-managed IP). There are no per-session cost-incurring layers in this repo: no EKS, no NAT Gateway, no ALB.
 - **Rule: AI must check whether a change introduces a cost-incurring resource** (NAT Gateway, EKS, EC2, ALB, RDS, etc.). The account fabric should not grow a billing-while-idle resource without an ADR — and if a proposed change wants one, that is usually a sign the change belongs in the Platform tier, not here.
 - **No per-session teardown.** The account fabric is steady-state infrastructure — it is not torn down between sessions. The only teardown path is the project-end `scripts/teardown/hard-teardown-landing-zone.sh` (triple-confirmed). See ADR-009.
 - **Baseline layers auto-apply on merge to main** via `terraform-apply-baseline.yml` — every layer in this repo qualifies.

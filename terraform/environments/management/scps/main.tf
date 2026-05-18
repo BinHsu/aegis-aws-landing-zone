@@ -141,15 +141,14 @@ resource "aws_organizations_policy_attachment" "deny_leave_org" {
 # ISO 27001:2022 Annex A.8.2 — Privileged access management
 # -----------------------------------------------------------------------------
 # Closes the "inner-wall-breach" privilege-escalation path documented in
-# ADR-030. After ADR-029, the apply-tier roles (`gh-tf-apply-baseline`,
-# `gh-tf-apply-workload`) carry purpose-scoped policies — but those policies
-# still permit `iam:CreateRole` / `iam:AttachRolePolicy` against
-# `arn:aws:iam::*:role/aegis-*` because the apply layers legitimately create
-# IAM roles (cluster IAM, IRSA, OIDC providers, etc.). Without this SCP, an
-# attacker who hijacked an apply-tier role could create a new role, attach
-# `AdministratorAccess` to it, and assume it — escalating from scoped CI
-# permissions to full Admin via a path the per-role policy cannot itself
-# prevent.
+# ADR-015. The apply-tier role (`gh-tf-apply-baseline`) carries a purpose-
+# scoped policy — but that policy still permits `iam:CreateRole` /
+# `iam:AttachRolePolicy` against `arn:aws:iam::*:role/aegis-*` because the
+# apply layers legitimately create IAM roles (OIDC providers, break-glass
+# roles, etc.). Without this SCP, an attacker who hijacked the apply-tier
+# role could create a new role, attach `AdministratorAccess` to it, and
+# assume it — escalating from scoped CI permissions to full Admin via a path
+# the per-role policy cannot itself prevent.
 #
 # This SCP applies the wall at the org level: the listed mutating IAM
 # actions are denied for every principal in every member account, EXCEPT
@@ -161,10 +160,9 @@ resource "aws_organizations_policy_attachment" "deny_leave_org" {
 #   - AWSControlTowerExecution / aws-controltower-* / stacksets-exec-* —
 #     Control Tower / StackSets create and modify IAM during account
 #     provisioning; required for the platform to function.
-#   - gh-tf-* — the four purpose-scoped CI roles per ADR-029
-#     (gh-tf-plan / gh-tf-apply-baseline / gh-tf-apply-workload /
-#     gh-tf-teardown-workload). Apply-tier members of this family legitimately
-#     create IAM roles for new infrastructure.
+#   - gh-tf-* — the purpose-scoped CI roles per ADR-014
+#     (gh-tf-plan / gh-tf-apply-baseline). The apply-tier member of this
+#     family legitimately creates IAM roles for new infrastructure.
 #   - aegis-emergency-* — break-glass pattern aligned with
 #     `docs/principles/break-glass-apply.md`. Aspirational at present (no role
 #     of this name exists yet); the SCP allow-list reserves the namespace so

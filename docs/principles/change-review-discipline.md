@@ -3,7 +3,7 @@
 
 > **Scope**: account-fabric change review — SCP changes, IAM surfaces (roles, policies, trust relationships), the GitHub OIDC provider, AWS Organizations / Control Tower features, IPAM pool changes, GitHub Actions workflow edits, and Terraform provider / module bumps.
 >
-> **Not in scope**: workload Platform-tier changes (EKS, cluster add-ons, ArgoCD, observability, edge) and application-manifest changes. Per [ADR-033](../decisions/033-landing-zone-scope-correction-account-fabric.md) the Platform tier lives in the separate `aegis-platform` repository, and the application lives in [`aegis-core`](https://github.com/BinHsu/aegis-core); each carries its own change discipline.
+> **Not in scope**: workload platform changes (EKS, cluster add-ons, ArgoCD, observability, edge) and application-manifest changes — those are out of scope here and carry their own change discipline.
 
 This document is an **operational discipline doc**, not an ADR. It captures *how* account-fabric changes are reviewed on this repo — the mental checklist before a PR opens and the automated guardrails before it merges. ADRs record *what* was decided; this doc records *how to decide well*.
 
@@ -18,7 +18,7 @@ An account-fabric change has two qualities most changes don't:
 
 Specific deprecations already on the horizon as of 2026:
 
-- **AWS provider v5 → v6** (major bump) — handled 2026-04-15; baseline apply succeeded across all account-fabric Terraservices. See Incident 24 aftermath for the Dependabot rebase sequencing.
+- **AWS provider v5 → v6** (major bump) — handled 2026-04-15; baseline apply succeeded across all account-fabric Terraservices. See Incident 10 aftermath for the Dependabot rebase sequencing.
 - **GitHub Actions `node20` → `node24`** — actions pinned in `.github/workflows/` must be checked for the Node runtime treadmill on every Dependabot bump.
 - **AWS Organizations / Control Tower guardrail identifiers** — Control Tower occasionally renames or retires the managed guardrail IDs; verify against the current Control Tower console before relying on an identifier in code or docs.
 
@@ -117,27 +117,24 @@ The living inventory of what's deployed and when it expires. Maintained in this 
 | AWS Control Tower landing zone | Current (AWS-managed) | AWS-managed; periodic landing-zone version bumps | Apply the landing-zone update when AWS publishes a new version | [ADR-008](../decisions/008-landing-zone-tooling-control-tower-hybrid.md) |
 | AFT (committed, not deployed) | Version-pinned, CI-validated | tracks the AFT module releases | Activated only if Path B is chosen | [ADR-011](../decisions/011-account-provisioning-two-path-strategy.md) |
 
-> **Workload Platform-tier components** (EKS, Karpenter, ArgoCD, observability charts, cert-manager, etc.) were tracked in this table before the [ADR-033](../decisions/033-landing-zone-scope-correction-account-fabric.md) descope. They now live in the `aegis-platform` repository and are tracked there.
-
 ---
 
 ## 5. How this connects to existing discipline
 
 - [**ADR-005 — ISO 27001 Annex A.8 Change Management**](../decisions/005-compliance-framework-iso-27001.md): the formal framework this doc is the *executable form* of. ADR-005 says "we do change management." This doc says "here is the checklist, here are the tools."
 - [**ADR-008 — Control Tower hybrid**](../decisions/008-landing-zone-tooling-control-tower-hybrid.md): tooling choices that pre-emptively reduce deprecation risk by staying on managed surfaces (Control Tower instead of hand-rolled Organizations wiring) where the cost-benefit favors them.
-- [**ADR-033 — Landing-zone descope to the account fabric**](../decisions/033-landing-zone-scope-correction-account-fabric.md): the scope boundary that defines what "account-fabric change" means in this doc.
 - [**CLAUDE.md**](../../CLAUDE.md): the operational rules that live at the project root. This doc defers to CLAUDE.md on anything it restates.
 
 ---
 
 ## 6. Boundary: what this document does NOT cover
 
-- **Workload Platform-tier changes**: EKS, cluster add-ons, ArgoCD, observability, edge — these moved to the `aegis-platform` repository per [ADR-033](../decisions/033-landing-zone-scope-correction-account-fabric.md) and carry their own change discipline there.
-- **Application code changes**: see [`aegis-core`'s change discipline](https://github.com/BinHsu/aegis-core) when that repo documents its own.
+- **Workload platform changes**: EKS, cluster add-ons, ArgoCD, observability, edge — these are out of scope here and carry their own change discipline.
+- **Application code changes**: out of scope here; the application repository documents its own change discipline.
 - **Hot-fixing production directly**: this repo has no production workloads. The break-glass *apply* path for the account fabric is governed by [`break-glass-apply.md`](break-glass-apply.md).
 - **Dependency pinning strategy**: covered by Dependabot config (`.github/dependabot.yml`). This doc is about reviewing what Dependabot proposes, not about whether Dependabot should propose it.
 - **Incident response**: see [`docs/incidents.md`](../incidents.md) and the per-incident postmortems. This doc is preventive; incidents are post-hoc.
 
 ---
 
-*Last updated: 2026-05-18 — recast for the account-fabric scope per [ADR-033](../decisions/033-landing-zone-scope-correction-account-fabric.md): Kubernetes / cluster-component references and the Platform-tier version-tracking rows were removed; the checklist, deprecation list, and automated-detection section now cover SCPs, IAM surfaces, the OIDC provider, Organizations / Control Tower, and IPAM. Originally written 2026-04-15; Incident 24 (Terraform state-lock stampede under Dependabot bulk rebase) remains the first case study exercising step 2.4 (rollback plan) and 3.1 (provider upgrade diffing).*
+*This doc covers account-fabric change review: SCPs, IAM surfaces, the OIDC provider, Organizations / Control Tower, and IPAM. Incident 10 (Terraform state-lock stampede under Dependabot bulk rebase) is the first case study exercising step 2.4 (rollback plan) and 3.1 (provider upgrade diffing).*

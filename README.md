@@ -1,4 +1,4 @@
-<!-- session-close-review: scope section + phase table, ADR table matches docs/decisions/, cost baseline, directory structure, no Platform-tier overclaim (EKS/ArgoCD/observability must read as extracted, not owned) -->
+<!-- session-close-review: scope section + phase table, ADR table matches docs/decisions/, cost baseline, directory structure -->
 # Aegis AWS Landing Zone
 
 [![Terraform Apply](https://github.com/BinHsu/aegis-aws-landing-zone/actions/workflows/terraform-apply-baseline.yml/badge.svg)](https://github.com/BinHsu/aegis-aws-landing-zone/actions/workflows/terraform-apply-baseline.yml)
@@ -20,9 +20,7 @@ What that looks like in practice: six AWS accounts under a single Organization w
 
 ## Scope — the account fabric
 
-This repository is the **account fabric**: the multi-account AWS governance plane an application team lands *into*. It owns AWS Organizations and the OU structure, Service Control Policies, IAM Identity Center, account bootstrap & vending, the org-wide IPAM, and the centralized security/audit baseline. It does **not** own the EKS cluster, ArgoCD, the cluster add-ons, observability, the edge layer, or auth — those are a **Platform tier**.
-
-It was not always scoped this way. The project began under a single-solo-repo premise where the only place to demonstrate EKS, GitOps, and autoscaling work *was* this repository, so the original scope deliberately pulled them in. The ecosystem then grew sibling workload repositories, and a Platform tier gained real, multiple consumers. [ADR-033](docs/decisions/033-landing-zone-scope-correction-account-fabric.md) records that scope correction: `aegis-aws-landing-zone` contracts to the account fabric, and the Platform tier — VPC, EKS, Karpenter, ArgoCD, cluster add-ons, observability, edge, Cognito auth, FIS — is extracted to a separate repository, **`aegis-platform`**. Knowing that a landing zone is not a platform, and scoping accordingly, is itself the senior judgment this project means to show. The pre-correction broad-scope repository is frozen at the **`v1.0.0`** git tag.
+This repository is the **account fabric**: the multi-account AWS governance plane an application team lands *into*. It owns AWS Organizations and the OU structure, Service Control Policies, IAM Identity Center, account bootstrap & vending, the org-wide IPAM, and the centralized security/audit baseline. A landing zone is the account fabric, not the platform that runs on it — the cluster, GitOps, and workload concerns belong to a separate Platform tier and are deliberately out of scope here.
 
 ## Features at a glance
 
@@ -31,15 +29,15 @@ It was not always scoped this way. The project began under a single-solo-repo pr
 - **Terraform ≥ 1.10 with S3 native state locking** — no DynamoDB, Terraservices layered state (ADR-003)
 - **GitHub Actions GitOps pipeline** — plan on PR, apply on merge, Checkov security scan, all required status checks
 - **Signed commits enforced** — branch protection + SSH-key signing
-- **Centralized IPAM with RAM cross-account sharing** — the org-wide, collision-free authority that hands non-overlapping VPC CIDRs to every account and every Platform-tier consumer (ADR-012)
+- **Centralized IPAM with RAM cross-account sharing** — the org-wide, collision-free authority that hands non-overlapping VPC CIDRs to every account and every downstream consumer (ADR-012)
 - **Fork-and-deploy by config** — one YAML file + two scripts; no per-deployment forks
-- **Account-fabric security baseline** — organizational CloudTrail, AWS Config, GuardDuty, a four-layer IAM scope-down ladder (ADR-029–031)
+- **Account-fabric security baseline** — organizational CloudTrail, AWS Config, GuardDuty, a layered IAM scope-down ladder (ADR-014–016)
 
 ## About this project
 
 A landing zone built by a **hands-on architect** — designed AND implemented end-to-end. Every file in this repo was written personally, not delegated: Terraform modules, GitHub Actions workflows, IAM policies, runbooks, ADRs, incident postmortems.
 
-The project value is execution *and* discipline, layered together: ADRs in [`docs/decisions/`](docs/decisions/) (several with honest "Design iteration" sections documenting reversed decisions — ADR-033's scope correction is itself the largest), incident postmortems in [`docs/incidents.md`](docs/incidents.md) (written after the fact, never softened retroactively), a runbook in [`docs/runbooks/`](docs/runbooks/), and a CI/CD pipeline shaped by cost profile rather than template copy-paste. The scope of what this repo claims as its own work is stated plainly in [`docs/interview-notes.md`](docs/interview-notes.md) — the account fabric, not the Platform tier above it.
+The project value is execution *and* discipline, layered together: ADRs in [`docs/decisions/`](docs/decisions/) (several with honest "Design iteration" sections documenting reversed decisions), incident postmortems in [`docs/incidents.md`](docs/incidents.md) (written after the fact, never softened retroactively), a runbook in [`docs/runbooks/`](docs/runbooks/), and a CI/CD pipeline shaped by cost profile rather than template copy-paste. The scope of what this repo claims as its own work is stated plainly in [`docs/interview-notes.md`](docs/interview-notes.md) — the account fabric.
 
 ## Reading guide
 
@@ -48,7 +46,7 @@ Different readers have different goals. Start here:
 | If you are… | Start here |
 |---|---|
 | A recruiter / hunter / HR | [`docs/interview-notes.md`](docs/interview-notes.md) — competency inventory, hands-on-architect stance, and the explicit scope-of-claims |
-| A technical leader / architect peer | [`docs/decisions/`](docs/decisions/) (ADRs, including the ADR-033 scope correction) + [`docs/incidents.md`](docs/incidents.md) (postmortems of real failures) |
+| A technical leader / architect peer | [`docs/decisions/`](docs/decisions/) (ADRs) + [`docs/incidents.md`](docs/incidents.md) (postmortems of real failures) |
 | Here for the story behind the project | [`docs/design-narrative.md`](docs/design-narrative.md) — pitch, key decisions, war stories |
 | Here for the architecture diagrams | [`docs/architecture.md`](docs/architecture.md) |
 | Reproducing this from zero | [`docs/runbooks/001-bootstrap-aws-account.md`](docs/runbooks/001-bootstrap-aws-account.md) |
@@ -102,7 +100,7 @@ These are the load-bearing rules the project optimizes for. Every trade-off in t
 
 2. **Document decisions, not just code.** ADRs in [`docs/decisions/`](docs/decisions/) capture *Context / Decision / Alternatives / Consequences* for every load-bearing choice. When the code and an ADR disagree, the ADR wins and the code gets fixed.
 
-3. **Scope is a decision, and decisions get revisited.** A landing zone is the account fabric, not the platform that runs on it. When the original broad scope stopped matching reality, [ADR-033](docs/decisions/033-landing-zone-scope-correction-account-fabric.md) corrected it rather than letting the repository's name quietly misrepresent what it is.
+3. **A landing zone is the account fabric, not the platform.** This repository owns the multi-account governance plane — Organizations, OUs, SCPs, Identity Center, IPAM, the security baseline — and stops there. Cluster, GitOps, and workload concerns are a separate tier by design; keeping that boundary crisp is what keeps the landing zone reusable under any platform.
 
 4. **Zero static credentials. Anywhere.** IAM Identity Center for humans, OIDC federation for GitHub Actions. No IAM users, no access keys on disk. Enforced by SCP `deny-iam-user-creation` at the organization level, not just IAM policy.
 
@@ -135,7 +133,7 @@ terraform init && terraform plan
 
 ## Build phases
 
-Status reflects what exists in `main`. The account fabric is complete; the Platform-tier phases were built, validated against real AWS, and then extracted per ADR-033.
+Status reflects what exists in `main`. The account fabric is complete.
 
 | Phase | Scope | Cost | Status |
 |-------|-------|------|--------|
@@ -143,8 +141,7 @@ Status reflects what exists in `main`. The account fabric is complete; the Platf
 | 1. Foundation | Config contract, state bucket, SCPs, OIDC, account provisioning | ~Free | **Done** |
 | 2. GitOps Pipeline | plan/apply workflows, Checkov, pre-commit, signed commits | ~Free | **Done** |
 | 3. IPAM | Org-wide IPAM + RAM cross-account sharing (ADR-012) | ~$0 idle | **Done** |
-| 4. Security baseline | Organizational CloudTrail, AWS Config, GuardDuty, IAM scope-down ladder (ADR-029–031) | ~$5/mo | **Done** |
-| — | VPC, EKS, Karpenter, ArgoCD, cluster add-ons, observability, edge, Cognito auth, FIS | — | **Extracted to the [`aegis-platform`](#repository-tiers) Platform-tier repo** ([ADR-033](docs/decisions/033-landing-zone-scope-correction-account-fabric.md); preserved at the `v1.0.0` tag) |
+| 4. Security baseline | Organizational CloudTrail, AWS Config, GuardDuty, IAM scope-down ladder (ADR-014–016) | ~$5/mo | **Done** |
 
 ## Reliability & Recovery Posture
 
@@ -159,27 +156,26 @@ The [improvements directory](docs/improvements/) is the productionization roadma
 
 ## Architecture Decision Records
 
+All ADRs are **Accepted**.
+
 | ADR | Decision |
 |-----|----------|
-| [001](docs/decisions/001-landing-zone-scope-boundary.md) | Landing zone scope boundary (in-scope list amended by 033) |
+| [001](docs/decisions/001-landing-zone-scope-boundary.md) | Landing zone scope boundary |
 | [002](docs/decisions/002-region-and-availability-zone-strategy.md) | Region and Availability Zone strategy |
 | [003](docs/decisions/003-terraform-backend-bootstrap.md) | Terraform backend bootstrap and state layout |
 | [004](docs/decisions/004-deployment-configuration-contract.md) | Deployment configuration contract |
 | [005](docs/decisions/005-compliance-framework-iso-27001.md) | Compliance framework — ISO 27001 |
 | [006](docs/decisions/006-account-taxonomy-and-ou-structure.md) | Account taxonomy and OU structure |
-| [007](docs/decisions/007-infra-app-repository-split.md) | Infrastructure / application repository split (widened to a tier model by 033) |
+| [007](docs/decisions/007-infra-app-repository-split.md) | Infrastructure / application repository split |
 | [008](docs/decisions/008-landing-zone-tooling-control-tower-hybrid.md) | Landing zone tooling — Control Tower + Terraform hybrid |
 | [009](docs/decisions/009-lifecycle-and-teardown-strategy.md) | Lifecycle and teardown strategy |
 | [010](docs/decisions/010-shared-account-bootstrap-sequence.md) | Shared account bootstrap sequence |
 | [011](docs/decisions/011-account-provisioning-two-path-strategy.md) | Account provisioning — two-path strategy |
 | [012](docs/decisions/012-ipam-and-cidr-allocation.md) | IPAM and org-wide CIDR allocation |
-| [024](docs/decisions/024-landing-zone-repo-topology.md) | Terraform repo topology — single repo with state/IAM/CI isolation |
-| [029](docs/decisions/029-iam-permission-scope-down.md) | IAM permission scope-down — OIDC role split (reduced to 2 roles by 033) |
-| [030](docs/decisions/030-tier-2b-permission-boundary-hardening.md) | Tier 2B permission boundary hardening |
-| [031](docs/decisions/031-tier-3-detective-controls.md) | Tier 3 detective controls — alert on failed OIDC assumption |
-| [033](docs/decisions/033-landing-zone-scope-correction-account-fabric.md) | Landing-zone scope correction — account fabric |
-
-ADRs 013–023, 025–028, and 032 recorded Platform-tier decisions and were relocated to `aegis-platform` with the layers they governed; see [`docs/decisions/README.md`](docs/decisions/README.md) for the full index and the relocation note.
+| [013](docs/decisions/013-landing-zone-repo-topology.md) | Landing-zone Terraform repo topology |
+| [014](docs/decisions/014-iam-permission-scope-down.md) | CI OIDC role scope-down |
+| [015](docs/decisions/015-permission-boundary-hardening.md) | IAM permission-boundary hardening |
+| [016](docs/decisions/016-detective-controls.md) | Detective control — alert on failed OIDC assumption |
 
 ## Runbooks
 
@@ -187,7 +183,7 @@ ADRs 013–023, 025–028, and 032 recorded Platform-tier decisions and were rel
 
 ## Repository tiers
 
-This repository is the **Landing Zone** tier of a multi-tier model ([ADR-007](docs/decisions/007-infra-app-repository-split.md), as widened by [ADR-033](docs/decisions/033-landing-zone-scope-correction-account-fabric.md)):
+This repository is the **Landing Zone** tier of a multi-tier model ([ADR-007](docs/decisions/007-infra-app-repository-split.md)):
 
 | Tier | Owns | Repository |
 |---|---|---|
@@ -201,7 +197,7 @@ The tiers are maintained independently and coordinate through GitHub Issues labe
 
 - Phases 0–3 are ~free (Organizations, SSO, SCPs, S3, IPAM idle, public-repo GitHub Actions).
 - The account-fabric always-on baseline is **~$5/month**: Control Tower + AWS Config recorder + organizational CloudTrail + S3 log storage. IPAM advanced tier bills ~$0 idle.
-- There are **no per-session cost-incurring layers** in this repo — no EKS, no NAT Gateway, no ALB. Those costs belong to the Platform-tier repo `aegis-platform`.
+- There are **no per-session cost-incurring layers** in this repo — no EKS, no NAT Gateway, no ALB.
 - Budget alerts: daily $10, monthly $30 (enforced via AWS Budgets in the management account).
 - The account fabric is steady-state — it is not torn down between sessions. The only teardown is the project-end [`hard-teardown-landing-zone.sh`](scripts/teardown/README.md). See [ADR-009](docs/decisions/009-lifecycle-and-teardown-strategy.md).
 

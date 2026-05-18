@@ -5,7 +5,7 @@ This document is the authoritative visual reference for the `aegis-aws-landing-z
 
 Each diagram is cross-referenced to the Architecture Decision Record (ADR) that owns the underlying reasoning. When the diagram and an ADR disagree, the ADR wins and the diagram needs fixing in the same PR.
 
-> **Scope note.** Per [ADR-033](decisions/033-landing-zone-scope-correction-account-fabric.md), this repository owns the **AWS account fabric only**: AWS Organizations and OUs, Service Control Policies, IAM Identity Center, account bootstrap and vending, the Terraform S3 state backend, the GitHub OIDC identity provider, the centralized security/audit baseline, and the org-wide IPAM. Everything previously here that was a *consumer* of the fabric — VPC/network, EKS, ArgoCD, cluster add-ons, observability, edge, auth — is now the **Platform tier** and lives in the separate `aegis-platform` repository.
+> **Scope note.** This repository owns the **AWS account fabric only**: AWS Organizations and OUs, Service Control Policies, IAM Identity Center, account bootstrap and vending, the Terraform S3 state backend, the GitHub OIDC identity provider, the centralized security/audit baseline, and the org-wide IPAM. Cluster, GitOps, and workload concerns — VPC/network, EKS, ArgoCD, cluster add-ons, observability, edge, auth — run in a separate platform repository and are out of scope here.
 
 ---
 
@@ -29,8 +29,8 @@ flowchart TB
   end
 
   subgraph Work["OU: Workloads"]
-    Stg["aegis-staging<br/><br/>bootstrap only<br/>(Platform tier lives in aegis-platform)"]
-    Prd["aegis-prod<br/><br/>bootstrap only<br/>(not yet provisioned beyond bootstrap)"]
+    Stg["aegis-staging<br/><br/>bootstrap only"]
+    Prd["aegis-prod<br/><br/>bootstrap only"]
   end
 
   Org --> Mgmt
@@ -42,7 +42,7 @@ flowchart TB
   Mgmt -. SCPs .-> Work
 ```
 
-The `aegis-staging` and `aegis-prod` accounts are vended and bootstrapped by this repo (state backend access, GitHub OIDC role). The workloads that run *inside* them are provisioned by the Platform-tier repo `aegis-platform`.
+The `aegis-staging` and `aegis-prod` accounts are vended and bootstrapped by this repo (state backend access, GitHub OIDC role). The workloads that run *inside* them are provisioned downstream and are out of scope here.
 
 **Custom SCPs attached to Root** (see [ADR-006](decisions/006-account-taxonomy-and-ou-structure.md) and [terraform/environments/management/scps](../terraform/environments/management/scps/)):
 
@@ -88,7 +88,7 @@ sequenceDiagram
   AWS-->>TF: applied state
 ```
 
-Every layer in this repo is a baseline layer: cheap, persistent, and auto-applied on merge to main via `terraform-apply-baseline.yml`. There are no cost-incurring workload layers and no manual-dispatch apply/teardown path in this repo — those belonged to the Platform tier and now live in `aegis-platform` ([ADR-033](decisions/033-landing-zone-scope-correction-account-fabric.md)).
+Every layer in this repo is a baseline layer: cheap, persistent, and auto-applied on merge to main via `terraform-apply-baseline.yml`. There are no cost-incurring workload layers and no manual-dispatch apply/teardown path in this repo.
 
 **Required status checks on main** (branch protection): `Plan` jobs for every baseline layer + `Checkov IaC Security Scan`. See [Runbook Part 10.3](runbooks/001-bootstrap-aws-account.md).
 
@@ -125,7 +125,7 @@ flowchart LR
   style AWS fill:#e8f5e9,stroke:#2e7d32
 ```
 
-The GitHub OIDC identity provider is an account-scoped singleton owned by this repo; the Platform-tier repo `aegis-platform` reuses it via a `data "aws_iam_openid_connect_provider"` lookup rather than creating its own.
+The GitHub OIDC identity provider is an account-scoped singleton owned by this repo; downstream consumers reuse it via a `data "aws_iam_openid_connect_provider"` lookup rather than creating their own.
 
 **Forbidden (enforced by SCP `deny-iam-user-creation`):** creating IAM users, creating access keys, attaching user policies.
 
@@ -158,7 +158,7 @@ flowchart TB
 
   subgraph consumers["Consumer accounts (via OrgID condition)"]
     mgmt["management: reads/writes<br/>management/bootstrap/tfstate<br/>management/scps/tfstate"]
-    stg["staging: reads/writes<br/>staging/bootstrap/tfstate<br/>+ Platform tier allocates<br/>VPC CIDRs from IPAM pools"]
+    stg["staging: reads/writes<br/>staging/bootstrap/tfstate<br/>+ downstream consumers allocate<br/>VPC CIDRs from IPAM pools"]
     prd["prod: same pattern"]
   end
 
@@ -169,7 +169,7 @@ flowchart TB
   ram -. allocate-cidr .-> prd
 ```
 
-IPAM is the org-wide CIDR allocation authority ([ADR-012](decisions/012-ipam-and-cidr-allocation.md)): it RAM-shares regional pools to the whole organization, and the Platform-tier VPCs in `aegis-platform` allocate their CIDRs from those pools via `ipv4_ipam_pool_id` rather than hand-planning ranges. The pools live here; the VPCs that consume them do not.
+IPAM is the org-wide CIDR allocation authority ([ADR-012](decisions/012-ipam-and-cidr-allocation.md)): it RAM-shares regional pools to the whole organization, and downstream VPCs in the member accounts allocate their CIDRs from those pools via `ipv4_ipam_pool_id` rather than hand-planning ranges. The pools live here; the VPCs that consume them do not.
 
 **State key convention:** `<account>/<layer>/terraform.tfstate`. Live layers: management/bootstrap, management/scps, shared/bootstrap, shared/ipam, shared/aft, staging/bootstrap, prod/bootstrap.
 
@@ -204,7 +204,6 @@ flowchart LR
 - Setup from zero: [Runbook 001](runbooks/001-bootstrap-aws-account.md)
 - Terraform code: [terraform/environments/](../terraform/environments/)
 - CI workflows: [.github/workflows/](../.github/workflows/)
-- Platform tier (EKS, ArgoCD, observability, edge, auth): the separate `aegis-platform` repository — see [ADR-033](decisions/033-landing-zone-scope-correction-account-fabric.md).
 
 ## Drift policy
 

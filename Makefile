@@ -4,8 +4,8 @@
 # CI (.github/workflows/) is the canonical apply path: terraform-plan.yml on
 # PRs, terraform-apply-baseline.yml on merge to main. This Makefile only wraps
 # the local pre-commit checks. The account fabric has no cost-incurring layers
-# and no per-region orchestration — those moved to the Platform tier with the
-# ADR-033 descope — so there are no apply / teardown / cold-apply targets here.
+# and no per-region orchestration, so there are no apply / teardown /
+# cold-apply targets here.
 #
 # Quick start:
 #   make dev-setup     # install the pinned toolchain into ./bin

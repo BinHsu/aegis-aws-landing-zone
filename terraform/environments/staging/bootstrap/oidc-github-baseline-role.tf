@@ -1,18 +1,13 @@
 # -----------------------------------------------------------------------------
-# `gh-tf-apply-baseline` — apply role for `terraform-apply-baseline.yml` (ADR-029)
+# `gh-tf-apply-baseline` — apply role for `terraform-apply-baseline.yml` (ADR-014)
 # -----------------------------------------------------------------------------
 # Apply role for the `ref:refs/heads/main` trigger. The `pull_request` trigger
-# assumes its own read-only role, `gh-tf-plan`. After the ADR-033 account-fabric
-# descope these two are the only CI roles — the former workload / teardown
-# roles were removed with the Platform-tier layers they served.
+# assumes its own read-only role, `gh-tf-plan`. These two are the only CI roles.
 #
 # Scope: the staging account's only landing-zone Terraform is `staging/bootstrap`
 # itself — the account alias, the GitHub OIDC provider, and the gh-tf-* /
 # aegis-emergency-* roles. The permission policy below is therefore exactly
-# IAM-on-project-prefixes + account alias + cross-account Terraform state. The
-# Cognito / CloudFront / ACM / Route53 / ECR / Bazel-cache / SSM grants this
-# role previously carried were removed alongside the Platform-tier layers
-# (edge, auth, secrets-persistent) that needed them — see ADR-033.
+# IAM-on-project-prefixes + account alias + cross-account Terraform state.
 # -----------------------------------------------------------------------------
 
 resource "aws_iam_role" "gh_tf_apply_baseline" {
@@ -44,12 +39,12 @@ resource "aws_iam_role" "gh_tf_apply_baseline" {
 }
 
 resource "aws_iam_role_policy" "gh_tf_apply_baseline" {
-  # checkov:skip=CKV_AWS_287: ReadOnlyAwsApiSurface Sid uses Resource:* on Get*/List*/Simulate* actions only — restrictable per-ARN scoping is not meaningful for inventory-style API calls. Mutation prevention is enforced by the absence of any Create/Update/Delete action paired with Resource:*. See ADR-029.
-  # checkov:skip=CKV_AWS_288: Same as CKV_AWS_287 — read-shape data disclosure is the explicit threat model accepted by ADR-029. AWS metadata is classified non-secret per CLAUDE.md "What is NOT a secret" clause.
+  # checkov:skip=CKV_AWS_287: ReadOnlyAwsApiSurface Sid uses Resource:* on Get*/List*/Simulate* actions only — restrictable per-ARN scoping is not meaningful for inventory-style API calls. Mutation prevention is enforced by the absence of any Create/Update/Delete action paired with Resource:*. See ADR-014.
+  # checkov:skip=CKV_AWS_288: Same as CKV_AWS_287 — read-shape data disclosure is the explicit threat model accepted by ADR-014. AWS metadata is classified non-secret per CLAUDE.md "What is NOT a secret" clause.
   # checkov:skip=CKV_AWS_289: `iam:*` is intentionally scoped to project-prefixed resources (aegis-*/github-actions-*/gh-tf-*) plus the OIDC provider and account alias. Permission-management within a fixed prefix is the apply contract for the staging baseline role.
   # checkov:skip=CKV_AWS_290: Service-namespace wildcard `tag:*` is needed because the AWS tagging API does not support resource-level ARN constraints on write actions; service-namespace scoping is the tightest contract available and is gated by trust policy `sub: ref:refs/heads/main` plus branch protection on main.
   # checkov:skip=CKV_AWS_355: Resource:* is by design on the read-only Sid and on the account-alias actions (AWS rejects resource-level ARNs there). Every mutating action with Resource:* is service-namespace-scoped and trust-policy-gated.
-  # checkov:skip=CKV2_AWS_40: `iam:*` is intentionally allowed within aegis-*/github-actions-*/gh-tf-* prefix scope for apply-tier baseline operations. Full IAM privileges on a fixed ARN-prefix is the deliberate apply-baseline design (ADR-029 §Decision).
+  # checkov:skip=CKV2_AWS_40: `iam:*` is intentionally allowed within aegis-*/github-actions-*/gh-tf-* prefix scope for apply-tier baseline operations. Full IAM privileges on a fixed ARN-prefix is the deliberate apply-baseline design (ADR-014 §Decision).
   name = "apply-baseline-scoped"
   role = aws_iam_role.gh_tf_apply_baseline.id
 

@@ -2,7 +2,7 @@
 
 # FinOps — Cost Model
 
-This repository owns the **AWS account fabric** ([ADR-033](decisions/033-landing-zone-scope-correction-account-fabric.md)) — Organizations, OUs, SCPs, IAM Identity Center, account bootstrap and vending, the Terraform state backend, the GitHub OIDC provider, the centralized security/audit baseline, and the org-wide IPAM. Everything that bills while idle — EKS, NAT Gateways, ALBs — was the Platform tier and now lives in the separate `aegis-platform` repository.
+This repository owns the **AWS account fabric** — Organizations, OUs, SCPs, IAM Identity Center, account bootstrap and vending, the Terraform state backend, the GitHub OIDC provider, the centralized security/audit baseline, and the org-wide IPAM. Resources that bill while idle — EKS, NAT Gateways, ALBs — are platform concerns and out of scope here.
 
 The consequence for cost: this repo has **no per-session cost-incurring layers**. Every layer here is a cheap, persistent baseline layer. The cost model is "what does the always-on fabric cost", not "what leaks if a teardown is skipped" — there is nothing to tear down.
 
@@ -44,8 +44,8 @@ Total order of magnitude: **~$5/month**, persistent. None of it is torn down —
 
 AWS IPAM Advanced tier is the one component here whose bill scales with usage rather than being flat:
 
-- **Idle cost** is effectively $0 — pricing is per *active IP address* managed by IPAM and per IPAM-monitored resource. With no Platform-tier VPCs allocated, IPAM monitors nothing and bills nothing meaningful.
-- When the Platform tier (`aegis-platform`) allocates VPC CIDRs from the RAM-shared pools, IPAM begins billing per active IP. At lab scale this is cents per month; it is the consumer's cost, not the fabric's.
+- **Idle cost** is effectively $0 — pricing is per *active IP address* managed by IPAM and per IPAM-monitored resource. With no downstream VPCs allocated, IPAM monitors nothing and bills nothing meaningful.
+- When a downstream consumer allocates VPC CIDRs from the RAM-shared pools, IPAM begins billing per active IP. At lab scale this is cents per month; it is the consumer's cost, not the fabric's.
 
 This is the only line item where "what does it cost" depends on what is deployed elsewhere — and even then it is negligible.
 
@@ -56,7 +56,7 @@ Configured in the `aegis-management` account:
 - **Daily**: $10 — a tripwire; the account fabric should never approach this.
 - **Monthly**: $30 — the hard ceiling for the lab.
 
-With the Platform tier extracted, the expected envelope for this repo is comfortably under the ~$5/month baseline. The $10 daily / $30 monthly caps are kept as generous tripwires; if the daily alert fires for the account fabric alone, something is genuinely wrong (a runaway Config recorder, a misconfigured trail) and warrants investigation.
+The expected envelope for this repo is comfortably under the ~$5/month baseline. The $10 daily / $30 monthly caps are kept as generous tripwires; if the daily alert fires for the account fabric alone, something is genuinely wrong (a runaway Config recorder, a misconfigured trail) and warrants investigation.
 
 ## Cost-saving levers
 

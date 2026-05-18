@@ -3,7 +3,7 @@
 
 This document inventories the single points of failure (SPOFs) in the current AWS account fabric and indicates which improvement entries address each. It is the structural map that [`README.md`](README.md) and individual entries reference.
 
-> **Scope note.** Per [ADR-033](../decisions/033-landing-zone-scope-correction-account-fabric.md) this repository owns the **account fabric** only — there is no workload data plane here. The SPOFs below are governance- and state-backend SPOFs. Workload SPOFs (EKS clusters, ALBs, ECR, NAT Gateways) belong to the Platform tier in the separate `aegis-platform` repository.
+> **Scope note.** This repository owns the **account fabric** only — there is no workload data plane here. The SPOFs below are governance- and state-backend SPOFs. Workload SPOFs (EKS clusters, ALBs, ECR, NAT Gateways) are platform concerns and out of scope here.
 
 ## Two axes
 
@@ -62,4 +62,3 @@ These are documented as residual risk rather than addressed in current improveme
 - [ADR-002 — Region and Availability Zone strategy](../decisions/002-region-and-availability-zone-strategy.md) — establishes `eu-central-1` + `eu-west-1` pair.
 - [ADR-003 — Terraform backend bootstrap](../decisions/003-terraform-backend-bootstrap.md) — the state bucket architecture that entry 001 addresses.
 - [ADR-006 — Account taxonomy and OU structure](../decisions/006-account-taxonomy-and-ou-structure.md) — the six-account structure that scopes account-down impact.
-- [ADR-033 — Landing-zone descope to the account fabric](../decisions/033-landing-zone-scope-correction-account-fabric.md) — the scope boundary that defines which SPOFs this map covers.

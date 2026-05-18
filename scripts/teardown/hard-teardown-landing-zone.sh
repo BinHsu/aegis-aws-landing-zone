@@ -146,7 +146,7 @@ destroy_layer() {
 }
 
 # Workload-account bootstrap layers (the account fabric's only footprint
-# inside staging / prod — the Platform-tier layers live in aegis-platform).
+# inside staging / prod).
 for ENV in staging prod; do
   ACCT=$(python3 -c "
 import yaml

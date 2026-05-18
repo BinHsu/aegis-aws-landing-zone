@@ -10,7 +10,7 @@ This ADR locks the region selection and the AZ referencing convention. It also d
 
 ## Decision
 
-`eu-central-1` (Frankfurt) is the primary region. All baseline workloads — VPCs, EKS, ArgoCD, observability — deploy here by default.
+`eu-central-1` (Frankfurt) is the primary region. The account-fabric layers deploy here by default.
 
 `eu-west-1` (Ireland) is the disaster recovery region. It hosts CIDR reservations and can be used for a DR VPC, but does not run production workloads during normal operations. It exists so the design can extend to multi-region without rework later.
 

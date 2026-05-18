@@ -14,14 +14,15 @@ Terraform state is stored in S3 with native locking (`use_lockfile = true`), not
 
 The state bucket lives in the `aegis-shared` account — a dedicated shared-services account in the Infrastructure OU described in ADR-006. It does not live in the management account, which is reserved for Organizations, SCPs, Identity Center, and Billing per the management account boundary in ADR-001.
 
-State layout follows the Terraservices pattern, popularized by Nicki Watt and Charity Majors at HashiConf 2016 and documented in Yevgeniy Brikman's "Terraform: Up & Running". Each account has multiple state files split by layer:
+State layout follows the Terraservices pattern, popularized by Nicki Watt and Charity Majors at HashiConf 2016 and documented in Yevgeniy Brikman's "Terraform: Up & Running". State is split by layer, with one state file per layer:
 
-- `bootstrap` — account-level baseline: IAM identity providers, KMS keys, budget alarms, basic tag enforcement.
-- `network` — VPC, subnets, route tables, NAT gateways, Transit Gateway attachments.
-- `platform` — EKS cluster, Karpenter, ArgoCD installation, cert-manager, Kyverno.
-- `workloads` — application-specific resources layered on top of the platform.
+- `management/bootstrap` — the management-account baseline: GitHub OIDC identity provider, CI roles, detective controls.
+- `management/scps` — the Service Control Policies attached at OU level.
+- `shared/bootstrap` — the shared-services baseline, including the S3 state bucket itself.
+- `shared/ipam` — the organization-wide IPAM and its RAM share.
+- `<account>/bootstrap` — the per-account baseline: IAM identity providers, KMS keys, budget alarms, basic tag enforcement.
 
-State keys in S3 follow the pattern `<account>/<layer>/terraform.tfstate`, producing paths like `staging/network/terraform.tfstate` and `prod/platform/terraform.tfstate`. The `aegis-shared/bootstrap/terraform.tfstate` state is a special case: it includes the S3 bucket that hosts every other state file.
+State keys in S3 follow the pattern `<purpose>/<layer>/terraform.tfstate`, producing paths like `management/scps/terraform.tfstate` and `shared/ipam/terraform.tfstate`. The `shared/bootstrap/terraform.tfstate` state is a special case: it includes the S3 bucket that hosts every other state file.
 
 The bootstrap sequence for the state bucket itself uses local state first. The initial `terraform apply` runs with `backend "local"` to create the S3 bucket and related resources. The `backend.tf` is then updated to point at S3, and `terraform init -migrate-state` moves the state from the local file into the new bucket. This is a one-time operation documented in a repository runbook.
 
@@ -39,13 +40,13 @@ The bootstrap sequence for the state bucket itself uses local state first. The i
 
 ## Consequences
 
-Each Terraservices layer is independently `plan`/`apply`/`destroy`-able. This is the property that makes selective teardown possible in ADR-009. Destroying the `platform` layer to clean up an EKS cluster after a session is a routine operation that does not touch `bootstrap` or `network`.
+Each Terraservices layer is independently `plan`/`apply`/`destroy`-able. This bounds the blast radius of every operation: applying `management/scps` cannot disturb `shared/ipam`, and a state-recovery episode is scoped to one layer rather than the whole organization.
 
-Cross-layer dependencies are explicit. The `platform` layer reads outputs from the `network` layer via `data "terraform_remote_state"`, which forces a review of every boundary crossing. There is no implicit shared state.
+Cross-layer dependencies are explicit. A layer that needs another's outputs reads them via `data "terraform_remote_state"`, which forces a review of every boundary crossing. There is no implicit shared state.
 
 The one-time bootstrap of the state bucket is a minor operational cost, documented as a runbook. After the first `terraform init -migrate-state`, the operation is never repeated.
 
-Adding a new layer — for example, a future `data` layer for RDS and backups — is additive. Existing layers are untouched. The state key convention gives every new layer an obvious place to live.
+Adding a new layer is additive. Existing layers are untouched. The state key convention gives every new layer an obvious place to live.
 
 The choice of S3 native locking means Terraform version 1.10 or later is a hard dependency. This is documented in the repository README and enforced by a `.terraform-version` file consumed by `tenv` or `tfenv`.
 
@@ -55,7 +56,7 @@ The Terraform backend configuration block does not support variables or locals �
 
 The following items are deliberately deferred from the initial state bucket deployment. Each is documented here so that future operators know they were considered and consciously deferred, not overlooked.
 
-**S3 access logging.** The state bucket does not currently have S3 server access logging enabled. ISO 27001:2022 Annex A.8.15 (Logging) recommends access logging on critical storage. Enabling it requires a dedicated log-destination bucket with ACL-based write permissions (S3 access logs cannot use bucket policies). This is a Phase 2 hardening item — the state bucket should be functional before adding observability on top of it.
+**S3 access logging.** The state bucket does not currently have S3 server access logging enabled. ISO 27001:2022 Annex A.8.15 (Logging) recommends access logging on critical storage. Enabling it requires a dedicated log-destination bucket with ACL-based write permissions (S3 access logs cannot use bucket policies). This is a deferred hardening item — the state bucket should be functional before adding access logging on top of it.
 
 **Per-layer state isolation.** The current bucket policy grants read/write access to any principal in the AWS Organization via `aws:PrincipalOrgID`. This means a role in the staging account can theoretically read or write the production state file. For a single-operator lab project this is acceptable. When multiple teams or operators are introduced, the bucket policy should be tightened with IAM path conditions or S3 prefix-scoped policies to enforce per-account or per-layer access boundaries.
 

@@ -1,16 +1,14 @@
 # -----------------------------------------------------------------------------
-# `gh-tf-apply-baseline` — apply role for `terraform-apply-baseline.yml` (ADR-029)
+# `gh-tf-apply-baseline` — apply role for `terraform-apply-baseline.yml` (ADR-014)
 # -----------------------------------------------------------------------------
-# Replaces `github-actions-terraform` for the `ref:refs/heads/main` trigger
-# only. Permission character: scoped mutation across baseline-tier API
-# surfaces — Org / SSO / IAM / KMS / state-bucket / SLR. Cost-incurring
-# workload-tier surfaces (EC2 / VPC / EKS / ELB / RDS) are explicitly out
-# of scope and live in `gh-tf-apply-workload`.
+# Apply role for the `ref:refs/heads/main` trigger. Permission character:
+# scoped mutation across baseline-tier API surfaces — Org / SSO / IAM / KMS /
+# state-bucket / SLR. Cost-incurring workload-tier surfaces (EC2 / VPC / EKS /
+# ELB / RDS) are not part of this repository's scope.
 #
 # Trust policy is keyed on the OIDC `sub` claim `ref:refs/heads/main` only —
-# the other triggers (`pull_request`, `environment:workload-apply`,
-# `environment:workload-teardown`) continue to assume their own purpose-scoped
-# roles. See ADR-029 for the full identity-by-trigger split.
+# the `pull_request` trigger assumes its own read-only role, `gh-tf-plan`. See
+# ADR-014 for the full identity-by-trigger split.
 #
 # Scope per account: this is the management-account variant. It covers the
 # union of API surfaces mutated by `terraform/environments/management/
@@ -52,12 +50,12 @@ resource "aws_iam_role" "gh_tf_apply_baseline" {
 }
 
 resource "aws_iam_role_policy" "gh_tf_apply_baseline" {
-  # checkov:skip=CKV_AWS_287: ReadOnlyAwsApiSurface Sid uses Resource:* on Get*/List*/Describe* actions only — restrictable per-ARN scoping is not meaningful for inventory-style API calls. Mutation prevention is enforced by the absence of any Create/Update/Delete action paired with Resource:*. See ADR-029.
-  # checkov:skip=CKV_AWS_288: Same as CKV_AWS_287 — read-shape data disclosure is the explicit threat model accepted by ADR-029. AWS metadata is classified non-secret per CLAUDE.md "What is NOT a secret" clause.
+  # checkov:skip=CKV_AWS_287: ReadOnlyAwsApiSurface Sid uses Resource:* on Get*/List*/Describe* actions only — restrictable per-ARN scoping is not meaningful for inventory-style API calls. Mutation prevention is enforced by the absence of any Create/Update/Delete action paired with Resource:*. See ADR-014.
+  # checkov:skip=CKV_AWS_288: Same as CKV_AWS_287 — read-shape data disclosure is the explicit threat model accepted by ADR-014. AWS metadata is classified non-secret per CLAUDE.md "What is NOT a secret" clause.
   # checkov:skip=CKV_AWS_289: `iam:*` is intentionally scoped to project-prefixed resources (aegis-*/github-actions-*/gh-tf-*) plus the OIDC provider and account alias — see Sid IamScoped Resource list. The role is the apply-tier identity for `terraform-apply-baseline.yml` and must be able to manage the project's own IAM resources. Permission-management within a fixed prefix is the apply contract, not a misuse.
   # checkov:skip=CKV_AWS_290: Service-namespace wildcards (organizations:*, sso:*, identitystore:*) are needed because these AWS APIs do not support resource-level ARN constraints on most write actions; service-namespace scoping is the tightest contract available and is gated by trust policy `sub: ref:refs/heads/main` plus branch protection on main.
   # checkov:skip=CKV_AWS_355: Resource:* is by design on the read-only Sid and on AWS APIs without resource-level ARN support. Every mutating action with Resource:* is service-namespace-scoped and trust-policy-gated.
-  # checkov:skip=CKV2_AWS_40: `iam:*` is intentionally allowed within the aegis-*/github-actions-*/gh-tf-* prefix scope for apply-tier baseline operations (creating IRSA roles, OIDC providers, account aliases). Full IAM privileges on a fixed ARN-prefix scope is a deliberate design — an enumerated whitelist of iam:CreateRole/UpdateRole/DeleteRole/...x20+ would be a maintenance liability with the same effective surface. ADR-029 §Decision describes the apply-baseline scope. Same pattern applies to `events:*` (scoped to `rule/aegis-detective-*`) and `sns:*` (scoped to `aegis-security-alerts*`) added by ADR-031 Item A.
+  # checkov:skip=CKV2_AWS_40: `iam:*` is intentionally allowed within the aegis-*/github-actions-*/gh-tf-* prefix scope for apply-tier baseline operations (creating IRSA roles, OIDC providers, account aliases). Full IAM privileges on a fixed ARN-prefix scope is a deliberate design — an enumerated whitelist of iam:CreateRole/UpdateRole/DeleteRole/...x20+ would be a maintenance liability with the same effective surface. ADR-014 §Decision describes the apply-baseline scope. Same pattern applies to `events:*` (scoped to `rule/aegis-detective-*`) and `sns:*` (scoped to `aegis-security-alerts*`) added by ADR-016 Item A.
   name = "apply-baseline-scoped"
   role = aws_iam_role.gh_tf_apply_baseline.id
 
@@ -100,7 +98,7 @@ resource "aws_iam_role_policy" "gh_tf_apply_baseline" {
       },
       {
         # IAM service-linked role creation — gated to the two SLRs the
-        # apply path legitimately creates. ADR-029 OQ-2 retained these
+        # apply path legitimately creates. ADR-014 OQ-2 retained these
         # because AWS auto-recreates them under conditions not predictable
         # from baseline state. `eks.amazonaws.com` not strictly used in
         # mgmt today but kept for symmetry across the 3 baseline files.
@@ -190,7 +188,7 @@ resource "aws_iam_role_policy" "gh_tf_apply_baseline" {
       },
       {
         # EventBridge rule mutation — scoped to the project's detective
-        # controls rule namespace. ADR-031 Item A creates the
+        # controls rule namespace. ADR-016 Item A creates the
         # `aegis-detective-failed-oidc-assumption` rule on the default bus;
         # this Sid covers PutRule / DeleteRule / PutTargets / RemoveTargets
         # plus the tag-on-create flow Terraform uses. Resource ARN pins to
@@ -206,7 +204,7 @@ resource "aws_iam_role_policy" "gh_tf_apply_baseline" {
       },
       {
         # SNS topic mutation — scoped to the project's security-alerts
-        # topic namespace. ADR-031 Item A creates `aegis-security-alerts`;
+        # topic namespace. ADR-016 Item A creates `aegis-security-alerts`;
         # the prefix accommodates Items B/C if they add separate topics
         # rather than reusing this one.
         Sid      = "SnsForDetectiveTopic"

@@ -6,7 +6,7 @@ Accepted
 ## Context
 In 2026, a newly-provisioned AWS landing zone has three reasonable tooling paths: fully hand-rolled via Terraform (or CloudFormation), fully managed via AWS Control Tower, or a hybrid that uses Control Tower as a managed foundation and extends it with custom Terraform for everything Control Tower does not cover. A fourth path — AWS Landing Zone Accelerator (LZA) — is essentially the hybrid path with AWS CDK as the extension language instead of Terraform.
 
-The choice among these paths is the most load-bearing decision in the project. It determines what code exists in the repository, what capabilities are automatic versus hand-configured, how fast the project reaches Phase 2 where the actual learning gaps live, and what interview narrative the portfolio can support. This ADR documents the choice, the reasoning, and the trade-offs.
+The choice among these paths is the most load-bearing decision in the project. It determines what code exists in the repository, what capabilities are automatic versus hand-configured, and how the time budget is allocated. This ADR documents the choice, the reasoning, and the trade-offs.
 
 ## Decision
 
@@ -14,7 +14,7 @@ Use AWS Control Tower as the managed foundation, and extend it with custom Terra
 
 **Control Tower handles:** initial landing zone enrollment, OU structure defaults, automatic creation of `Audit` and `Log Archive` accounts (mapped to `aegis-security` and `aegis-logarchive` per ADR-006), baseline preventive and detective guardrails, organizational CloudTrail, AWS Config baseline, and AWS Identity Center bootstrap.
 
-**Terraform handles:** creation of the `aegis-shared` account via Account Factory for Terraform, creation of the `aegis-staging` and `aegis-prod` accounts via the same mechanism, custom SCPs beyond Control Tower defaults, the GitHub OIDC identity provider, IAM roles for CI/CD, VPCs, EKS, ArgoCD and other platform components, observability stack, workload resources, and everything else that is portfolio-visible.
+**Terraform handles:** creation of the `aegis-shared` account via Account Factory for Terraform, creation of the `aegis-staging` and `aegis-prod` accounts via the same mechanism, custom SCPs beyond Control Tower defaults, the GitHub OIDC identity provider, IAM roles for CI/CD, the organization-wide IPAM, the per-account bootstrap baseline, and everything else the account fabric owns as committed infrastructure-as-code.
 
 The Control Tower home region is `eu-central-1` per ADR-002 and is permanent once set. The decision is intertwined with the region strategy and cannot be revisited without decommissioning the landing zone.
 
@@ -26,7 +26,7 @@ The interview narrative also suffers under the hand-rolled path. A candidate wit
 
 **AWS Landing Zone Accelerator (LZA).** Rejected. LZA is the most feature-complete managed landing zone offering from AWS and extends Control Tower with declarative customizations. It is implemented in AWS CDK, which would introduce a second infrastructure-as-code language into the project and split attention between Terraform and CDK idioms. For a project whose primary learning goal within infrastructure-as-code is vanilla Terraform, adding CDK is counterproductive — it fragments the skill being demonstrated.
 
-**Control Tower alone, no Terraform extensions.** Rejected. Control Tower by itself provisions the landing zone foundation but does not create application infrastructure — no VPCs, no EKS, no OIDC, no IAM for workloads, no observability. A portfolio project needs all of that visible in the repository as infrastructure-as-code. Control Tower alone leaves nothing for a reviewer to read.
+**Control Tower alone, no Terraform extensions.** Rejected. Control Tower by itself provisions the landing zone foundation but does not create the account-fabric extensions this project needs visible in the repository — no GitHub OIDC identity provider, no scoped CI roles, no organization-wide IPAM, no custom SCPs beyond the defaults, no per-account bootstrap baseline. A project that wants reviewable infrastructure-as-code needs all of that as committed Terraform. Control Tower alone leaves nothing for a reviewer to read.
 
 **Third-party landing zone products such as Gruntwork Reference Architecture.** Rejected. These introduce vendor dependencies and proprietary abstractions that do not serve the learning goals. The project explicitly uses only AWS first-party services and open tooling so that the learning transfers to any AWS environment.
 

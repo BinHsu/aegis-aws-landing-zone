@@ -406,7 +406,7 @@ Keep the default: **Opted in / Enabled**. The sub-option **AWS Control Tower to 
 
 Leave at the default: **Not enabled**.
 
-AWS Backup is intentionally not enabled in this project. The account fabric has no stateful data — its only durable store is the Terraform state bucket, which is protected by S3 versioning and `prevent_destroy` (see `docs/improvements/001-state-backend-spof.md`). Workload backup strategy belongs to the Platform tier, which has been extracted to the `aegis-platform` repository per [ADR-033](../decisions/033-landing-zone-scope-correction-account-fabric.md).
+AWS Backup is intentionally not enabled in this project. The account fabric has no stateful data — its only durable store is the Terraform state bucket, which is protected by S3 versioning and `prevent_destroy` (see `docs/improvements/001-state-backend-spof.md`). Workload backup strategy is a platform concern and out of scope here.
 
 ### 4.5 Step 4 — Review and enable AWS Control Tower
 
@@ -818,7 +818,7 @@ This file should not exist or should be empty of `aegis-*` content. If it does c
      This is the step that actually triggers IPAM to auto-create resource discoveries for member accounts.
   5. **Only then** create the IPAM (in `shared/ipam` Terraform). An IPAM created before steps 1-4 has its monitoring scope stuck at single-account and must be destroyed and recreated to pick up org integration.
 
-  If the IPAM was created out of order, the fix is: complete steps 1-4, then `terraform destroy` and `terraform apply` on `shared/ipam`. Pool IDs change; downstream consumers (the Platform-tier VPC layers in the `aegis-platform` repo) re-read the new IDs from this layer's remote state.
+  If the IPAM was created out of order, the fix is: complete steps 1-4, then `terraform destroy` and `terraform apply` on `shared/ipam`. Pool IDs change; downstream VPC consumers in the member accounts re-read the new IDs from this layer's remote state.
 
   See also [Incident 7](../incidents.md#incident-7--ipam-delegated-admin-not-configured-for-cross-account-vpc-allocation) for the full story of discovering this sequence the hard way.
 

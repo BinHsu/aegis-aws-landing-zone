@@ -12,9 +12,9 @@ This ADR establishes ISO 27001:2022 Annex A as the compliance reference for the 
 
 ISO 27001:2022 Annex A is the compliance north star for this landing zone.
 
-A formal mapping document at `docs/compliance/iso27001-mapping.md` cross-references Annex A controls to concrete implementations in this repository: SCP statements, AWS Config rules, Control Tower detective and preventive guardrails, Tag Policies, KMS key policies, IAM boundary policies, and custom Kyverno admission policies added in Phase 3.
+A formal mapping document at `docs/compliance/iso27001-mapping.md` cross-references Annex A controls to concrete implementations in this repository: SCP statements, AWS Config rules, Control Tower detective and preventive guardrails, Tag Policies, KMS key policies, and IAM boundary policies.
 
-Every new guardrail added to the project must cite the Annex A control it satisfies, either in its own ADR or in the commit message that introduces it. This cross-reference is a hard rule, not a suggestion. Commit hooks check for the presence of the reference in commit messages that modify SCPs or Config rules.
+Every new guardrail added to the project must cite the Annex A control it satisfies, either in its own ADR or in the commit message that introduces it. This cross-reference is a hard rule, not a suggestion. Commit hooks check for the presence of the reference in commit messages that modify SCPs or AWS Config rules.
 
 The mapping document is organized by Annex A control group: organizational controls, people controls, physical controls, technological controls. Within the technological controls section — where the vast majority of infrastructure-level enforcement lives — each entry lists the AWS implementation, the configuration file or Terraform module where it lives, the OU or account it applies to, and any known gaps.
 
@@ -34,7 +34,7 @@ The mapping document is organized by Annex A control group: organizational contr
 
 ## Consequences
 
-Every new SCP, AWS Config rule, Control Tower guardrail, KMS policy, or Kyverno admission policy requires an Annex A reference. This adds a small documentation cost per change — typically one line in a commit message or ADR — and compounds into a structured compliance posture over the project's lifetime.
+Every new SCP, AWS Config rule, Control Tower guardrail, or KMS policy requires an Annex A reference. This adds a small documentation cost per change — typically one line in a commit message or ADR — and compounds into a structured compliance posture over the project's lifetime.
 
 Compliance posture becomes portfolio-visible. A hiring manager reading `docs/compliance/iso27001-mapping.md` sees a matrix of controls traced to implementations, which is a concrete demonstration of the operator's compliance expertise rather than a line on a resume.
 

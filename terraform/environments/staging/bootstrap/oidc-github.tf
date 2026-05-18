@@ -3,12 +3,10 @@
 # -----------------------------------------------------------------------------
 # Provides the OIDC provider that the gh-tf-* CI roles federate against. Each
 # role's trust + permission policy lives in its own .tf file (oidc-github-*-
-# role.tf). After the ADR-033 account-fabric descope only `gh-tf-plan` and
-# `gh-tf-apply-baseline` remain; the aegis-core CI roles were removed with the
-# Platform-tier layers (ECR, Bazel cache) they served.
+# role.tf). The two CI roles are `gh-tf-plan` and `gh-tf-apply-baseline`.
 #
-# Legacy `github-actions-terraform` (Admin) was removed by ADR-029 PR-7
-# cleanup; see incidents.md §Incident 36 for the rollout narrative.
+# Legacy `github-actions-terraform` (Admin) was removed by ADR-014 PR-7
+# cleanup; see incidents.md §Incident 12 for the rollout narrative.
 # -----------------------------------------------------------------------------
 
 locals {

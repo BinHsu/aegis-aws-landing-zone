@@ -1,14 +1,12 @@
 name: Terraform Apply (Baseline)
 
 # Auto-applies the account-fabric Terraservice layers on push to main.
-# After the ADR-033 descope this workflow applies the *entire* repository —
-# Organizations + SCPs, the shared-account bootstrap + org-wide IPAM, and the
-# per-account bootstrap layers. All of it is negligible always-on cost
-# (< $10/mo): no NAT, no EKS, no workload compute. The Platform-tier layers
-# that used to require a separate approval-gated workflow moved out of this
-# repository entirely.
+# This workflow applies the *entire* repository — Organizations + SCPs, the
+# shared-account bootstrap + org-wide IPAM, and the per-account bootstrap
+# layers. All of it is negligible always-on cost (< $10/mo): no NAT, no EKS,
+# no workload compute, so a single auto-apply workflow covers every layer.
 #
-# See ADR-009 (lifecycle) and ADR-033 (account-fabric descope).
+# See ADR-009 (lifecycle).
 
 on:
   push:
@@ -30,7 +28,7 @@ on:
   workflow_dispatch:
 
 # Serialize apply runs across the whole workflow. A burst of PR merges would
-# otherwise start overlapping runs that race the S3 state lock (Incident 38).
+# otherwise start overlapping runs that race the S3 state lock (Incident 14).
 concurrency:
   group: terraform-apply-baseline
   cancel-in-progress: false

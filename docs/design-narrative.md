@@ -1,4 +1,4 @@
-<!-- session-close-review: war story references match incident count, retrospective still accurate, scope reflects the account-fabric descope -->
+<!-- session-close-review: war story references match incident count, retrospective still accurate, scope reflects the account-fabric scope -->
 # Design Narrative
 
 A narrative companion to the ADRs. The ADRs capture individual decisions in their own right. This document connects the dots — what the project is trying to prove, what trade-offs were made consciously, what went wrong, and what the scaling path looks like.
@@ -11,7 +11,7 @@ This project is a reference implementation of an **AWS account fabric** — the 
 
 Most AWS landing zone references aim at enterprise scale — AWS Landing Zone Accelerator is 50+ CloudFormation stacks; Gruntwork's Reference Architecture assumes a team paying for the product. This project takes the opposite approach: scope down to what a single operator or small team actually needs, produce something that is both *functional* and *readable*, and make every decision explicit enough that a reviewer can trace each line of Terraform back to the reasoning that produced it.
 
-**The repository is deliberately scoped to the account fabric and nothing more** ([ADR-033](decisions/033-landing-zone-scope-correction-account-fabric.md)). It owns: AWS Organizations and OUs, Service Control Policies, IAM Identity Center, account bootstrap and vending (Control Tower + Terraform hybrid, AFT, the Terraform S3 state backend, the GitHub OIDC identity provider), the centralized security/audit baseline (CloudTrail org trail, AWS Config, GuardDuty), and the org-wide IPAM that is the RAM-shared CIDR allocation authority. Everything that *runs on top of* the fabric — VPC/network, EKS, ArgoCD, observability, edge, auth — is a separate **Platform tier** in the `aegis-platform` repository. Why that boundary, and why it was drawn explicitly partway through the project rather than at the start, is the most interesting story in this document — see *The scope correction* below.
+**The repository is deliberately scoped to the account fabric and nothing more.** It owns: AWS Organizations and OUs, Service Control Policies, IAM Identity Center, account bootstrap and vending (Control Tower + Terraform hybrid, AFT, the Terraform S3 state backend, the GitHub OIDC identity provider), the centralized security/audit baseline (CloudTrail org trail, AWS Config, GuardDuty), and the org-wide IPAM that is the RAM-shared CIDR allocation authority. Everything that *runs on top of* the fabric — VPC/network, EKS, ArgoCD, observability, edge, auth — runs in a separate platform repository and is out of scope here. A landing zone vends and governs accounts; the things that run inside those accounts are platforms, and keeping that boundary crisp is a deliberate design choice — see *The fabric-versus-platform boundary* below.
 
 The project is organized around six design principles that live at the top of the README. Every ADR traces back to at least one of them:
 
@@ -54,19 +54,17 @@ Every multi-account AWS landing zone faces this exact cycle. Some projects ignor
 
 Hand-planned CIDR ranges are a classic multi-account footgun: two VPCs overlap, and the discovery happens at VPC-peering or Transit-Gateway-attachment time, long after the mistake was cheap to fix. This project puts AWS IPAM (Advanced tier) in `aegis-shared`, builds a top pool of `10.0.0.0/8` with per-region sub-pools, and RAM-shares those pools to the entire organization.
 
-The account fabric owns the *allocation authority* — the pools and the RAM share. It does not own the VPCs that draw from them; those belong to the Platform tier. This is the cleanest example of the fabric-vs-platform boundary: the fabric provides a *governed, conflict-free namespace*, and any consumer — the Platform tier today, a second platform repo tomorrow — allocates from it via `ipv4_ipam_pool_id` without ever doing CIDR math by hand.
+The account fabric owns the *allocation authority* — the pools and the RAM share. It does not own the VPCs that draw from them; those belong to a downstream consumer. This is the cleanest example of the fabric-vs-platform boundary: the fabric provides a *governed, conflict-free namespace*, and any consumer allocates from it via `ipv4_ipam_pool_id` without ever doing CIDR math by hand.
 
-### The scope correction — landing zone is not a platform (ADR-033)
+### The fabric-versus-platform boundary
 
 This is the decision a reviewer should ask about first.
 
-The project began as a "landing zone" in the loose sense the word is often used: the account fabric *plus* a reference EKS platform, ArgoCD, observability, edge, and auth — all in one repository. That grew to 30-plus ADRs and a large multi-layer Terraform tree. It worked, and it was cold-applied end to end. But the breadth carried a cost: the repository no longer had a crisp answer to *"what is this for?"*. It was simultaneously an Organizations/SCP reference and a Kubernetes platform reference, and the two have different audiences, different change cadences, and — critically — different *consumers*.
+A landing zone's job is to **vend and govern accounts**. The things that *run inside* those accounts — VPCs, EKS, ArgoCD, observability, edge, auth — are platforms, and platforms are plural: more than one workload repository can deploy into the same set of accounts. The account fabric and a platform have different audiences, different change cadences, and different consumers, so they belong in different repositories.
 
-The signal that forced the correction was concrete and external: a sibling repository (`aegis-stateless`) in the same AWS account collided twice on globally-namespaced resource names — an IAM role and an ECR repository both defaulted to a bare `aegis-` prefix. That collision is only possible because *more than one repo deploys workloads into the same accounts*. It made the latent design error visible: a landing zone's job is to **vend and govern accounts**; the things that *run inside* those accounts are platforms, and platforms are plural. Folding one platform into the landing-zone repo had quietly asserted that there would only ever be one.
+This repository owns only the fabric: AWS Organizations and OUs, Service Control Policies, IAM Identity Center, account bootstrap and vending, the Terraform S3 state backend, the GitHub OIDC identity provider, the centralized security/audit baseline, and the org-wide IPAM. A platform is a separate repository and an independent consumer of the fabric's accounts, OIDC, and IPAM pools.
 
-ADR-033 corrects this. The repository contracts to the account fabric only. The Platform tier — VPC/network, EKS, Karpenter, ArgoCD, cluster add-ons, observability, edge, Cognito auth, FIS — is extracted to a new repository, `aegis-platform`, recoverable from the `v1.0.0` git tag that froze the broad-scope era.
-
-The portfolio signal here is the one that matters most in a senior interview: **this is not a project that got it right the first time — it is a project that noticed it had drawn a boundary wrong, named the signal that revealed it, and corrected it deliberately with the reasoning on record.** Distinguishing a landing zone (the account fabric) from a platform (a workload-bearing consumer of the fabric) is exactly the kind of definitional clarity that separates a senior architect from someone assembling AWS services. The correction is framed as a premise-change, not a failure: the premise "one repo, one platform" was reasonable until a second repo proved it wrong, and the response was an ADR, not a patch.
+Distinguishing a landing zone (the account fabric) from a platform (a workload-bearing consumer of the fabric) is exactly the kind of definitional clarity that separates a senior architect from someone assembling AWS services. The fabric is shaped to be reusable under *any* platform: globally-namespaced resources carry the full repository name as a collision-free prefix, and the OIDC provider is a shared account-scoped singleton that downstream consumers reuse rather than recreate.
 
 ## War stories
 
@@ -79,7 +77,7 @@ Real incidents from this project's deployment history are kept in [`docs/inciden
 - **Cross-account `kms:Decrypt` denied with the default AWS-managed key** — forced migration to a customer-managed KMS key with `aws:PrincipalOrgID` key policy. See [Incident 5](incidents.md#incident-5--cross-account-kmsdecrypt-denied-with-the-awss3-default-key).
 - **State bucket CMK scheduled for deletion by CI apply** — local apply from an unmerged branch created state drift that CI later "corrected" by destroying the CMK. Recovered in ~15 minutes within the KMS grace window. See [Incident 6](incidents.md#incident-6--state-bucket-cmk-scheduled-for-deletion-by-ci-apply).
 
-Every one of these is an account-fabric incident — Organizations, Control Tower, KMS, RAM, state backend. War stories that were purely about the EKS cold-apply moved with the Platform tier to `aegis-platform`; they are no longer this repository's story to tell.
+Every one of these is an account-fabric incident — Organizations, Control Tower, KMS, RAM, state backend.
 
 The lesson that threads through all six: **the value of this project is not that it's perfect — it's that the path from imperfect to working is visible and audit-able in git history, in runbook updates, and in the incidents log.**
 
@@ -90,7 +88,6 @@ Several decisions were made knowing they are not the production-correct answer, 
 - **Manual Account Factory over AFT** — Path A in ADR-011; zero ongoing cost at 2-account scale, AFT code committed and CI-validated so the scaling path stays fresh
 - **`aws:PrincipalOrgID` condition over per-environment IAM paths** — coarser than production-grade per-layer state access, but adequate and auditable at lab scale; the finer-grained path is documented as the scaling step
 - **Single org CloudTrail trail, no S3 access logging on the state bucket** — accepted lab-scale gaps, each flagged in the relevant ADR's *Consequences* or *Future Hardening* section
-- **Scope contracted to the account fabric (ADR-033)** — the Platform tier was a real, working deliverable; cutting it from this repo was a deliberate definitional choice, not an abandonment. It lives on in `aegis-platform`.
 
 Each appears in an ADR's *Alternatives Considered* or *Consequences* section, with the reasoning on record. None were defaults accepted by accident.
 
@@ -103,7 +100,7 @@ If this account fabric were deployed for a real organization instead of a lab, t
 - **S3 access logging** on the state bucket (ISO 27001 Annex A.8.15)
 - **Cross-region + cross-account state replication** to `aegis-logarchive` in the DR region — the worked example in [`docs/improvements/001-state-backend-spof.md`](improvements/001-state-backend-spof.md)
 - **Per-team OU split** with team-scoped SCPs, once multiple teams exist
-- **Multiple Platform-tier repos** vending into the same fabric — the account fabric is already shaped for this (repo-scoped resource naming, OIDC provider as a shared singleton); each new platform is an independent consumer of the fabric's accounts, OIDC, and IPAM pools
+- **Multiple platform repositories** vending into the same fabric — the account fabric is already shaped for this (repo-scoped resource naming, OIDC provider as a shared singleton); each platform is an independent consumer of the fabric's accounts, OIDC, and IPAM pools
 
 Every one of these is either an *Alternatives Considered* entry, a *Future Hardening* section, or a *Consequences* paragraph in the relevant ADR. The document trail scales with the project.
 
@@ -111,7 +108,6 @@ Every one of these is either an *Alternatives Considered* entry, a *Future Harde
 
 These are honest retrospectives, not false-modesty performances:
 
-- **Draw the fabric-vs-platform boundary on day one.** The biggest lesson of this project is ADR-033 itself: a landing zone and a platform are different things with different consumers, and merging them into one repo asserted a "one platform forever" premise that was never examined. The boundary should have been a starting decision, not a mid-project correction. The correction is a good portfolio story precisely because it is honest about having drawn the line in the wrong place first.
 - **Start with `.github/workflows/` from day one.** Phase 1 work was done through local `terraform apply` commands. Moving to PR-based CI/CD in Phase 2 was strictly better. The lesson: if PR-based flow is the end state, it should be the start state too. Starting earlier would have caught the management/shared/ipam apply-order issue before it became a production incident in PR #7.
 - **Write ADRs as decisions are being made, not in batches after the fact.** The early ADRs (001–009) were written together after key decisions had already crystallized. Later ADRs were written *during* the decision process and are noticeably sharper — the "Alternatives Considered" sections are more specific because I could see the alternatives in real time, not reconstruct them later.
 - **Use the `gh` CLI from the start.** Every `gh api` command in the runbook is replayable by a future operator. Every "click Settings → Branches → Add rule" in an earlier draft was not. The runbook is more useful the further it leans on CLI commands instead of console navigation.
@@ -120,13 +116,13 @@ These are honest retrospectives, not false-modesty performances:
 
 For a technical reviewer reading this repository as part of an evaluation:
 
-- **Senior-level architectural decision-making** — every load-bearing choice is explicit, reasoned, with alternatives rejected on record; ADR-033 additionally demonstrates revisiting a decision on a signal rather than defending it
-- **Definitional clarity** — distinguishing an account fabric (vends and governs accounts) from a platform (runs workloads inside them); the scope correction is the proof
+- **Senior-level architectural decision-making** — every load-bearing choice is explicit, reasoned, with alternatives rejected on record
+- **Definitional clarity** — distinguishing an account fabric (vends and governs accounts) from a platform (runs workloads inside them)
 - **Cost-consciousness at lab scale with an articulated scaling path to production**
 - **Zero-credential security posture** — enforced by SCP at organization level, not just by policy
 - **Documentation-first discipline** — ADRs for every load-bearing decision, a detailed bootstrap runbook, Mermaid architecture diagrams, explicit drift policy
 - **Real infrastructure, not a tutorial** — six real AWS accounts, state in S3 with native locking, CI that actually applies to AWS via OIDC
 - **Operational discipline** — signed commits required, branch protection with required status checks, admin bypass for documented legitimate cases
-- **Self-correcting process** — the main branch's git history contains real mistakes with their fixes (KMS policy, RAM sharing, apply order, stale UI state) and one real scope correction (ADR-033). This is a feature, not a gap. A repository with no commit-history mistakes is either trivial or pretending.
+- **Self-correcting process** — the main branch's git history contains real mistakes with their fixes (KMS policy, RAM sharing, apply order, stale UI state). This is a feature, not a gap. A repository with no commit-history mistakes is either trivial or pretending.
 
-That last point is worth repeating in interview context. **The value of this project is not that it is perfect. The value is that the path from imperfect to working — and from broadly-scoped to correctly-scoped — is visible and audit-able.** Every gotcha is documented. Every fix is in a PR. Every ADR trace is a decision that could have gone the other way.
+That last point is worth repeating in interview context. **The value of this project is not that it is perfect. The value is that the path from imperfect to working is visible and audit-able.** Every gotcha is documented. Every fix is in a PR. Every ADR trace is a decision that could have gone the other way.

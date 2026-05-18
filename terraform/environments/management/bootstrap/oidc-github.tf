@@ -5,8 +5,8 @@
 # role's trust policy + permission policy lives in its own oidc-github-*-role.tf
 # file (plan / apply-baseline). The provider is shared.
 #
-# Legacy `github-actions-terraform` (Admin) was removed by ADR-029 PR-7
-# cleanup; see incidents.md §Incident 36 for the rollout narrative.
+# Legacy `github-actions-terraform` (Admin) was removed by ADR-014 PR-7
+# cleanup; see incidents.md §Incident 12 for the rollout narrative.
 # -----------------------------------------------------------------------------
 
 locals {

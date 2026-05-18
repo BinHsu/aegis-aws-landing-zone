@@ -3,16 +3,6 @@
 ## Status
 Accepted
 
-> **Amended 2026-05-18 — ADR-033 account-fabric descope.** This ADR originally
-> specified the full staging VPC topology: three-AZ subnet split, single-NAT
-> egress, Gateway endpoints, and VPC Flow Logs. Those are workload networking
-> concerns and moved to the Platform tier together with the `staging/network`
-> layer (see ADR-033). What remains — and what the account fabric still owns —
-> is AWS IPAM: the single organization-wide authority that allocates
-> non-overlapping VPC CIDRs to every account and every Platform-tier consumer.
-> The ADR was retitled and trimmed to that surface; the original VPC-topology
-> text is preserved in the `v1.0.0` git tag.
-
 ## Context
 
 Every VPC needs a CIDR block, and CIDR blocks must not overlap — overlapping
@@ -71,9 +61,9 @@ sibling repository — allocates without consulting the spreadsheet. The whole
 point of an account fabric is to remove that class of coordination error.
 
 **IPAM owned by a Platform-tier repository.** Rejected. If the IPAM lived in
-one Platform repo (e.g. the EKS platform repo), every *other* Platform repo
-would have to cross-depend on it for address space — re-coupling the tiers
-that ADR-033 separates. And if each Platform repo ran its own IPAM, there
+one Platform-tier repository, every *other* Platform-tier repository would have
+to cross-depend on it for address space — coupling tiers the model in ADR-007
+keeps separate. And if each Platform-tier repository ran its own IPAM, there
 would be no central non-overlap arbiter and collisions return. A single
 org-wide IPAM in the account fabric is the only layout where every consumer,
 present and future, draws from one collision-free authority.
@@ -85,11 +75,11 @@ cost is negligible at lab scale.
 
 ## Consequences
 
-The `shared/ipam` layer is a baseline-tier dependency of every VPC in the
-organization. Any Platform-tier `network` layer must read the RAM-shared pool
-(by `data` lookup, or by reading `shared/ipam` remote state) before it can
-create a VPC. This is a deliberate, one-directional dependency: account fabric
-→ Platform tier, never the reverse.
+The `shared/ipam` layer is an account-fabric dependency of every VPC in the
+organization. Any Platform-tier consumer must read the RAM-shared pool (by
+`data` lookup, or by reading `shared/ipam` remote state) before it can create a
+VPC. This is a deliberate, one-directional dependency: account fabric →
+Platform tier, never the reverse.
 
 The account fabric provisions IPAM but operates no VPC itself — it is a
 provider of address space, not a consumer, exactly as it provisions OUs and

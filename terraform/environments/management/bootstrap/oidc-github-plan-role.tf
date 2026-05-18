@@ -1,14 +1,12 @@
 # -----------------------------------------------------------------------------
-# `gh-tf-plan` — read-only role for `terraform-plan.yml` on PRs (ADR-029)
+# `gh-tf-plan` — read-only role for `terraform-plan.yml` on PRs (ADR-014)
 # -----------------------------------------------------------------------------
-# Replaces `github-actions-terraform` for the `pull_request` trigger only.
 # Permission character: read-only AWS metadata + state-object read +
 # state-lock writes scoped to *.tflock + KMS via S3 service condition.
 #
 # Trust policy is keyed on the OIDC `sub` claim `pull_request` only — the
-# other triggers (`main`, `environment:workload-apply`,
-# `environment:workload-teardown`) continue to assume their own purpose-scoped
-# roles. See ADR-029 for the full identity-by-trigger split.
+# `main` trigger assumes its own apply role, `gh-tf-apply-baseline`. See
+# ADR-014 for the full identity-by-trigger split.
 #
 # This role purposefully cannot mutate any AWS resource other than the
 # Terraform state lockfile suffix. A leaked OIDC token from a fork-PR-OIDC
@@ -46,8 +44,8 @@ resource "aws_iam_role" "gh_tf_plan" {
 }
 
 resource "aws_iam_role_policy" "gh_tf_plan" {
-  # checkov:skip=CKV_AWS_287: Read-only API surface (Get*/List*/Describe*) requires Resource:* — restrictable per-ARN scoping is not meaningful for inventory-style API calls. The policy's deny floor is mutation prevention, enforced via state-lock-suffix scoping (Sid WriteStateLockSuffixOnly) and the absence of any Create/Update/Delete actions. See ADR-029 §Decision and §Appendix A.2.
-  # checkov:skip=CKV_AWS_288: Same as CKV_AWS_287 — data exfiltration via read-only metadata is the explicit threat model accepted by ADR-029. AWS account IDs, role ARNs, and similar metadata are classified non-secret per CLAUDE.md "What is NOT a secret" clause; the policy intentionally allows their disclosure to a fork-PR-OIDC-leaked token because the alternative (per-resource read scoping) is operationally infeasible for the breadth of reads `terraform plan` performs.
+  # checkov:skip=CKV_AWS_287: Read-only API surface (Get*/List*/Describe*) requires Resource:* — restrictable per-ARN scoping is not meaningful for inventory-style API calls. The policy's deny floor is mutation prevention, enforced via state-lock-suffix scoping (Sid WriteStateLockSuffixOnly) and the absence of any Create/Update/Delete actions. See ADR-014 §Decision and §Appendix A.2.
+  # checkov:skip=CKV_AWS_288: Same as CKV_AWS_287 — data exfiltration via read-only metadata is the explicit threat model accepted by ADR-014. AWS account IDs, role ARNs, and similar metadata are classified non-secret per CLAUDE.md "What is NOT a secret" clause; the policy intentionally allows their disclosure to a fork-PR-OIDC-leaked token because the alternative (per-resource read scoping) is operationally infeasible for the breadth of reads `terraform plan` performs.
   # checkov:skip=CKV_AWS_355: Resource:* on the ReadOnlyAwsApiSurface Sid is by design — every action in that statement is read-shape (Get*/List*/Describe*/Simulate*). No mutating action uses Resource:* in this policy.
   name = "plan-readonly"
   role = aws_iam_role.gh_tf_plan.id
@@ -147,7 +145,7 @@ resource "aws_iam_role_policy" "gh_tf_plan" {
           "sqs:List*",
           "events:Describe*",
           "events:List*",
-          # ADR-031 Item A adds the `aegis-detective-failed-oidc-assumption`
+          # ADR-016 Item A adds the `aegis-detective-failed-oidc-assumption`
           # rule on the default bus + an SNS topic. Plan-tier refresh needs
           # the read shapes for both services.
           "events:Get*",

@@ -14,7 +14,7 @@ output "github_oidc_provider_arn" {
 }
 
 # -----------------------------------------------------------------------------
-# Break-glass recovery role — ADR-030 OQ-1 graduation
+# Break-glass recovery role — ADR-015 OQ-1 graduation
 # -----------------------------------------------------------------------------
 
 output "aegis_emergency_break_glass_role_arn" {

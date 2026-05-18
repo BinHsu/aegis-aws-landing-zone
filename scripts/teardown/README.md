@@ -3,13 +3,10 @@
 Two scripts, two different risk profiles. See [ADR-009](../../docs/decisions/009-lifecycle-and-teardown-strategy.md)
 for the full strategy and rationale.
 
-> **Scope note (ADR-033).** After the account-fabric descope this repository
-> has **no cost-incurring per-session layers** — no EKS, no NAT, no workload
-> compute. The old `soft-teardown-workload.sh` (per-session destroy of the
-> `network` / `platform` / `workloads` layers) moved to the Platform-tier
-> repository `aegis-platform` with the layers it tore down. What remains here
-> is account-lifecycle teardown only: end-of-project decommission, and
-> drift-recovery cleanup of a workload account.
+> **Scope note.** This repository has **no cost-incurring per-session layers** —
+> no EKS, no NAT, no workload compute. There is no per-session teardown. What
+> exists here is account-lifecycle teardown only: end-of-project decommission,
+> and drift-recovery cleanup of a workload account.
 
 ## Decision tree
 
@@ -77,8 +74,8 @@ invalid afterward — re-run `terraform init` and re-apply in each layer.
 
 The account fabric's always-on baseline is ~$5/month (Control Tower + AWS
 Config recorder + organizational CloudTrail + S3 log storage). There is no
-per-session variable cost to tear down — the cost-incurring layers (EKS, NAT,
-ALB) live in the Platform-tier repository and are torn down there.
+per-session variable cost to tear down — there are no cost-incurring layers
+(EKS, NAT, ALB) in this repository.
 
 | Action | Cost impact |
 |--------|-------------|

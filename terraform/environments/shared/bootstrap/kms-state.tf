@@ -5,8 +5,8 @@
 #
 # WHY: The default aws/s3 key is account-scoped — its key policy only allows
 # the owning account (shared) to use it. This blocks cross-account state
-# reads via `terraform_remote_state` — which the Platform-tier repo
-# (`aegis-platform`) needs in order to read this repo's outputs, e.g. the
+# reads via `terraform_remote_state` — which a downstream consumer in a
+# workload account needs in order to read this repo's outputs, e.g. the
 # org-wide IPAM pool IDs from shared/ipam.
 #
 # A customer-managed KMS key lets us write an explicit policy that grants

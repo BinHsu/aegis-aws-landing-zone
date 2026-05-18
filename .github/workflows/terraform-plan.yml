@@ -71,7 +71,7 @@ jobs:
         working-directory: terraform/environments/${{ matrix.env }}
         id: plan
         # -lock-timeout=10m serializes concurrent plans that hit the same state
-        # file (Dependabot bulk rebases — Incident 23 aftermath).
+        # file (Dependabot bulk rebases — see Incident 10).
         run: terraform plan -no-color -input=false -detailed-exitcode -lock-timeout=10m
         continue-on-error: true
 

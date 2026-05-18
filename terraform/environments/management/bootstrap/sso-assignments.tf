@@ -11,9 +11,8 @@
 # that (a) the operator has human admin access to the account and (b) the
 # `aegis-emergency-break-glass` role in staging/bootstrap — whose trust policy
 # keys on the `AWSReservedSSO_PlatformAdmin_*` role — has a principal to trust.
-# Platform-tier consumers (e.g. EKS Access Entries in the `aegis-platform`
-# repo) rely on the same reserved role being present; this assignment is their
-# account-fabric prerequisite.
+# Downstream consumers in the staging account rely on the same reserved role
+# being present; this assignment is their account-fabric prerequisite.
 # -----------------------------------------------------------------------------
 
 # Discover the Identity Center instance (there is exactly one per organization).
@@ -46,17 +45,16 @@ data "aws_identitystore_user" "bin" {
 # Assigning PlatformAdmin to staging creates the reserved role
 # `AWSReservedSSO_PlatformAdmin_<hash>` in the staging account on next SSO
 # sync. The operator uses it for direct account access and break-glass
-# recovery; the Platform tier (`aegis-platform`) additionally maps it to
-# Kubernetes cluster-admin via an EKS Access Entry.
+# recovery.
 # -----------------------------------------------------------------------------
 # -----------------------------------------------------------------------------
-# IMPORTANT (see docs/incidents.md Incident 9): before adding NEW assignment
+# IMPORTANT (see docs/incidents.md Incident 8): before adding NEW assignment
 # resources to this file, run `aws sso-admin list-account-assignments` against
 # the target to confirm the assignment does not already exist from a prior
 # Console click. The SSO create API is NOT idempotent over pre-existing
 # assignments — it returns `ConflictException: already exists` and the
 # baseline apply fails. The recovery is `terraform import` with the six-part
-# assignment ID. Incident 9 has the exact ID format and recovery commands.
+# assignment ID. Incident 8 has the exact ID format and recovery commands.
 # -----------------------------------------------------------------------------
 resource "aws_ssoadmin_account_assignment" "bin_staging_platform_admin" {
   instance_arn       = tolist(data.aws_ssoadmin_instances.main.arns)[0]

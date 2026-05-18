@@ -3,7 +3,7 @@
 
 This directory documents **known gaps** between the current lab state and what a production-grade deployment of the AWS account fabric would require. It is an honest accounting, not a todo list — the lab deliberately stops short of production on cost and operational grounds. Each entry explains the gap, threat addressed, proposed mitigation, and cost/effort tradeoffs.
 
-> **Scope note.** Per [ADR-033](../decisions/033-landing-zone-scope-correction-account-fabric.md) this repository owns the **account fabric** only. Improvement entries here are about the fabric's reliability — chiefly the Terraform state backend. Productionization gaps for the workload Platform tier (EKS multi-region, observability SLOs, DR drills) belong to the separate `aegis-platform` repository and are no longer tracked here.
+> **Scope note.** This repository owns the **account fabric** only. Improvement entries here are about the fabric's reliability — chiefly the Terraform state backend. Productionization gaps for the workload platform (EKS multi-region, observability SLOs, DR drills) are out of scope here.
 
 ## Why separate from ADRs
 
@@ -89,4 +89,3 @@ Entries in this directory interact with or reference:
 - [ADR-003 — Terraform backend bootstrap](../decisions/003-terraform-backend-bootstrap.md)
 - [ADR-004 — Deployment configuration contract](../decisions/004-deployment-configuration-contract.md)
 - [ADR-006 — Account taxonomy and OU structure](../decisions/006-account-taxonomy-and-ou-structure.md)
-- [ADR-033 — Landing-zone descope to the account fabric](../decisions/033-landing-zone-scope-correction-account-fabric.md) — the scope boundary that defines what this directory tracks.

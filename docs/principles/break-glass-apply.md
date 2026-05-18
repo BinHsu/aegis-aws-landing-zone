@@ -7,7 +7,7 @@
 
 **Default: local `terraform apply` against shared AWS state is FORBIDDEN.**
 
-Every apply goes through `.github/workflows/terraform-apply-baseline.yml`, which auto-applies on merge to main. Per [ADR-033](../decisions/033-landing-zone-scope-correction-account-fabric.md) this repository owns the account fabric only — every layer here is a baseline layer, so there is a single CI apply path and no manual-dispatch workload path. (The cost-incurring workload layers and their `workflow_dispatch`-gated apply moved to the `aegis-platform` repository.)
+Every apply goes through `.github/workflows/terraform-apply-baseline.yml`, which auto-applies on merge to main. This repository owns the account fabric only — every layer here is a baseline layer, so there is a single CI apply path and no manual-dispatch workload path.
 
 The single-path rule exists because:
 
@@ -84,6 +84,6 @@ The lab-tier position is explicitly not a recommendation for a team environment.
 - When the team expands past 1 operator — §"Operator eligibility" must be rewritten to match the new org shape
 - When a `prod` account-fabric layer beyond `prod/bootstrap` is provisioned — the trigger thresholds tighten (prod break-glass is more constrained than staging)
 - When a non-GitHub CI is added (e.g., Buildkite for air-gap deploys) — the "single-path rule" clause must enumerate the new path
-- When a sibling repo (e.g., `aegis-platform`) adopts the same rule — consolidate into an org-level principle, keep this doc as a link target
+- When a sibling repo adopts the same rule — consolidate into an org-level principle, keep this doc as a link target
 
-*Last updated: 2026-05-18 — recast for the account-fabric scope per [ADR-033](../decisions/033-landing-zone-scope-correction-account-fabric.md): the workload `terraform-apply-workload.yml` path and the EKS/NAT cost triggers were removed, since this repo now has a single baseline CI apply path. Originally written 2026-04-20, triggered by Incident 31 (a mid-session apply failure, local re-apply as compensating speed play); that incident is preserved in `docs/incidents.md` and remains the first concrete case study of this doc's boundaries.*
+*This doc governs break-glass local apply for the account fabric's single baseline CI apply path. Incident 12 (a scoped-role policy-bug gauntlet that drove multiple break-glass operations) is a concrete case study of this doc's boundaries.*
