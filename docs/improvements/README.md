@@ -21,7 +21,7 @@ This directory documents **known gaps** between the current lab state and what a
 | Workload data plane | ~3 nines (99.9%) | Single-region multi-AZ, `eu-central-1` |
 | CI / deployment path | ~2.5 nines (~99.8%) | State bucket SPOF in single account + region; worst-case MTTR unbounded |
 | Observability SLI | Phase 4 shipped (Prometheus + Grafana) | No empirical SLO baseline yet — see entry 007 |
-| Multi-region extent | **Modules + CI matrix + K=2 guard shipped; unapplied** | Workload clusters single-region by default; flipping `eks.<env>.regions` to length-2 spins up primary + DR on next apply |
+| Multi-region extent | **External orchestration shipped (ADR-032); cold-apply re-validation pending** | Deployment-stamp / cell layout — region-scoped state, per-region CI + Makefile loop; workload clusters single-region by default, adding an `eks.<env>.regions` entry spins up primary + DR on next cold-apply |
 
 ### Design target (if fully productionized)
 

@@ -23,7 +23,7 @@ amazon-guardduty   aws-guardduty-agent-k2xn6   0/1   CrashLoopBackOff   6   (on 
 amazon-guardduty   aws-guardduty-agent-tm2zz   0/1   Pending            0   (on Fargate node)
 ```
 
-Same split on both primary and slave_1 clusters.
+Same split on both region clusters (`eu-central-1` and `eu-west-1`).
 
 ## Gap / risk
 

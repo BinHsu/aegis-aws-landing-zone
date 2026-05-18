@@ -31,6 +31,14 @@ repos:
       - id: terraform_validate
         exclude: ^terraform/environments/shared/aft/  # Requires AWS provider v6, skip in local validate
 
+  # Secret scanning — block credentials entering history. This project has
+  # zero static credentials by design (SSO / OIDC / IRSA); gitleaks is the
+  # local enforcement of that. CI re-runs it; this is the shift-left copy.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+
   # JSON Schema validation for config/landing-zone.yaml
   - repo: local
     hooks:
