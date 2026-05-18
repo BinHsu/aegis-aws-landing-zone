@@ -83,9 +83,9 @@ locals {
     Component   = "auth"
   })
 
-  # Per-cluster details read from staging/platform's per-slot clusters map.
-  # Auth targets the primary cluster only (see providers.tf rationale).
-  clusters = try(data.terraform_remote_state.staging_platform.outputs.clusters, {})
+  # Cluster details from staging/platform's (region-scoped, primary) flat
+  # outputs — ADR-032. Auth targets the primary cluster only (see providers.tf).
+  platform = try(data.terraform_remote_state.staging_platform.outputs, {})
 
   # platform_applied — derived from whether staging/platform has
   # produced a `primary` cluster in its outputs. Gates the kubectl-
@@ -99,7 +99,7 @@ locals {
   # then reconciles the ExternalSecret once the cluster exists.
   # Verified 2026-04-24 — first rerun against real AWS failed exactly
   # on this gate before it existed.
-  platform_applied = local.auth_enabled && try(contains(keys(local.clusters), "primary"), false)
+  platform_applied = local.auth_enabled && try(local.platform.cluster_name, "") != ""
 }
 
 # -----------------------------------------------------------------------------
@@ -138,7 +138,9 @@ data "terraform_remote_state" "staging_platform" {
   backend = "s3"
   config = {
     bucket = "${local.config.organization.name}-terraform-state-${local.config.accounts.shared.id}"
-    key    = "staging/platform/terraform.tfstate"
+    # Region-scoped key (ADR-032). staging/platform is applied per-region;
+    # auth is primary-only, so it reads the primary region's platform state.
+    key    = "staging/${local.primary_region}/platform/terraform.tfstate"
     region = local.primary_region
   }
 }
@@ -158,10 +160,10 @@ check "platform_layer_applied" {
       !local.auth_enabled
       || (
         data.terraform_remote_state.staging_platform.outputs != null
-        && try(contains(keys(data.terraform_remote_state.staging_platform.outputs.clusters), "primary"), false)
+        && try(data.terraform_remote_state.staging_platform.outputs.cluster_name, "") != ""
       )
     )
-    error_message = "staging/platform has not been applied or its clusters map is missing the primary slot. Apply staging/platform before staging/auth (gh workflow run terraform-apply-workload.yml -f env=staging)."
+    error_message = "staging/platform has not been applied for the primary region. Apply staging/platform before staging/auth (gh workflow run terraform-apply-workload.yml -f env=staging)."
   }
 }
 
