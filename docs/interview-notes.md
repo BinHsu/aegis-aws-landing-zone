@@ -202,7 +202,7 @@ Positive statements of what this project demonstrates, paired with explicit stat
 ### What is claimed
 
 - **Cross-cutting architectural design**: composing 10+ AWS services into a working multi-account landing zone with explicit decisions (ADRs) and documented trade-offs.
-- **Operational discipline**: 31 ADRs + 37 incident postmortems + 8 runbooks + 2 cross-cutting principle docs, each written to a consistent format, never softened retroactively.
+- **Operational discipline**: 33 ADRs + 38 incident postmortems + 8 runbooks + 2 cross-cutting principle docs, each written to a consistent format, never softened retroactively.
 - **Production-shaped patterns** — not production-*hardened* (the lab is single-operator, single-region-primary, no DR-tested, no SOC 2 audit trail). The patterns are transferable to production; the lab itself isn't production.
 - **Reproducibility**: a single `config/landing-zone.yaml` + two shell scripts land the whole foundation in a fresh AWS organization. Fork-and-deploy is not a slogan here; it's tested.
 
