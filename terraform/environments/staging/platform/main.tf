@@ -1,89 +1,50 @@
 # -----------------------------------------------------------------------------
-# Staging EKS clusters — ADR-013 + ADR-018
+# Staging EKS cluster — ADR-013 + ADR-032 external-orchestration multi-region
 # -----------------------------------------------------------------------------
-# One module invocation per entry in eks.staging.regions[]. Provider aliases
-# follow the slot pattern (primary, slave_1). All cluster-specific resources
-# (EKS, KMS, IAM, Fargate, Karpenter, OIDC, access-entries, CoreDNS,
-# LB Controller, ArgoCD) live inside modules/eks-cluster/.
+# One EKS cluster, in the single region this apply targets (var.region). The
+# multi-region fan-out is external: the orchestrator runs this layer once per
+# entry in eks.staging.regions[], each with its own region-scoped state key.
 #
-# State structure: single state per layer — all invocations share
-# staging/platform/terraform.tfstate. Per ADR-018 §4.
+# All cluster-specific resources (EKS, KMS, IAM, Fargate, Karpenter, OIDC,
+# access-entries, CoreDNS, LB Controller, ArgoCD, Kyverno, cert-manager, ESO,
+# Alloy) live inside ./modules/eks-cluster. The module is unchanged from the
+# slot-pattern era — it still declares `<type>.this` configuration aliases;
+# the layer simply maps its default providers onto them.
 # -----------------------------------------------------------------------------
 
 locals {
-  # Null-safe lookup — when staging/network has not yet been applied, its
-  # remote state outputs are empty. The check "network_layer_applied" in
-  # config.tf surfaces the error; this try() prevents a hard error on the
-  # attribute lookup that would mask that check block's diagnostic message.
-  vpcs = try(data.terraform_remote_state.staging_network.outputs.vpcs, {
-    primary = {
-      vpc_id             = ""
-      public_subnet_ids  = []
-      private_subnet_ids = []
-    }
-  })
+  # network outputs for this region. Null-safe: when staging/network has not
+  # been applied for this region, the remote state is empty. The
+  # "network_layer_applied" check in config.tf surfaces the error; these
+  # try() wraps prevent a hard attribute-lookup error masking that diagnostic.
+  network = data.terraform_remote_state.staging_network.outputs
 }
 
-module "cluster_primary" {
+module "cluster" {
   source = "./modules/eks-cluster"
 
   providers = {
-    aws.this        = aws.primary
-    kubernetes.this = kubernetes.primary
-    helm.this       = helm.primary
-    kubectl.this    = kubectl.primary
+    aws.this        = aws
+    kubernetes.this = kubernetes
+    helm.this       = helm
+    kubectl.this    = kubectl
   }
 
-  region_key          = "primary"
-  region_name         = local.primary_eks_region.region
-  cluster_name        = "${local.cluster_name_base}-primary"
+  # region_key and region_name both carry the AWS region under ADR-032
+  # (the slot label is gone — one cluster per region per state).
+  region_key          = local.region
+  region_name         = local.region
+  cluster_name        = local.cluster_name
   cluster_version     = local.eks_version
   public_access_cidrs = local.public_access_cidrs
   account_id          = local.account_id
   organization_name   = local.config.organization.name
   tags                = local.tags
 
-  vpc_id             = try(local.vpcs.primary.vpc_id, "")
-  public_subnet_ids  = try(local.vpcs.primary.public_subnet_ids, [])
-  private_subnet_ids = try(local.vpcs.primary.private_subnet_ids, [])
-  availability_zones = local.zones_by_region[local.primary_eks_region.region]
-
-  ci_role_arn     = local.ci_role_arn
-  github_org      = local.config.github.org
-  github_app_repo = local.config.github.app_repo
-
-  # Observability — ADR-022 (conditional on config.grafana_cloud presence)
-  observability_enabled = local.observability_enabled
-  primary_region        = local.primary_region
-  secrets_kms_key_arn   = try(data.aws_kms_alias.secrets[0].target_key_arn, "")
-  grafana_cloud         = local.grafana_cloud
-}
-
-module "cluster_slave_1" {
-  source = "./modules/eks-cluster"
-
-  count = length(local.slave_regions) >= 1 ? 1 : 0
-
-  providers = {
-    aws.this        = aws.slave_1
-    kubernetes.this = kubernetes.slave_1
-    helm.this       = helm.slave_1
-    kubectl.this    = kubectl.slave_1
-  }
-
-  region_key          = "slave_1"
-  region_name         = try(local.slave_regions[0].region, local.primary_region)
-  cluster_name        = "${local.cluster_name_base}-slave-1"
-  cluster_version     = local.eks_version
-  public_access_cidrs = local.public_access_cidrs
-  account_id          = local.account_id
-  organization_name   = local.config.organization.name
-  tags                = local.tags
-
-  vpc_id             = try(local.vpcs.slave_1.vpc_id, "")
-  public_subnet_ids  = try(local.vpcs.slave_1.public_subnet_ids, [])
-  private_subnet_ids = try(local.vpcs.slave_1.private_subnet_ids, [])
-  availability_zones = try(local.zones_by_region[local.slave_regions[0].region], [])
+  vpc_id             = try(local.network.vpc_id, "")
+  public_subnet_ids  = try(local.network.public_subnet_ids, [])
+  private_subnet_ids = try(local.network.private_subnet_ids, [])
+  availability_zones = local.zones
 
   ci_role_arn     = local.ci_role_arn
   github_org      = local.config.github.org

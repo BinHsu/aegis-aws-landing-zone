@@ -35,5 +35,5 @@ output "availability_zones" {
 
 output "region_name" {
   description = "AWS region name for this VPC"
-  value       = var.region_name
+  value       = var.region
 }
