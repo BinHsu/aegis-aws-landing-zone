@@ -58,27 +58,30 @@ where alternatives were genuinely weighed.
 | [030](030-tier-2b-permission-boundary-hardening.md) | Tier 2B Permission Boundary Hardening | Accepted |
 | [031](031-tier-3-detective-controls.md) | Tier 3 Detective Controls | Accepted |
 | [032](032-external-orchestration-multi-region.md) | External Orchestration for Multi-region EKS | Accepted (supersedes 018 §3–§4) |
+| [033](033-landing-zone-scope-correction-account-fabric.md) | Landing-zone Scope Correction — Account Fabric | Accepted (supersedes 001 scope-list; phased) |
 
 > Filenames in the table are the conventional `NNN-title.md` form. If a link
 > 404s, the on-disk title slug differs slightly — the number is authoritative.
 
 ## Reading orders by audience
 
-You do not need to read 32 ADRs front to back. Pick the path for why you are
+You do not need to read 33 ADRs front to back. Pick the path for why you are
 here. Each list is ordered so the argument builds on itself.
 
 ### Senior platform / infrastructure reviewer
 
 Understand the shape of the landing zone and why it is shaped that way.
 
-`001` → `006` → `008` → `011` → `003` → `004` → `024` → `007` → `002` → `012` → `013` → `018` → `032` → `027`
+`001` → `033` → `006` → `008` → `011` → `003` → `004` → `024` → `007` → `002` → `012` → `013` → `018` → `032` → `027`
 
-Scope boundary first (what this repo does and does not own), then the
-account/OU taxonomy, then the Control-Tower-plus-Terraform tooling split and
-how accounts are provisioned. State layout and the config contract explain how
-the code is parameterised; the repo-topology and infra/app-split ADRs explain
-why it is one repo. The tail (`002`–`027`) is the workload substrate: regions,
-VPC, EKS, multi-region, and the layer-sharding discipline.
+Scope boundary first (what this repo does and does not own) — read `001`
+immediately with `033`, which corrects that scope down to the account fabric and
+reclassifies EKS/ArgoCD/observability as an extractable Platform tier. Then the
+account/OU taxonomy, the Control-Tower-plus-Terraform tooling split, and how
+accounts are provisioned. State layout and the config contract explain how the
+code is parameterised; the repo-topology and infra/app-split ADRs explain the
+tier model. The tail (`002`–`027`) is the workload substrate: regions, VPC, EKS,
+multi-region, and the layer-sharding discipline.
 
 ### Reliability / DR reviewer
 
@@ -108,8 +111,9 @@ and human/workload authentication.
 
 The minimum to understand the repo before touching anything.
 
-`001` → `004` → `024` → `008` → `009`
+`001` → `033` → `004` → `024` → `008` → `009`
 
-What the repo is for, how config drives it, how the one repo is isolated
-internally, what tooling it assumes, and the lifecycle/teardown rules that keep
-a fork from running up a bill.
+What the repo is for and how its scope was corrected (`033` descopes it to the
+account fabric), how config drives it, how the one repo is isolated internally,
+what tooling it assumes, and the lifecycle/teardown rules that keep a fork from
+running up a bill.
