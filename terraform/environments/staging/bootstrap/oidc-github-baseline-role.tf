@@ -70,6 +70,21 @@ resource "aws_iam_role_policy" "gh_tf_apply_baseline" {
         ]
       },
       {
+        # IAM service-linked role lifecycle. The aws-service-role/* path is
+        # the only ARN shape AWS supports for these actions; the prefix
+        # bounds mutation to service-linked roles. SLRs may persist in an
+        # account after the consuming service is removed (AWS does not
+        # auto-delete them) — the apply-tier needs the delete API to
+        # reconcile state.
+        Sid    = "IamServiceLinkedRoleLifecycle"
+        Effect = "Allow"
+        Action = [
+          "iam:DeleteServiceLinkedRole",
+          "iam:GetServiceLinkedRoleDeletionStatus",
+        ]
+        Resource = "arn:aws:iam::${local.account_id}:role/aws-service-role/*"
+      },
+      {
         # Account alias — account-level operations. AWS IAM rejects any
         # resource-level ARN on these actions ("account-alias/*" is NOT
         # in the IAM-allowed-resource-path list); Resource: "*" is the
