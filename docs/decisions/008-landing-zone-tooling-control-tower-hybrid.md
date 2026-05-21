@@ -16,7 +16,7 @@ Use AWS Control Tower as the managed foundation, and extend it with custom Terra
 
 **Terraform handles:** creation of the `aegis-shared` account via Account Factory for Terraform, creation of the `aegis-staging` and `aegis-prod` accounts via the same mechanism, custom SCPs beyond Control Tower defaults, the GitHub OIDC identity provider, IAM roles for CI/CD, the organization-wide IPAM, the per-account bootstrap baseline, and everything else the account fabric owns as committed infrastructure-as-code.
 
-The Control Tower home region is `eu-central-1` per ADR-002 and is permanent once set. The decision is intertwined with the region strategy and cannot be revisited without decommissioning the landing zone.
+The Control Tower home region is `eu-central-1` per ADR-002 and is permanent once set. The decision is intertwined with the region strategy and cannot be revisited without destroying the landing zone.
 
 ## Alternatives Considered
 
@@ -40,7 +40,7 @@ Some OU names and baseline guardrails are locked by Control Tower defaults and c
 
 Config recorder runs continuously in all enrolled accounts, adding approximately five dollars per month of baseline cost. See ADR-009 for the full cost model.
 
-Control Tower's home region is permanent. Changing it requires decommissioning the landing zone, which is a destructive operation subject to the constraints documented in ADR-009. The region selection in ADR-002 is therefore load-bearing for this decision and cannot be revisited casually.
+Control Tower's home region is permanent. Changing it requires destroying the landing zone, which is a destructive operation subject to the constraints documented in ADR-009. The region selection in ADR-002 is therefore load-bearing for this decision and cannot be revisited casually.
 
 Time-to-Phase-2 is reduced from weeks to hours. Phase 1 (foundation) is substantially automated by Control Tower, which frees the project to spend its time on the phases where actual learning occurs. This is the most important consequence: the project's finite time budget is allocated to the parts that produce portfolio value, not to the parts that rebuild something already known.
 

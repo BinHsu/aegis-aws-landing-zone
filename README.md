@@ -168,7 +168,7 @@ All ADRs are **Accepted**.
 | [006](docs/decisions/006-account-taxonomy-and-ou-structure.md) | Account taxonomy and OU structure |
 | [007](docs/decisions/007-infra-app-repository-split.md) | Infrastructure / application repository split |
 | [008](docs/decisions/008-landing-zone-tooling-control-tower-hybrid.md) | Landing zone tooling — Control Tower + Terraform hybrid |
-| [009](docs/decisions/009-lifecycle-and-teardown-strategy.md) | Lifecycle and teardown strategy |
+| [009](docs/decisions/009-lifecycle-and-teardown-strategy.md) | Lifecycle and destroy strategy |
 | [010](docs/decisions/010-shared-account-bootstrap-sequence.md) | Shared account bootstrap sequence |
 | [011](docs/decisions/011-account-provisioning-two-path-strategy.md) | Account provisioning — two-path strategy |
 | [012](docs/decisions/012-ipam-and-cidr-allocation.md) | IPAM and org-wide CIDR allocation |
@@ -199,7 +199,7 @@ The tiers are maintained independently and coordinate through GitHub Issues labe
 - The account-fabric always-on baseline is **~$5/month**: Control Tower + AWS Config recorder + organizational CloudTrail + S3 log storage. IPAM advanced tier bills ~$0 idle.
 - There are **no per-session cost-incurring layers** in this repo — no EKS, no NAT Gateway, no ALB.
 - Budget alerts: daily $10, monthly $30 (enforced via AWS Budgets in the management account).
-- The account fabric is steady-state — it is not torn down between sessions. The only teardown is the project-end [`hard-teardown-landing-zone.sh`](scripts/teardown/README.md). See [ADR-009](docs/decisions/009-lifecycle-and-teardown-strategy.md).
+- The account fabric is steady-state — it is not destroyed between sessions. The only destroy is the project-end [`hard-teardown-landing-zone.sh`](scripts/teardown/README.md). See [ADR-009](docs/decisions/009-lifecycle-and-teardown-strategy.md).
 
 ## Prerequisites
 

@@ -112,6 +112,6 @@ This is a staff / principal-level answer. The senior version collapses to "we do
 
 - [ADR-003](003-terraform-backend-bootstrap.md) — per-layer state isolation; the mechanism that makes single-repo safe
 - [ADR-007](007-infra-app-repository-split.md) — the Landing Zone / Platform / App tier model (orthogonal to this ADR; the tier boundaries are chosen, an internal repo split is declined)
-- [ADR-009](009-lifecycle-and-teardown-strategy.md) — teardown patterns that rely on layer boundaries inside the repo
+- [ADR-009](009-lifecycle-and-teardown-strategy.md) — destroy patterns that rely on layer boundaries inside the repo
 - `docs/principles/break-glass-apply.md` — the exception-tracking mechanism that lets GitOps-only discipline hold under pressure
 - [CLAUDE.md](../../CLAUDE.md) Technical Standards §Terraform — the operational conventions this ADR depends on

@@ -50,7 +50,7 @@ Fork-and-deploy becomes a config-only operation. A hiring manager reviewing the 
 
 The JSON Schema must be kept in sync with Terraform code as the contract evolves. Schema drift is caught by the pre-commit hook before a commit can land.
 
-IPAM introduces a small ongoing cost (approximately one to five dollars per month). It also imposes a destroy-time release lag on any consumer that allocates a VPC CIDR: `terraform destroy` of an IPAM-managed VPC takes longer than a non-IPAM VPC because IPAM detects the VPC's removal asynchronously before it releases the CIDR allocation. The account fabric provisions IPAM but operates no VPC of its own, so this lag does not bear on the fabric's own teardown; it is a property a CIDR consumer inherits. The full mechanism is documented in ADR-012.
+IPAM introduces a small ongoing cost (approximately one to five dollars per month). It also imposes a destroy-time release lag on any consumer that allocates a VPC CIDR: `terraform destroy` of an IPAM-managed VPC takes longer than a non-IPAM VPC because IPAM detects the VPC's removal asynchronously before it releases the CIDR allocation. The account fabric provisions IPAM but operates no VPC of its own, so this lag does not bear on the fabric's own destroy; it is a property a CIDR consumer inherits. The full mechanism is documented in ADR-012.
 
 This is a property of the Mode B choice, not a defect. It is the price of having a centralized, non-overlap-enforced CIDR planner. An operator who prefers faster destroys at the cost of manual CIDR non-overlap management would choose Mode A instead.
 

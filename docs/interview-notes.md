@@ -57,9 +57,9 @@ Each entry: what was built → where to look in the repo → the kind of questio
 **Where to look**:
 - [`docs/decisions/009-lifecycle-and-teardown-strategy.md`](decisions/009-lifecycle-and-teardown-strategy.md)
 - [`.github/workflows/`](../.github/workflows/) — the three workflows
-- [`scripts/teardown/hard-teardown-landing-zone.sh`](../scripts/teardown/) — project-end teardown with triple confirmation
+- [`scripts/teardown/hard-teardown-landing-zone.sh`](../scripts/teardown/) — project-end destroy with triple confirmation
 
-**Likely questions**: why OIDC instead of IAM users (zero-static-credentials principle, OIDC subject-claim scoping per ADR-014); what happens on rollback (`git revert` + CI re-apply — see [`docs/principles/change-review-discipline.md`](principles/change-review-discipline.md) §2.4); why is there no per-session teardown (the account fabric has no idle-billing resources — see [`docs/finops.md`](finops.md)).
+**Likely questions**: why OIDC instead of IAM users (zero-static-credentials principle, OIDC subject-claim scoping per ADR-014); what happens on rollback (`git revert` + CI re-apply — see [`docs/principles/change-review-discipline.md`](principles/change-review-discipline.md) §2.4); why is there no per-session destroy (the account fabric has no idle-billing resources — see [`docs/finops.md`](finops.md)).
 
 ### 2.3 Account bootstrap and vending
 
@@ -128,9 +128,9 @@ Each entry: what was built → where to look in the repo → the kind of questio
 **Where to look**:
 - [`CLAUDE.md`](../CLAUDE.md) "Cost Guardrails" section
 - [`docs/finops.md`](finops.md) — the account-fabric cost model
-- [`scripts/teardown/`](../scripts/teardown/) — the hard teardown (project-end) and emergency cloud-nuke scripts
+- [`scripts/teardown/`](../scripts/teardown/) — the hard destroy (project-end) and emergency cloud-nuke scripts
 
-**Likely questions**: what does the account fabric cost idle (~$5/month — Control Tower baseline; see `docs/finops.md`); why no per-session teardown discipline here (there is nothing that bills while idle); what is the one usage-priced line item (IPAM Advanced tier, ~$0 idle, cents per month once a consumer allocates).
+**Likely questions**: what does the account fabric cost idle (~$5/month — Control Tower baseline; see `docs/finops.md`); why no per-session destroy discipline here (there is nothing that bills while idle); what is the one usage-priced line item (IPAM Advanced tier, ~$0 idle, cents per month once a consumer allocates).
 
 ---
 

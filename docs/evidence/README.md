@@ -13,8 +13,8 @@ URLs rot. Capture the proof and check it in.
 
 > **Scope note.** This repository owns the **account fabric** only. Evidence
 > here is about the fabric: account bootstrap, SCP enforcement, OIDC federation,
-> the state backend, IPAM allocation. Workload evidence (EKS cold-apply records,
-> DR drill reports, multi-region failover tests, teardown-clean confirmations)
+> the state backend, IPAM allocation. Workload evidence (EKS bootstrap records,
+> DR drill reports, multi-region failover tests, destroy-clean confirmations)
 > is a platform concern and out of scope here.
 
 ## What belongs here

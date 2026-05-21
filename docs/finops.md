@@ -4,13 +4,13 @@
 
 This repository owns the **AWS account fabric** — Organizations, OUs, SCPs, IAM Identity Center, account bootstrap and vending, the Terraform state backend, the GitHub OIDC provider, the centralized security/audit baseline, and the org-wide IPAM. Resources that bill while idle — EKS, NAT Gateways, ALBs — are platform concerns and out of scope here.
 
-The consequence for cost: this repo has **no per-session cost-incurring layers**. Every layer here is a cheap, persistent baseline layer. The cost model is "what does the always-on fabric cost", not "what leaks if a teardown is skipped" — there is nothing to tear down.
+The consequence for cost: this repo has **no per-session cost-incurring layers**. Every layer here is a cheap, persistent baseline layer. The cost model is "what does the always-on fabric cost", not "what leaks if a destroy is skipped" — there is nothing to destroy.
 
 Region for all figures: `eu-central-1` (Frankfurt). Prices are on-demand list and rounded; they move — treat them as order-of-magnitude, not invoices.
 
 ## Cost philosophy
 
-One tier, one lifecycle. Every layer — `management/*`, `shared/*`, `staging/bootstrap`, `prod/bootstrap` — is a baseline layer: cheap, persistent, auto-applied on merge to main. They hold organization structure, SCPs, CloudTrail, AWS Config, GuardDuty, IPAM, and the Terraform state bucket. They cost a few dollars per month and are *never* torn down.
+One tier, one lifecycle. Every layer — `management/*`, `shared/*`, `staging/bootstrap`, `prod/bootstrap` — is a baseline layer: cheap, persistent, auto-applied on merge to main. They hold organization structure, SCPs, CloudTrail, AWS Config, GuardDuty, IPAM, and the Terraform state bucket. They cost a few dollars per month and are *never* destroyed.
 
 The discipline in one sentence: **the account fabric runs forever and costs ~$5/month; there is no ephemeral cost in this repo.**
 
@@ -38,7 +38,7 @@ The persistent cost of the account fabric is dominated by the Control Tower base
 | KMS customer-managed keys (state bucket, log encryption) | $1/key/mo + per-request | ~$2 |
 | GuardDuty (org-wide) | Per GB of analyzed events / logs | ~$0–1 at fabric-only traffic |
 
-Total order of magnitude: **~$5/month**, persistent. None of it is torn down — it is the cost of having a governed multi-account organization at all.
+Total order of magnitude: **~$5/month**, persistent. None of it is destroyed — it is the cost of having a governed multi-account organization at all.
 
 ## IPAM — the only usage-priced item
 

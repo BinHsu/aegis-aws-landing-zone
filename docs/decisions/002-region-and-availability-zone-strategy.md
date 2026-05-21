@@ -40,4 +40,4 @@ The explicit AZ list in config means subnet layout is reviewable before `terrafo
 
 The AZ-name limitation will require a one-time migration if scope expands to cross-account networking. The cost of that migration is bounded: replace AZ name references with AZ IDs in the config schema, update Terraform to resolve IDs via `data "aws_availability_zones" "available"` with `all_availability_zones = true`, re-run `terraform plan` to confirm no destructive changes, redeploy. The migration path is additive and does not destroy existing resources. This known limitation is an acceptable trade-off for present readability.
 
-The region strategy is load-bearing for ADR-008: Control Tower's home region is permanent once selected, so the `eu-central-1` choice here cannot be revisited without decommissioning the landing zone.
+The region strategy is load-bearing for ADR-008: Control Tower's home region is permanent once selected, so the `eu-central-1` choice here cannot be revisited without destroying the landing zone.

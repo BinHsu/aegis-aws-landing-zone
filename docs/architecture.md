@@ -88,7 +88,7 @@ sequenceDiagram
   AWS-->>TF: applied state
 ```
 
-Every layer in this repo is a baseline layer: cheap, persistent, and auto-applied on merge to main via `terraform-apply-baseline.yml`. There are no cost-incurring workload layers and no manual-dispatch apply/teardown path in this repo.
+Every layer in this repo is a baseline layer: cheap, persistent, and auto-applied on merge to main via `terraform-apply-baseline.yml`. There are no cost-incurring workload layers and no manual-dispatch apply/destroy path in this repo.
 
 **Required status checks on main** (branch protection): `Plan` jobs for every baseline layer + `Checkov IaC Security Scan`. See [Runbook Part 10.3](runbooks/001-bootstrap-aws-account.md).
 

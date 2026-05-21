@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# hard-teardown-landing-zone.sh — one-time project decommission
+# hard-teardown-landing-zone.sh — one-time project destroy
 # =============================================================================
 # Destroys EVERYTHING the account fabric owns:
 #   - Management SCPs, shared IPAM + AFT, all account bootstrap layers
@@ -69,7 +69,7 @@ REQUIRED_SENTENCE="I understand closed accounts are locked for 90 days and the e
 
 echo ""
 echo "=============================================================================="
-echo "HARD TEARDOWN — PROJECT DECOMMISSION"
+echo "HARD DESTROY — END-OF-PROJECT LANDING ZONE"
 echo "=============================================================================="
 echo ""
 echo "This destroys the ENTIRE landing zone and closes all member accounts."
@@ -167,10 +167,10 @@ destroy_layer "shared" "shared" "bootstrap"
 destroy_layer "management" "management" "scps"
 destroy_layer "management" "management" "bootstrap"
 
-# --- Control Tower decommission ---
+# --- Control Tower destroy ---
 
 echo ""
-echo "Decommissioning Control Tower landing zone..."
+echo "Destroying Control Tower landing zone..."
 LZ_ARN=$(AWS_PROFILE="aegis-management-admin" \
   aws controltower list-landing-zones --region eu-central-1 \
   --query 'landingZones[0].arn' --output text)
@@ -182,7 +182,7 @@ if [[ -n "${LZ_ARN}" ]] && [[ "${LZ_ARN}" != "None" ]]; then
     --region eu-central-1
   echo "Control Tower deletion initiated. This takes approximately 30 minutes."
 else
-  echo "No Control Tower landing zone found. Skipping decommission."
+  echo "No Control Tower landing zone found. Skipping destroy."
 fi
 
 # --- Close member accounts ---

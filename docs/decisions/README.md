@@ -68,7 +68,7 @@ Understand the failure model of the control plane itself.
 
 `002` → `009` → `003`
 
-Region/AZ strategy and the lifecycle/teardown model set the baseline; the
+Region/AZ strategy and the lifecycle/destroy model set the baseline; the
 state-backend ADR explains recovery of the Terraform control plane — the one
 piece of durable state the account fabric owns.
 
@@ -90,5 +90,5 @@ The minimum to understand the repo before touching anything.
 `001` → `004` → `013` → `008` → `009`
 
 What the repo is for, how config drives it, how the one repo is isolated
-internally, what tooling it assumes, and the lifecycle/teardown rules that keep
+internally, what tooling it assumes, and the lifecycle/destroy rules that keep
 a fork from running up a bill.

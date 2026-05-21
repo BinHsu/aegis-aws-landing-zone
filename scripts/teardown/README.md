@@ -1,11 +1,11 @@
-# Teardown scripts
+# Destroy scripts
 
 Two scripts, two different risk profiles. See [ADR-009](../../docs/decisions/009-lifecycle-and-teardown-strategy.md)
 for the full strategy and rationale.
 
 > **Scope note.** This repository has **no cost-incurring per-session layers** —
-> no EKS, no NAT, no workload compute. There is no per-session teardown. What
-> exists here is account-lifecycle teardown only: end-of-project decommission,
+> no EKS, no NAT, no workload compute. There is no per-session destroy. What
+> exists here is account-lifecycle destroy only: end-of-project destroy,
 > and drift-recovery cleanup of a workload account.
 
 ## Decision tree
@@ -34,7 +34,7 @@ accounts** — they enter AWS's 90-day suspension period.
 - Requires running locally from the developer's terminal
 
 **When to use:** Exactly once, when the project is genuinely over. This is not
-a session-level teardown — it permanently suspends AWS accounts for 90 days.
+a session-level destroy — it permanently suspends AWS accounts for 90 days.
 
 **After running:** The management account itself cannot be closed via CLI.
 Sign in as the root user via the AWS Console to close it manually.
@@ -74,10 +74,10 @@ invalid afterward — re-run `terraform init` and re-apply in each layer.
 
 The account fabric's always-on baseline is ~$5/month (Control Tower + AWS
 Config recorder + organizational CloudTrail + S3 log storage). There is no
-per-session variable cost to tear down — there are no cost-incurring layers
+per-session variable cost to destroy — there are no cost-incurring layers
 (EKS, NAT, ALB) in this repository.
 
 | Action | Cost impact |
 |--------|-------------|
-| Steady state (no teardown) | ~$5/month account-fabric baseline |
+| Steady state (no destroy) | ~$5/month account-fabric baseline |
 | `hard-teardown-landing-zone.sh` | One-time; after completion, monthly cost drops to $0 |

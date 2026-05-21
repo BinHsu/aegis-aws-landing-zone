@@ -147,7 +147,7 @@ Cluster, GitOps, and workload concerns are a separate Platform tier and out of s
 
 - **Set a daily and a monthly budget cap with alerts in the management account.** The account fabric's always-on cost is ~$5/month (Control Tower + AWS Config recorder + organizational CloudTrail + S3 log storage) plus IPAM advanced tier (~$0 idle — billed per actively-managed IP). There are no per-session cost-incurring layers in this repo: no EKS, no NAT Gateway, no ALB.
 - **Rule: AI must check whether a change introduces a cost-incurring resource** (NAT Gateway, EKS, EC2, ALB, RDS, etc.). The account fabric should not grow a billing-while-idle resource without an ADR — and if a proposed change wants one, that is usually a sign the change belongs in the Platform tier, not here.
-- **No per-session teardown.** The account fabric is steady-state infrastructure — it is not torn down between sessions. The only teardown path is the project-end `scripts/teardown/hard-teardown-landing-zone.sh` (triple-confirmed). See ADR-009.
+- **No per-session destroy.** The account fabric is steady-state infrastructure — it is not destroyed between sessions. The only destroy path is the project-end `scripts/teardown/hard-teardown-landing-zone.sh` (triple-confirmed). See ADR-009.
 - **Baseline layers auto-apply on merge to main** via `terraform-apply-baseline.yml` — every layer in this repo qualifies.
 
 ## Main agent vs subagent: a decision, not a default

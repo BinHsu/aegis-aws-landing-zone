@@ -187,7 +187,7 @@ Navigate to **AWS Control Tower** in the console and click **Set up landing zone
 
 **Home Region**: Select **Europe (Frankfurt) — eu-central-1**.
 
-> **Permanent decision.** Once Control Tower launches, the home region cannot be changed without fully decommissioning the landing zone, which is subject to AWS account-closure constraints described in ADR-009 (90-day lockout, 10% / 30-day rolling quota). If the wizard defaults to a different region such as `us-east-1`, change it manually before proceeding.
+> **Permanent decision.** Once Control Tower launches, the home region cannot be changed without fully destroying the landing zone, which is subject to AWS account-closure constraints described in ADR-009 (90-day lockout, 10% / 30-day rolling quota). If the wizard defaults to a different region such as `us-east-1`, change it manually before proceeding.
 
 **Region deny setting**: **Enable**.
 
@@ -548,7 +548,7 @@ Some Control Tower 3.x wizard versions do not expose a Config-specific KMS optio
 
 **Recovery 4 — Home Region is wrong (the only unrecoverable scenario):**
 
-If the home region was accidentally launched as anything other than `eu-central-1`, the landing zone cannot be corrected without full decommissioning. Decommissioning incurs the 90-day account closure lockout described in ADR-009, plus a full re-enrollment of Control Tower from scratch. This is the worst-case scenario and the reason section 4.7 emphasizes triple-checking the home region before launching. If this happens to you, see ADR-009 for the account closure constraints and plan for a 90-day delay before rebuilding.
+If the home region was accidentally launched as anything other than `eu-central-1`, the landing zone cannot be corrected without full destroying. Destroying incurs the 90-day account closure lockout described in ADR-009, plus a full re-enrollment of Control Tower from scratch. This is the worst-case scenario and the reason section 4.7 emphasizes triple-checking the home region before launching. If this happens to you, see ADR-009 for the account closure constraints and plan for a 90-day delay before rebuilding.
 
 **Recovery 5 — Wrong account name for audit or log archive:**
 
