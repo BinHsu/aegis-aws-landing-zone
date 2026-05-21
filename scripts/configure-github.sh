@@ -12,7 +12,7 @@
 #     Required because Dependabot PRs run in an isolated secret context; without
 #     this, the Write config step in terraform-plan.yml materializes an empty
 #     file and `terraform plan` fails with "yamldecode: missing start of document"
-#     across every matrix leg. See docs/incidents.md §23 for the full postmortem.
+#     across every matrix leg. See docs/incidents.md §9 for the full postmortem.
 #
 # Prerequisites:
 #   - gh CLI installed and authenticated (gh auth login)
