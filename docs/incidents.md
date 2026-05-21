@@ -885,9 +885,70 @@ With no contention every baseline layer acquired its lock and applied cleanly. N
 
 ---
 
+## Incident 15 — Spot SLR delete cascade after over-aggressive policy trim
+
+**Date**: 2026-05-21 (post-descope clean-up, PR #218 + #227)
+**Severity**: S3
+**Duration**: ~90 minutes from baseline-apply failure to clean retry
+
+### Symptom
+
+The `terraform-apply-baseline` workflow that auto-fired on merge of the descope PR errored on `Apply staging/bootstrap`:
+
+```
+Error: deleting IAM Service Linked Role (AWSServiceRoleForEC2Spot):
+  api error AccessDenied: ... iam:DeleteServiceLinkedRole ...
+  no identity-based policy allows the iam:DeleteServiceLinkedRole action
+```
+
+Around 20 other destroys in the same matrix leg completed cleanly; the SLR was the single sticking point.
+
+### Root cause
+
+Two-layer cause.
+
+1. **Policy trim looked at `.tf`, not at state.** The descope removed `spot-service-linked-role.tf`, and in the same pass the scope-down on `gh-tf-apply-baseline` dropped the `IamServiceLinkedRoleCreate` Sid (Create for `spot.amazonaws.com` / `eks.amazonaws.com`). The intent was right — Create is no longer needed — but the trim incidentally dropped the *Delete* permission as well, and the staging account's Terraform state still held `aws_iam_service_linked_role.spot` from an earlier apply. Destroying that state entry requires `iam:DeleteServiceLinkedRole`.
+2. **Policy update and SLR destroy race in the same apply.** The fix PR added the Delete permission back. On the first apply after the fix merged, Terraform planned both *update the policy* and *destroy the SLR* in parallel (no dependency between them). The destroy API call fired before the policy-update propagation finished, so the GitHub-Actions session still had the old, insufficient permission and the apply errored at the SLR a second time.
+
+### Detection
+
+GitHub email notification "Run failed: Terraform Apply (Baseline)". `gh run view <id> --log-failed | grep -E '^Apply.*Error:'` pin-pointed the single `Error:` line.
+
+### Resolution
+
+```bash
+# 1) Add the Delete permission back to the apply-baseline role.
+#    PR #227: IamServiceLinkedRoleLifecycle Sid with
+#      Action   = [iam:DeleteServiceLinkedRole, iam:GetServiceLinkedRoleDeletionStatus]
+#      Resource = arn:aws:iam::<acct>:role/aws-service-role/*
+gh pr merge 227 --admin --squash --delete-branch
+
+# 2) The auto-fired apply lost the parallel race. Re-dispatch — by now the
+#    new policy is live in AWS, so the next session has the permission.
+gh workflow run terraform-apply-baseline.yml --ref main
+
+# 3) Confirm green.
+gh run view <new-id> --json conclusion,jobs -q '.conclusion'
+```
+
+After the SLR was destroyed the `IamServiceLinkedRoleLifecycle` Sid was removed in a follow-up PR — no other SLRs in scope, so the over-permission is not retained.
+
+### Prevention
+
+- When trimming a Terraform-managed IAM policy, do not look only at `.tf` — look at what is still in state. The destroy-only permissions on tomb-stoned resources are the ones that bite.
+- Where a permission-add and a destroy of a state-only resource live in the same plan, expect a propagation race. The deterministic pattern is two PRs: (a) add the permission and let it apply, (b) then remove the resource and let Terraform destroy it with the already-live permission. The one-PR variant lands eventually but expect a `workflow_dispatch` retry as the second leg.
+
+### Lessons
+
+- "Drift is a bug" applies to *latent* state too. A resource that exists in state but not in `.tf` is drift waiting to fail the next apply.
+- `gh run view <id> --log-failed | grep '^.*Error:'` is the fastest path from a failure notification to the actionable line — usually a single grep suffices.
+- For one-shot cleanup permissions that have no long-term role purpose, prefer adding and removing them in two PRs around the cleanup rather than letting them silt up the policy. The over-permission is small but removing it closes the principle-of-least-privilege loop.
+
+---
+
 ## Adding a new incident
 
-Append new sections at the bottom, before this footer, using the format below. The next incident to be recorded is Incident 15.
+Append new sections at the bottom, before this footer, using the format below. The next incident to be recorded is Incident 16.
 
 ```markdown
 ## Incident NN — <short descriptive title>
