@@ -43,22 +43,16 @@ All Terraform state — every account, every layer — lives in a single S3 buck
 **Meets target by**:
 
 - S3 native async replication to `aegis-logarchive` @ `eu-west-1`. Typical replication lag is well under 15 minutes — inside the 1h RPO budget. No Replication Time Control (RTC) needed.
-- Pre-documented recovery runbook `docs/runbooks/005-state-bucket-recovery.md` (forward-referenced; listed as a dependency, not yet written).
+- Pre-documented state-bucket recovery runbook under `docs/runbooks/` (forward-referenced; listed as a dependency, not yet written — it would be the next runbook, 002).
 
 **Lab limitation**: a single-operator lab without 24/7 on-call cannot meet RTO=1h in practice. Real-world recovery time during sleep is "next time the operator checks their phone" — 8–24 hours. The 1h target is for a productionized version, not lab reality. Documented honestly rather than hidden.
 
 ## Scope
 
-**CI / deployment path only.** State bucket downtime does not affect:
+**CI / deployment path only.** The account fabric provisions and governs accounts — it does not serve traffic — so state bucket downtime does not cause an outage of any running system. It does affect:
 
-- Running workloads (EKS control + data plane continue serving traffic).
-- ArgoCD sync (it reads from GitHub, not from state).
-- Any user-facing SLA.
-
-State bucket downtime does affect:
-
-- All `terraform plan` / `apply` operations.
-- New workload provisioning.
+- All `terraform plan` / `apply` operations across every layer of the account fabric.
+- New account vending and any change to the org, SCPs, IPAM, or the security baseline.
 - Incident response that requires an infrastructure change.
 
 ## SLO impact
@@ -66,8 +60,6 @@ State bucket downtime does affect:
 | Path | Before | After |
 |---|---|---|
 | CI / deployment | ~2.5 nines (worst-case MTTR unbounded for malicious delete / region outage) | 3.5 nines (RTO=1h bounded) |
-
-Workload data plane SLO unchanged — that's entry 008's concern, not this one.
 
 ## Proposed mitigation
 
@@ -89,7 +81,7 @@ Three layers, in priority order.
 
 ### Layer 3 — Documented recovery runbook
 
-- `docs/runbooks/005-state-bucket-recovery.md` (not yet written; a separate improvement, listed in Prerequisites below).
+- A state-bucket recovery runbook under `docs/runbooks/` (not yet written; a separate improvement, listed in Prerequisites below).
 - Steps: detect → validate replica integrity → re-point `backend.tf` from source to replica bucket → `terraform init -migrate-state` → resume operations.
 - Each step has a time budget; total under 1 hour RTO.
 
@@ -121,7 +113,7 @@ Documented as the current state. Acceptable for lab scale where data is bounded 
 2. Destination bucket must be created with Object Lock enabled at creation time. Object Lock **cannot be enabled retroactively** on an existing bucket.
 3. Dedicated KMS CMK in `aegis-logarchive` for destination bucket encryption.
 4. **Entry 002** (planned, *logarchive consolidation*) should ratify logarchive's WORM cold-path semantics and declare it as the canonical backup / audit destination before this entry consumes it.
-5. `docs/runbooks/005-state-bucket-recovery.md` written and drilled at least once before this entry can be considered complete.
+5. A state-bucket recovery runbook under `docs/runbooks/` written and drilled at least once before this entry can be considered complete.
 
 ## Reversibility
 

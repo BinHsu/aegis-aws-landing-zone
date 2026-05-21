@@ -4,11 +4,13 @@
 Accepted
 
 ## Context
-A landing zone can expand indefinitely. AWS Organizations, SCPs, Identity Center, networking, compute, observability, security services, compliance frameworks — each is its own multi-month project at enterprise scale. Without an explicit scope boundary, a portfolio-sized lab will either drift into incomplete coverage of too many areas, or exhaust its budget and time on foundational infrastructure before reaching the parts that demonstrate the hands-on skills it was built to showcase.
+A landing zone can expand indefinitely. AWS Organizations, SCPs, Identity Center, networking, compute, observability, security services, compliance frameworks — each is its own multi-month project at enterprise scale. Without an explicit scope boundary, a portfolio-sized lab will either drift into incomplete coverage of too many areas, or exhaust its budget and time before the foundation is coherent.
 
 This ADR defines what is in scope and out of scope for the `aegis-aws-landing-zone` project, plus two architectural principles that constrain every subsequent decision: the management account boundary and the reproducibility requirement.
 
 ## Decision
+
+This repository is the AWS **account fabric** — the organization-level foundation that every workload account is built on top of. It is deliberately bounded to that layer; cluster, application, and observability concerns belong to repositories higher in the tier model (see ADR-007).
 
 **In scope:**
 
@@ -17,12 +19,11 @@ This ADR defines what is in scope and out of scope for the `aegis-aws-landing-zo
 - Service Control Policies for region restriction, service guardrails, and compliance enforcement.
 - AWS Identity Center with role-based permission sets as the sole human identity mechanism.
 - GitHub OIDC federation as the sole machine identity for CI/CD — no long-lived IAM keys anywhere.
+- Account bootstrap and vending — the per-account baseline layer plus the two account-provisioning paths (see ADR-010, ADR-011).
+- Organization-wide IPAM as the single CIDR-allocation authority for every account (see ADR-012).
+- The centralized security and audit baseline: organizational CloudTrail, AWS Config, and the detective controls in the management account (see ADR-016).
 - Terraform infrastructure-as-code with layered state following the Terraservices pattern (see ADR-003).
 - GitHub Actions CI/CD with plan-on-PR and apply-on-merge workflows.
-- EKS cluster with Karpenter for node autoscaling (Phase 3).
-- ArgoCD for GitOps-based application delivery (Phase 3).
-- Prometheus and Grafana for observability (Phase 4).
-- CloudTrail, AWS Config, and GuardDuty for security baseline (Phase 4).
 - ISO 27001 compliance mapping as the project's north star (see ADR-005).
 
 **Out of scope:**
@@ -43,7 +44,7 @@ This ADR defines what is in scope and out of scope for the `aegis-aws-landing-zo
 
 **Flat account structure with no OU hierarchy.** Rejected. SCPs attach at the OU level and inherit to member accounts. A flat structure forces per-account SCP attachment, which scales poorly and creates operational risk when new accounts are added.
 
-**Fully out-of-the-box Control Tower with no Terraform extensions.** Rejected. This would leave nothing visible in the git repository for portfolio review. The portfolio value of the project depends on having committed, reviewable infrastructure-as-code.
+**Fully out-of-the-box Control Tower with no Terraform extensions.** Rejected. This would leave nothing visible in the git repository for review. The value of the project depends on having committed, reviewable infrastructure-as-code.
 
 ## Consequences
 

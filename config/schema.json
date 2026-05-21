@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/BinHsu/aegis-aws-landing-zone/config/schema.json",
   "title": "Aegis AWS Landing Zone Configuration",
-  "description": "Deployment-specific configuration contract. See ADR-004 for rationale.",
+  "description": "Deployment-specific configuration contract for the account fabric. See ADR-004 for rationale, ADR-033 for the account-fabric scope.",
   "type": "object",
   "required": [
     "organization",
@@ -16,7 +16,6 @@
     "ipam",
     "control_tower"
   ],
-  "$comment": "The 'eks' section is optional — only environments that deploy an EKS platform layer need it. Not every account has a cluster.",
   "additionalProperties": false,
   "properties": {
     "organization": {
@@ -119,7 +118,7 @@
     },
     "github": {
       "type": "object",
-      "required": ["org", "infra_repo", "app_repo"],
+      "required": ["org", "infra_repo"],
       "additionalProperties": false,
       "properties": {
         "org": {
@@ -128,20 +127,11 @@
         },
         "infra_repo": {
           "type": "string",
-          "description": "Infrastructure repository name (this repo)"
-        },
-        "app_repo": {
-          "type": "string",
-          "description": "Application repository name (aegis-core)"
+          "description": "Landing-zone (account-fabric) repository name — this repo"
         },
         "infra_repo_id": {
           "type": "string",
-          "description": "GitHub numeric repository ID for the infra repo (run: gh api repos/OWNER/REPO --jq .id). When set, OIDC trust policies pin to this immutable ID in addition to the textual repo name. Defense-in-depth against repo rename/transfer edge cases.",
-          "pattern": "^[0-9]+$"
-        },
-        "app_repo_id": {
-          "type": "string",
-          "description": "GitHub numeric repository ID for the app repo (sister repo, e.g. aegis-core). Run: gh api repos/OWNER/REPO --jq .id. Same defense-in-depth role as infra_repo_id.",
+          "description": "GitHub numeric repository ID for the landing-zone repo (run: gh api repos/OWNER/REPO --jq .id). When set, OIDC trust policies pin to this immutable ID in addition to the textual repo name. Defense-in-depth against repo rename/transfer edge cases.",
           "pattern": "^[0-9]+$"
         }
       }
@@ -196,6 +186,7 @@
       "type": "object",
       "required": ["top_cidr", "pools"],
       "additionalProperties": false,
+      "description": "Org-wide IPAM — the account fabric's CIDR allocation authority (ADR-012). Regional pools are RAM-shared to the whole organization; Platform-tier VPCs draw non-overlapping CIDRs from them.",
       "properties": {
         "top_cidr": {
           "type": "string",
@@ -243,174 +234,13 @@
           "description": "KMS key alias for CloudTrail and Config encryption"
         }
       }
-    },
-    "grafana_cloud": {
-      "type": "object",
-      "description": "Grafana Cloud free tier observability backend (ADR-022). Optional — present this block to enable the platform observability stack (ESO, prometheus-operator-crds, kube-state-metrics, Grafana Alloy). Omit to deploy the EKS platform without observability. Runbook 006 documents the one-time signup producing these values.",
-      "required": ["org_slug", "mimir_url", "mimir_user_id"],
-      "additionalProperties": false,
-      "properties": {
-        "org_slug": {
-          "type": "string",
-          "description": "Grafana Cloud stack slug (matches URL path at <slug>.grafana.net)"
-        },
-        "mimir_url": {
-          "type": "string",
-          "format": "uri",
-          "description": "Mimir Prometheus remote_write endpoint from stack details page. NOT derivable from org_slug — hostname varies by stack provisioning region."
-        },
-        "mimir_user_id": {
-          "type": "string",
-          "pattern": "^[0-9]+$",
-          "description": "Numeric user ID for Mimir HTTP basic auth, from stack details page"
-        }
-      }
-    },
-    "cognito": {
-      "type": "object",
-      "description": "Cognito User Pool — cloud-mode auth for aegis (ADR-026). Optional — present this block to enable the staging/auth peer layer. Omit to deploy the landing zone without an auth layer. Runbook 008 documents first-operator setup including admin user creation and Hosted UI login verification. See ADR-026 §Decision for the custom:tenant_id attribute design.",
-      "required": ["callback_urls", "logout_urls"],
-      "additionalProperties": false,
-      "properties": {
-        "callback_urls": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "type": "string",
-            "format": "uri"
-          },
-          "description": "App client allowed callback URL list — SPA OAuth redirect targets. aegis-core-confirmed default: ['https://aegis-app.staging.binhsu.org/auth/callback']. Cognito accepts in-place updates to this list without recreate."
-        },
-        "logout_urls": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "type": "string",
-            "format": "uri"
-          },
-          "description": "App client allowed logout redirect URL list. aegis-core-confirmed default: ['https://aegis-app.staging.binhsu.org/']. Cognito accepts in-place updates without recreate."
-        },
-        "domain_prefix": {
-          "type": "string",
-          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
-          "description": "Cognito-provided hosted UI domain prefix — full URL is <prefix>.auth.<region>.amazoncognito.com. Globally unique within the region. Default: 'aegis-staging'. Changing this forces a ~30s hosted-UI 5xx window during resource recreate."
-        },
-        "password_policy": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "minimum_length": {
-              "type": "integer",
-              "minimum": 6,
-              "maximum": 99,
-              "description": "Minimum password length. Lab default 12 (NIST SP 800-63B aligned)."
-            },
-            "require_lowercase": {
-              "type": "boolean"
-            },
-            "require_uppercase": {
-              "type": "boolean"
-            },
-            "require_numbers": {
-              "type": "boolean"
-            },
-            "require_symbols": {
-              "type": "boolean"
-            }
-          },
-          "description": "Cognito password policy. Omit any subfield to use the lab default. Omit the whole block to inherit the full lab-default policy (min 12, all four character classes required)."
-        },
-        "mfa_configuration": {
-          "type": "string",
-          "enum": ["OFF", "OPTIONAL", "ON"],
-          "description": "MFA posture. OFF (lab default) = no MFA. OPTIONAL = users may enroll a factor and get prompted when present. ON = factor required for every user; login hard-fails if not configured. ON is not recommended for MVP — use OPTIONAL if you want to demo MFA without breaking lab-operator login."
-        }
-      }
-    },
-    "qdrant_cloud": {
-      "type": "object",
-      "description": "Qdrant Cloud vector-DB scaffold (ADR-025, ldz #141). Optional — present with `enabled: true` to provision 2 operator-managed SSM PS placeholders (/aegis/staging/qdrant-cloud/{cluster-url,api-key}) plus an ExternalSecret that reconciles them into K8s Secret `qdrant-credentials` in ns `aegis`. Values are filled operator-side via `aws ssm put-parameter` per Runbook 007; Terraform never sees the real credentials. Omit the block to skip Qdrant entirely.",
-      "required": ["enabled"],
-      "additionalProperties": false,
-      "properties": {
-        "enabled": {
-          "type": "boolean",
-          "description": "Set true to provision the Qdrant SSM PS + ExternalSecret scaffold. False (or omit the block) skips all Qdrant resources."
-        }
-      }
-    },
-    "eks": {
-      "type": "object",
-      "description": "EKS platform configuration keyed by workload environment name (e.g. staging, prod). Optional — only environments that deploy a platform layer need an entry.",
-      "additionalProperties": {
-        "type": "object",
-        "required": ["version", "public_access_cidrs"],
-        "additionalProperties": false,
-        "properties": {
-          "version": {
-            "type": "string",
-            "pattern": "^[0-9]+\\.[0-9]+$",
-            "description": "EKS Kubernetes version (e.g. 1.32). See ADR-013."
-          },
-          "public_access_cidrs": {
-            "type": "array",
-            "minItems": 1,
-            "items": {
-              "type": "string",
-              "pattern": "^([0-9]{1,3}\\.){3}[0-9]{1,3}/[0-9]{1,2}$"
-            },
-            "description": "CIDR blocks allowed to reach the EKS public API endpoint. See docs/runbooks/002-eks-access.md for the IP-drift operational contract."
-          },
-          "regions": {
-            "type": "array",
-            "minItems": 1,
-            "description": "EKS compute footprint per env — must be a subset of top-level regions[]. Length 1 = single-region; length N = multi-region with one primary + N-1 DR regions. There is no upper ceiling: per ADR-032 (external orchestration, supersedes ADR-018 §3/§4) each region is applied independently with its own region-scoped state key, so adding region N is a pure config change — no .tf edit, no ADR amendment. Cross-field invariants (exactly-one-primary, subset of top-level regions[], uniqueness) are validated by scripts/validate-config.py.",
-            "items": {
-              "type": "object",
-              "required": ["region", "role", "mode"],
-              "additionalProperties": false,
-              "properties": {
-                "region": {
-                  "type": "string",
-                  "pattern": "^[a-z]{2}-[a-z]+-[0-9]+$",
-                  "description": "AWS region name; must also appear in top-level regions[]"
-                },
-                "role": {
-                  "type": "string",
-                  "enum": ["primary", "slave"],
-                  "description": "Cluster role: exactly one primary per env is required"
-                },
-                "mode": {
-                  "type": "string",
-                  "enum": ["active", "pilot_light", "warm_standby"],
-                  "description": "DR mode: active for primary; pilot_light or warm_standby for slaves (see ADR-018)"
-                },
-                "node_instance_types": {
-                  "type": "array",
-                  "items": { "type": "string" },
-                  "description": "Optional — Karpenter NodePool instance type list"
-                },
-                "min_nodes": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "description": "Optional — Karpenter NodePool minimum size"
-                },
-                "max_nodes": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "description": "Optional — Karpenter NodePool maximum size"
-                }
-              }
-            }
-          }
-        }
-      }
     }
   },
   "$defs": {
     "account": {
       "type": "object",
       "required": ["id", "email", "ou"],
+      "additionalProperties": false,
       "properties": {
         "id": {
           "type": "string",
@@ -426,30 +256,8 @@
           "type": "string",
           "enum": ["root", "Security", "Infrastructure", "Workloads"],
           "description": "Target OU placement per ADR-006"
-        },
-        "vpcs": {
-          "type": "object",
-          "description": "VPC declarations keyed by region name (IPAM-driven, see ADR-004 Mode B)",
-          "additionalProperties": {
-            "type": "object",
-            "required": ["netmask_length", "ipam_pool"],
-            "additionalProperties": false,
-            "properties": {
-              "netmask_length": {
-                "type": "integer",
-                "minimum": 16,
-                "maximum": 28,
-                "description": "CIDR netmask length for IPAM allocation"
-              },
-              "ipam_pool": {
-                "type": "string",
-                "description": "Reference to an IPAM pool name in ipam.pools"
-              }
-            }
-          }
         }
-      },
-      "additionalProperties": false
+      }
     }
   }
 }

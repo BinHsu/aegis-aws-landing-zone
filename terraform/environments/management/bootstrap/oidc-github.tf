@@ -5,8 +5,8 @@
 # role's trust policy + permission policy lives in its own oidc-github-*-role.tf
 # file (plan / apply-baseline). The provider is shared.
 #
-# Legacy `github-actions-terraform` (Admin) was removed by ADR-029 PR-7
-# cleanup; see incidents.md §Incident 36 for the rollout narrative.
+# Legacy `github-actions-terraform` (Admin) was removed by ADR-014 PR-7
+# cleanup; see incidents.md §Incident 12 for the rollout narrative.
 # -----------------------------------------------------------------------------
 
 locals {
@@ -15,13 +15,9 @@ locals {
   github_oidc_url   = "https://token.actions.githubusercontent.com"
 
   github_infra_repo_id = try(local.config.github.infra_repo_id, null)
-  github_app_repo_id   = try(local.config.github.app_repo_id, null)
 
   github_oidc_infra_repo_id_claim = local.github_infra_repo_id != null ? {
     "${replace(local.github_oidc_url, "https://", "")}:repository_id" = local.github_infra_repo_id
-  } : {}
-  github_oidc_app_repo_id_claim = local.github_app_repo_id != null ? {
-    "${replace(local.github_oidc_url, "https://", "")}:repository_id" = local.github_app_repo_id
   } : {}
 }
 

@@ -2,9 +2,8 @@
 # =============================================================================
 # hard-teardown-landing-zone.sh — one-time project decommission
 # =============================================================================
-# Destroys EVERYTHING:
-#   - All workload layers in staging and prod
-#   - Management SCPs, shared IPAM, all bootstrap layers
+# Destroys EVERYTHING the account fabric owns:
+#   - Management SCPs, shared IPAM + AFT, all account bootstrap layers
 #   - Control Tower landing zone
 #   - All member accounts via CloseAccount API
 #
@@ -146,7 +145,8 @@ destroy_layer() {
   )
 }
 
-# Workload environments: all layers top-down
+# Workload-account bootstrap layers (the account fabric's only footprint
+# inside staging / prod).
 for ENV in staging prod; do
   ACCT=$(python3 -c "
 import yaml
@@ -155,9 +155,7 @@ print(c['accounts']['${ENV}']['id'])
 ")
   [[ -z "${ACCT}" ]] && continue
 
-  for LAYER in workloads platform network bootstrap; do
-    destroy_layer "${ACCT}" "${ENV}" "${LAYER}"
-  done
+  destroy_layer "${ACCT}" "${ENV}" "bootstrap"
 done
 
 # Shared services

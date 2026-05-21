@@ -1,10 +1,10 @@
 # -----------------------------------------------------------------------------
-# `aegis-emergency-break-glass` — break-glass recovery role (ADR-030 OQ-1)
+# `aegis-emergency-break-glass` — break-glass recovery role (ADR-015 OQ-1)
 # -----------------------------------------------------------------------------
-# Materializes the `aegis-emergency-*` namespace reserved by ADR-030's SCP
+# Materializes the `aegis-emergency-*` namespace reserved by ADR-015's SCP
 # allow-list (`deny-iam-privilege-escalation`). The role exists so the
 # operator's PlatformAdmin SSO session has a documented assume-target during
-# break-glass recovery — i.e., the kind of recovery driven by Incident 36,
+# break-glass recovery — i.e., the kind of recovery driven by Incident 12,
 # where the operator's SSO role itself is intentionally NOT in the SCP
 # allow-list and a TF-managed policy bug requires a manual `iam:put-role-policy`
 # to unstick `terraform apply`.
@@ -36,7 +36,7 @@
 # signal that break-glass is not a working mode.
 #
 # SCP interaction: `aegis-emergency-break-glass` matches `aegis-emergency-*`
-# in ADR-030's `deny-iam-privilege-escalation` SCP allow-list. No SCP change
+# in ADR-015's `deny-iam-privilege-escalation` SCP allow-list. No SCP change
 # is required by this PR.
 # -----------------------------------------------------------------------------
 
@@ -67,12 +67,12 @@ resource "aws_iam_role" "aegis_emergency_break_glass" {
 }
 
 resource "aws_iam_role_policy" "aegis_emergency_break_glass" {
-  # checkov:skip=CKV_AWS_287: Read-shape Sids (IamReadAll, OrganizationsRead, SsoRead, KmsReadAndDecrypt's Describe/List/Get verbs, StsAndTagRead) intentionally use Resource:* for inventory access during break-glass diagnosis. Mutation surface is in IamMutationOnProjectRoles + OrganizationsScpManage + SsmReadProject's mutating verbs (none — read only), all scoped or trust-policy-gated. ADR-030 OQ-1.
-  # checkov:skip=CKV_AWS_288: Same as 287 — break-glass requires broad read for diagnosis; mutations are scoped. Read-shape data disclosure is the explicit threat model accepted by ADR-030.
+  # checkov:skip=CKV_AWS_287: Read-shape Sids (IamReadAll, OrganizationsRead, SsoRead, KmsReadAndDecrypt's Describe/List/Get verbs, StsAndTagRead) intentionally use Resource:* for inventory access during break-glass diagnosis. Mutation surface is in IamMutationOnProjectRoles + OrganizationsScpManage + SsmReadProject's mutating verbs (none — read only), all scoped or trust-policy-gated. ADR-015 OQ-1.
+  # checkov:skip=CKV_AWS_288: Same as 287 — break-glass requires broad read for diagnosis; mutations are scoped. Read-shape data disclosure is the explicit threat model accepted by ADR-015.
   # checkov:skip=CKV_AWS_289: iam:* is intentionally allowed but scoped to aegis-*/gh-tf-*/github-actions-* prefixes. Permission-management within fixed prefixes is the break-glass contract — the role exists precisely to fix bad policies on those role families.
   # checkov:skip=CKV_AWS_290: organizations:* / sso:* / identitystore:* require Resource:* because the AWS APIs do not support resource-level ARN constraints. Trust policy (PlatformAdmin SSO only) is the gate.
   # checkov:skip=CKV_AWS_355: Resource:* is by design on the read-only Sids and on AWS APIs without resource-level ARN support.
-  # checkov:skip=CKV2_AWS_40: iam:* on a fixed ARN-prefix scope is the deliberate break-glass design (ADR-030 OQ-1 graduation).
+  # checkov:skip=CKV2_AWS_40: iam:* on a fixed ARN-prefix scope is the deliberate break-glass design (ADR-015 OQ-1 graduation).
   name = "emergency-break-glass-scoped"
   role = aws_iam_role.aegis_emergency_break_glass.id
 
@@ -122,7 +122,7 @@ resource "aws_iam_role_policy" "aegis_emergency_break_glass" {
       },
       {
         # SCP detach / attach / update — the verbs needed to execute the
-        # SCP-propagation-recovery pattern from Incident 36 (detach SCP,
+        # SCP-propagation-recovery pattern from Incident 12 (detach SCP,
         # wait ~30s for propagation, run the fix, reattach). Resource:*
         # because Organizations APIs do not support resource-level ARNs;
         # the trust policy (PlatformAdmin SSO only) is the gate.
@@ -169,10 +169,9 @@ resource "aws_iam_role_policy" "aegis_emergency_break_glass" {
         Resource = "arn:aws:kms:*:${local.account_id}:key/*"
       },
       {
-        # SSM PS read on `/aegis/*` paths only. SaaS credentials and
-        # other ADR-028 secrets-persistent values live under this prefix;
-        # diagnosis often needs to confirm a token is present and decrypts
-        # cleanly. Read-only; no Put / Delete.
+        # SSM PS read on `/aegis/*` paths only. Diagnosis often needs to
+        # confirm a parameter is present and decrypts cleanly. Read-only;
+        # no Put / Delete.
         Sid    = "SsmReadProject"
         Effect = "Allow"
         Action = [

@@ -1,7 +1,7 @@
 # -----------------------------------------------------------------------------
-# `aegis-emergency-break-glass` — break-glass recovery role (ADR-030 OQ-1)
+# `aegis-emergency-break-glass` — break-glass recovery role (ADR-015 OQ-1)
 # -----------------------------------------------------------------------------
-# Materializes the `aegis-emergency-*` namespace reserved by ADR-030's SCP
+# Materializes the `aegis-emergency-*` namespace reserved by ADR-015's SCP
 # allow-list (`deny-iam-privilege-escalation`). This is the shared-account
 # variant — see `terraform/environments/management/bootstrap/aegis-emergency-
 # role.tf` for the full design narrative and the recovery shape that
@@ -17,7 +17,7 @@
 # SSO sessions only, time-bounded to 1 hour.
 #
 # SCP interaction: `aegis-emergency-break-glass` matches `aegis-emergency-*`
-# in ADR-030's SCP allow-list. No SCP change required by this PR.
+# in ADR-015's SCP allow-list. No SCP change required by this PR.
 # -----------------------------------------------------------------------------
 
 resource "aws_iam_role" "aegis_emergency_break_glass" {
@@ -47,12 +47,12 @@ resource "aws_iam_role" "aegis_emergency_break_glass" {
 }
 
 resource "aws_iam_role_policy" "aegis_emergency_break_glass" {
-  # checkov:skip=CKV_AWS_287: Read-shape Sids (IamReadAll, KmsReadAndDecrypt's Describe/List/Get verbs, StsAndTagRead) intentionally use Resource:* for inventory access during break-glass diagnosis. Mutation surface is in IamMutationOnProjectRoles, scoped or trust-policy-gated. ADR-030 OQ-1.
-  # checkov:skip=CKV_AWS_288: Same as 287 — break-glass requires broad read for diagnosis; mutations are scoped. Read-shape data disclosure is the explicit threat model accepted by ADR-030.
+  # checkov:skip=CKV_AWS_287: Read-shape Sids (IamReadAll, KmsReadAndDecrypt's Describe/List/Get verbs, StsAndTagRead) intentionally use Resource:* for inventory access during break-glass diagnosis. Mutation surface is in IamMutationOnProjectRoles, scoped or trust-policy-gated. ADR-015 OQ-1.
+  # checkov:skip=CKV_AWS_288: Same as 287 — break-glass requires broad read for diagnosis; mutations are scoped. Read-shape data disclosure is the explicit threat model accepted by ADR-015.
   # checkov:skip=CKV_AWS_289: iam:* is intentionally allowed but scoped to aegis-*/gh-tf-*/github-actions-* prefixes. Permission-management within fixed prefixes is the break-glass contract.
   # checkov:skip=CKV_AWS_290: Resource:* on read-only Sids is required because the corresponding AWS APIs do not support resource-level ARN constraints. Trust policy (PlatformAdmin SSO only) is the gate.
   # checkov:skip=CKV_AWS_355: Resource:* is by design on the read-only Sids and on AWS APIs without resource-level ARN support.
-  # checkov:skip=CKV2_AWS_40: iam:* on a fixed ARN-prefix scope is the deliberate break-glass design (ADR-030 OQ-1 graduation).
+  # checkov:skip=CKV2_AWS_40: iam:* on a fixed ARN-prefix scope is the deliberate break-glass design (ADR-015 OQ-1 graduation).
   name = "emergency-break-glass-scoped"
   role = aws_iam_role.aegis_emergency_break_glass.id
 
@@ -98,9 +98,8 @@ resource "aws_iam_role_policy" "aegis_emergency_break_glass" {
         Resource = "arn:aws:kms:*:${local.account_id}:key/*"
       },
       {
-        # SSM PS read on `/aegis/*` paths only. ADR-028 secrets-persistent
-        # values live under this prefix; diagnosis often needs to confirm
-        # a token is present and decrypts cleanly. Read-only.
+        # SSM PS read on `/aegis/*` paths only. Diagnosis often needs to
+        # confirm a parameter is present and decrypts cleanly. Read-only.
         Sid    = "SsmReadProject"
         Effect = "Allow"
         Action = [

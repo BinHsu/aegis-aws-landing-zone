@@ -1,15 +1,13 @@
 <!-- session-close-review: allowed-triggers list + forbidden-triggers list + incident-recording obligation still match the compensating controls that actually exist -->
 # Break-glass local apply discipline
 
-> **Scope**: this doc governs when a Terraform `apply` from a local workstation (bypassing the CI path in `.github/workflows/terraform-apply-*.yml`) is allowed. It complements [ADR-009](../decisions/009-lifecycle-teardown-strategy.md) (lifecycle + teardown) and the operational rules in [CLAUDE.md](../../CLAUDE.md).
+> **Scope**: this doc governs when a Terraform `apply` from a local workstation (bypassing the CI path in `.github/workflows/terraform-apply-baseline.yml`) is allowed. It complements [ADR-009](../decisions/009-lifecycle-and-teardown-strategy.md) (lifecycle + teardown) and the operational rules in [CLAUDE.md](../../CLAUDE.md).
 
 ## Default position
 
 **Default: local `terraform apply` against shared AWS state is FORBIDDEN.**
 
-Every apply goes through one of:
-- `.github/workflows/terraform-apply-baseline.yml` — auto-applies on merge to main, for baseline layers only
-- `.github/workflows/terraform-apply-workload.yml` — `workflow_dispatch`-only, approval-gated, for cost-incurring layers
+Every apply goes through `.github/workflows/terraform-apply-baseline.yml`, which auto-applies on merge to main. This repository owns the account fabric only — every layer here is a baseline layer, so there is a single CI apply path and no manual-dispatch workload path.
 
 The single-path rule exists because:
 
@@ -32,10 +30,10 @@ Local apply is acceptable — with recorded compensating controls — in exactly
 
 **Compensating control**: Incident post-mortem in `docs/incidents.md`, with "Detection" section naming the CI outage / the specific breakage that forced the path.
 
-### 2. Mid-session AWS outage or state drift that would cost > $10/hr to let persist
+### 2. State drift or a half-applied account-fabric layer that CI cannot resolve
 
-- NAT gateway or EKS control plane is running, a bug was discovered, and re-triggering CI would cost more than the bug itself
-- State is half-applied and `terraform destroy` through CI would fail-loop on the broken state
+- A layer is half-applied and a normal CI re-apply fail-loops on the broken state — for example, an SCP change that partially locked out the CI principal, or a state object that diverged from AWS after a failed apply
+- A bad SCP or IAM-trust change has denied the CI role itself, so CI cannot reach the account to fix forward
 
 **Compensating control**: A PR that captures the code delta MUST be opened within the same session. Main branch must catch up before the session closes. The PR description cross-references this doc § "When break-glass IS allowed" and names which trigger applied.
 
@@ -55,7 +53,7 @@ All of these are **forbidden** and produce a drift incident if committed:
 - "It's just a docs-only change" — irrelevant; docs don't need apply.
 - "The reviewer is AFK" — not allowed. Wait, or assign another reviewer, or accept the session is paused.
 - "I'll push the PR after" — a PR opened after the apply is a record of drift being corrected, not a license to apply locally. The PR must exist *before* or *concurrently with* the apply to count as compensating.
-- "It's the DR region, nobody's watching" — doubly not allowed. DR regions are the hardest to recover when drift is introduced quietly.
+- "It's a quiet account, nobody's watching" — doubly not allowed. The least-watched accounts are the hardest to recover when drift is introduced quietly.
 
 ## Compensating controls required for every break-glass event
 
@@ -77,15 +75,15 @@ The lab-tier position is explicitly not a recommendation for a team environment.
 ## Relation to other discipline docs
 
 - [`docs/principles/change-review-discipline.md`](change-review-discipline.md) — the *review-time* gate; this doc is the *apply-time* gate for exceptional cases
-- [ADR-009](../decisions/009-lifecycle-teardown-strategy.md) — the workflow split that this doc's default position relies on (baseline auto-apply vs workload dispatch-gated)
+- [ADR-009](../decisions/009-lifecycle-and-teardown-strategy.md) — the lifecycle and teardown strategy that this doc's default position relies on
 - [`docs/incidents.md`](../incidents.md) — where every break-glass event is recorded
 - [CLAUDE.md](../../CLAUDE.md) — operational rules at the root; defers to this doc on break-glass specifics
 
 ## Forward-looking trigger: when this doc should be revised
 
 - When the team expands past 1 operator — §"Operator eligibility" must be rewritten to match the new org shape
-- When prod workloads exist — the "mid-session apply cost" trigger tightens (prod break-glass is more constrained than staging)
+- When a `prod` account-fabric layer beyond `prod/bootstrap` is provisioned — the trigger thresholds tighten (prod break-glass is more constrained than staging)
 - When a non-GitHub CI is added (e.g., Buildkite for air-gap deploys) — the "single-path rule" clause must enumerate the new path
-- When any sibling project in the same org adopts the same rule — consolidate into an org-level principle, keep this doc as a link target
+- When a sibling repo adopts the same rule — consolidate into an org-level principle, keep this doc as a link target
 
-*Last updated: 2026-04-20 — initial doc, triggered by Incident 31 (mid-session platform apply failure, local re-apply as compensating speed play). The incident's Lessons section is the first concrete case study of this doc's boundaries.*
+*This doc governs break-glass local apply for the account fabric's single baseline CI apply path. Incident 12 (a scoped-role policy-bug gauntlet that drove multiple break-glass operations) is a concrete case study of this doc's boundaries.*
