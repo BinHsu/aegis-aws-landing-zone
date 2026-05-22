@@ -42,25 +42,28 @@ where alternatives were genuinely weighed.
 | [014](014-iam-permission-scope-down.md) | CI OIDC Role Scope-Down | Accepted |
 | [015](015-permission-boundary-hardening.md) | IAM Permission-Boundary Hardening | Accepted |
 | [016](016-detective-controls.md) | Detective Control — Alert on Failed OIDC Assumption | Accepted |
+| [017](017-platform-tier-extraction.md) | Platform Tier Extracted from the Landing Zone | Accepted |
 
 ## Reading orders by audience
 
-You do not need to read all 16 ADRs front to back. Pick the path for why you
+You do not need to read all 17 ADRs front to back. Pick the path for why you
 are here. Each list is ordered so the argument builds on itself.
 
 ### Senior platform / infrastructure reviewer
 
 Understand the shape of the account fabric and why it is shaped that way.
 
-`001` → `006` → `008` → `011` → `010` → `003` → `004` → `013` → `007` → `002` → `012`
+`001` → `006` → `008` → `011` → `010` → `003` → `004` → `013` → `007` → `017` → `002` → `012`
 
 Scope boundary first, then the account/OU taxonomy, the
 Control-Tower-plus-Terraform tooling split, and how accounts are provisioned
 and bootstrapped. State layout and the config contract explain how the code is
 parameterised; the repo-topology and tier-model ADRs explain how the repository
 is isolated internally and where it sits in the Landing Zone / Platform / App
-model. `002` and `012` close it out: the region strategy and the org-wide IPAM
-that the fabric hands to Platform-tier consumers.
+model. `017` records that the Platform tier was actually extracted to its own
+repo, narrowing this fabric to account-fabric-only. `002` and `012` close it
+out: the region strategy and the org-wide IPAM that the fabric hands to
+Platform-tier consumers.
 
 ### Reliability / recovery reviewer
 

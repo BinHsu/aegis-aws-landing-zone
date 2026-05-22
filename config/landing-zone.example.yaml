@@ -3,7 +3,7 @@
 # =============================================================================
 # Copy this file to landing-zone.yaml and fill in your real values.
 # landing-zone.yaml is gitignored — never commit real account IDs or emails.
-# See ADR-004 for the contract rationale, ADR-033 for the account-fabric scope.
+# See ADR-004 for the contract rationale, ADR-017 for the account-fabric scope.
 # JSON Schema: config/schema.json
 # =============================================================================
 

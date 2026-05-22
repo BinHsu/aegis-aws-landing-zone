@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/BinHsu/aegis-aws-landing-zone/config/schema.json",
   "title": "Aegis AWS Landing Zone Configuration",
-  "description": "Deployment-specific configuration contract for the account fabric. See ADR-004 for rationale, ADR-033 for the account-fabric scope.",
+  "description": "Deployment-specific configuration contract for the account fabric. See ADR-004 for rationale, ADR-017 for the account-fabric scope.",
   "type": "object",
   "required": [
     "organization",
