@@ -8,9 +8,10 @@ This ADR **retroactively documents an already-enacted split**. The platform
 tier was extracted to a separate repository before this record was written:
 `aegis-platform` is live and owns the EKS cluster, ArgoCD, Karpenter, the
 observability stack, and the Qdrant attachment; this landing zone is fabric-only
-today. The four-tier topology discussions repeatedly cited an "ADR-033 descope"
-that was never written — ldz ADRs only run to 016. This ADR closes that phantom
-citation by recording the real decision at its correct number.
+today. The four-tier topology discussions repeatedly cited a descope ADR at a
+number (in the 030s) that was never written — ldz ADRs only run to 016. This ADR
+closes that phantom citation by recording the real decision at its correct
+number, 017.
 
 ## Context
 
@@ -126,8 +127,9 @@ splits, applied to the tier boundary.
   `*-karpenter-controller` carve-out in
   [ADR-015](015-permission-boundary-hardening.md) is unaffected — it is a runtime
   controller in the *platform* tier's accounts, allow-listed at the org SCP.
-- The four-tier-topology references to "ADR-033" are resolved. The descope they
-  pointed at is this ADR. Stale "ADR-033" strings elsewhere in the repo
+- The four-tier-topology references to the phantom descope ADR are resolved. The
+  descope they pointed at is this ADR. The stale phantom-number citations
+  elsewhere in the repo
   (`config/schema.json`, `config/landing-zone.example.yaml`) are corrected to
   point here.
 - The tier contract is unchanged from [ADR-007](007-infra-app-repository-split.md):
