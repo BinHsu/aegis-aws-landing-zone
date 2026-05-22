@@ -67,8 +67,11 @@ in `aegis-platform`. The workload tier lives in the deploy repos.**
 - Control Tower + Terraform hybrid tooling ([ADR-008](008-landing-zone-tooling-control-tower-hybrid.md)).
 - The GitHub OIDC identity provider — the **trust anchor** for every machine
   identity in the org.
-- IAM **permission boundaries** that cap what workload IAM may grant itself
-  ([ADR-014](014-iam-permission-scope-down.md), [ADR-015](015-permission-boundary-hardening.md)).
+- The org-level SCP `deny-iam-privilege-escalation` that caps IAM escalation
+  org-wide — the wall lives above any single role's scope
+  ([ADR-015](015-permission-boundary-hardening.md) §A2 chose the SCP over
+  per-role permission boundaries; [ADR-014](014-iam-permission-scope-down.md)
+  scoped the CI roles).
 
 **Platform tier — `aegis-platform` (out of this repository):** the EKS cluster,
 Karpenter, ArgoCD and its GitOps control plane, the observability stack, the
@@ -96,11 +99,12 @@ already rejected, viewed from the fabric side.
 
 **Extract the platform tier but keep workload IAM in the landing zone.**
 Rejected as an incomplete split. The fabric should own the IAM *primitive* (the
-OIDC trust anchor + the permission boundary that caps over-privilege), not the
+OIDC trust anchor + the org-level SCP that caps escalation), not the
 per-workload *role*. Keeping every workload's IRSA role in the fabric tier makes
 each workload's identity scope a cross-repo change and re-introduces the upward
-leak. The per-workload role moves out of the landing zone — see the consequence
-below.
+leak. The per-workload role belongs in the workload's deploy repo — see the
+consequence below (and note no working per-workload role exists in the fabric
+today regardless).
 
 **A third "platform" repository owned by the landing zone but with a separate
 state.** Rejected as the worst of both: it keeps the platform on the landing
@@ -112,15 +116,18 @@ splits, applied to the tier boundary.
 ## Consequences
 
 - The landing zone keeps only the **OIDC provider trust anchor** and the
-  **IAM permission boundaries** for workload IAM. The boundary stays
-  fabric-level — the fabric defines the ceiling any workload role can reach — but
-  the per-workload role itself moves out of the landing zone. Forward reference:
-  workload IRSA roles leave the landing zone per
-  **aegis-platform ADR-07** (workload self-ownership). The
-  `aegis-staging-aegis-engine` role currently declared here is destroyed in the
-  landing-zone tier and re-provisioned inside `aegis-platform`'s consumers via
-  ACK CRDs with the same trust subject. Until that roll-forward lands, the role
-  remains here as a documented transitional artifact, not a permanent fixture.
+  **org-level SCPs** (including `deny-iam-privilege-escalation`) as the ceiling
+  on what any workload IAM can do. The per-workload *role* belongs in the
+  workload's deploy repo (forward reference: **aegis-platform ADR-07**). Note the
+  current state: no per-workload IRSA role is actually declared in this
+  repository — `aegis-core-deploy`'s engine ServiceAccount carries a role-arn
+  annotation pointing at `aegis-staging-aegis-engine`, but that role was never
+  provisioned in this repo's Terraform (a dangling reference, not a working
+  role). The roll-forward provisions it via ACK CRDs in the deploy repo and
+  reconciles the dangling annotation; nothing is destroyed here. One real fabric
+  change is required: the ACK controller role must be added to the
+  `deny-iam-privilege-escalation` SCP allow-list (a scoped carve-out like the
+  Karpenter entry) so ACK can create workload roles at all.
 - The landing zone's `gh-tf-apply-baseline` IAM surface narrows over time as the
   per-workload IAM leaves: the apply tier still creates the OIDC provider and the
   fabric roles, but it stops creating per-workload IRSA roles. The
@@ -147,8 +154,9 @@ splits, applied to the tier boundary.
 - [ADR-013](013-landing-zone-repo-topology.md) — the landing zone's *internal*
   topology (declined a repo split); orthogonal to this ADR's *tier* extraction.
 - [ADR-014](014-iam-permission-scope-down.md) / [ADR-015](015-permission-boundary-hardening.md)
-  — the CI-role scope-down and the IAM permission-boundary the fabric retains as
-  the ceiling on workload IAM.
+  — the CI-role scope-down and the org-level `deny-iam-privilege-escalation` SCP
+  the fabric retains as the escalation ceiling (ADR-015 §A2 chose the SCP over
+  per-role permission boundaries).
 - **aegis-platform ADR-07** — workload self-ownership; the consumer-side decision
   that pulls the per-workload IRSA role out of this landing zone.
 - **aegis-platform ADR-08** — cluster multi-tenancy; the platform tier's own
