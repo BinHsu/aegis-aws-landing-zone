@@ -173,6 +173,18 @@ resource "aws_organizations_policy_attachment" "deny_leave_org" {
 #     profiles for nodes. Karpenter's own policy already scopes these by tag
 #     and resource ARN; the SCP exception unblocks the legitimate code path
 #     without weakening Karpenter's own boundary.
+#   - aegis-platform-ack-iam-* — the ACK IAM controller (AWS Controllers for
+#     Kubernetes) provisions per-workload IAM roles from `Role`/`Policy` CRDs
+#     declared in each workload's deploy repo (aegis-platform ADR-07: workload
+#     self-ownership). Without this carve-out the controller cannot
+#     `iam:CreateRole` at all. The controller's own IAM policy is scoped to the
+#     `/aegis-workload/` IAM path (aegis-platform irsa-ack-iam.tf), so it can
+#     only manage workload roles, never platform/CI/break-glass identities —
+#     the carve-out unblocks ACK while this SCP still caps escalation-to-Admin.
+#     PREFIX glob (region is the suffix, e.g. aegis-platform-ack-iam-eu-central-1),
+#     unlike Karpenter's suffix glob. Forward-declaration: the role does not
+#     exist until the next platform bootstrap (the platform-tier EKS cluster is
+#     currently destroyed), so pre-permitting it is harmless. E2E PENDING.
 #
 # Service-Linked Roles (`iam:CreateServiceLinkedRole`) are intentionally
 # NOT in the deny list — AWS auto-creates SLRs for many services
