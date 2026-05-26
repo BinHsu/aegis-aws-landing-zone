@@ -188,7 +188,7 @@ This repository is the **Landing Zone** tier of a multi-tier model ([ADR-007](do
 | Tier | Owns | Repository |
 |---|---|---|
 | **Landing Zone** | Account fabric — Organizations, OUs, SCPs, Identity Center, account bootstrap/vending, IPAM, security baseline | `aegis-aws-landing-zone` (this repo) |
-| **Platform** | VPC, EKS, ArgoCD, cluster add-ons, observability, edge, auth, FIS — and the GitOps deploy manifests | `aegis-platform` |
+| **Platform** | VPC, EKS, ArgoCD, cluster add-ons, observability, edge, auth, FIS — and the GitOps deploy manifests | `aegis-platform-aws` |
 | **App** | Application code, image build, signed/attested OCI artifacts | [`aegis-core`](https://github.com/BinHsu/aegis-core) |
 
 The tiers are maintained independently and coordinate through GitHub Issues labeled `cross-repo`, not direct IPC or shared state.

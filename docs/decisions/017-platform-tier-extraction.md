@@ -6,7 +6,7 @@ Accepted (2026-05-22)
 
 This ADR **retroactively documents an already-enacted split**. The platform
 tier was extracted to a separate repository before this record was written:
-`aegis-platform` is live and owns the EKS cluster, ArgoCD, Karpenter, the
+`aegis-platform-aws` is live and owns the EKS cluster, ArgoCD, Karpenter, the
 observability stack, and the Qdrant attachment; this landing zone is fabric-only
 today. The four-tier topology discussions repeatedly cited a descope ADR at a
 number (in the 030s) that was never written — ldz ADRs only run to 016. This ADR
@@ -50,12 +50,12 @@ repository split and the tier model), and
 [ADR-013](013-landing-zone-repo-topology.md) (the landing zone's *internal*
 repo topology). ADR-007 named the Landing Zone / Platform / App tier model;
 ADR-013 declined an internal split of the landing zone; this ADR records that
-the Platform tier itself left the landing zone for `aegis-platform`.
+the Platform tier itself left the landing zone for `aegis-platform-aws`.
 
 ## Decision
 
 **The landing zone is scoped to the account fabric only. The platform tier lives
-in `aegis-platform`. The workload tier lives in the deploy repos.**
+in `aegis-platform-aws`. The workload tier lives in the deploy repos.**
 
 **Landing-zone (this repository) scope — account fabric only:**
 
@@ -73,7 +73,7 @@ in `aegis-platform`. The workload tier lives in the deploy repos.**
   per-role permission boundaries; [ADR-014](014-iam-permission-scope-down.md)
   scoped the CI roles).
 
-**Platform tier — `aegis-platform` (out of this repository):** the EKS cluster,
+**Platform tier — `aegis-platform-aws` (out of this repository):** the EKS cluster,
 Karpenter, ArgoCD and its GitOps control plane, the observability stack, the
 Qdrant attachment, and the per-region platform baseline (ALB controller,
 external-dns, cert-manager, the ACK controllers, Kyverno). It consumes this
@@ -118,7 +118,7 @@ splits, applied to the tier boundary.
 - The landing zone keeps only the **OIDC provider trust anchor** and the
   **org-level SCPs** (including `deny-iam-privilege-escalation`) as the ceiling
   on what any workload IAM can do. The per-workload *role* belongs in the
-  workload's deploy repo (forward reference: **aegis-platform ADR-07**). Note the
+  workload's deploy repo (forward reference: **aegis-platform-aws ADR-07**). Note the
   current state: no per-workload IRSA role is actually declared in this
   repository — `aegis-core-deploy`'s engine ServiceAccount carries a role-arn
   annotation pointing at `aegis-staging-aegis-engine`, but that role was never
@@ -157,7 +157,7 @@ splits, applied to the tier boundary.
   — the CI-role scope-down and the org-level `deny-iam-privilege-escalation` SCP
   the fabric retains as the escalation ceiling (ADR-015 §A2 chose the SCP over
   per-role permission boundaries).
-- **aegis-platform ADR-07** — workload self-ownership; the consumer-side decision
+- **aegis-platform-aws ADR-07** — workload self-ownership; the consumer-side decision
   that pulls the per-workload IRSA role out of this landing zone.
-- **aegis-platform ADR-08** — cluster multi-tenancy; the platform tier's own
+- **aegis-platform-aws ADR-08** — cluster multi-tenancy; the platform tier's own
   internal isolation model.
