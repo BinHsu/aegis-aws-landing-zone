@@ -1,5 +1,12 @@
 # AWS Landing Zone Lab — AI Operational Rules
 
+> 📍 **Cross-project rules now live in `~/.claude/CLAUDE.md`** (auto-loads for every repo):
+> language · date · bash · safety (a)(h)(i)(k)(m) · externalize-decisions · pre-push-diff ·
+> non-host-install · reusable-PII · AWS-tech-blog tone · subagent-delegation · no-hallucination.
+> Sections below that restate these are **superseded** (global is source of truth). Durable
+> content here = the **repo-specific** part (Terraform/AWS/GHA standards, SCPs-before-resources,
+> cost guardrails, ADR/postmortem conventions). *(Deep dup-removal deferred to post-ATMOS.)*
+
 ## Communication Rules
 
 - **Artifact Language**: All code, comments, commit messages, documentation, ADRs, runbooks, diagrams, and any file written to the repo MUST be in English. No exceptions.
