@@ -236,6 +236,7 @@ resource "aws_organizations_policy" "deny_iam_privilege_escalation" {
               "arn:aws:iam::*:role/gh-tf-*",
               "arn:aws:iam::*:role/aegis-emergency-*",
               "arn:aws:iam::*:role/*-karpenter-controller",
+              "arn:aws:iam::*:role/aegis-platform-ack-iam-*",
             ]
           }
         }
