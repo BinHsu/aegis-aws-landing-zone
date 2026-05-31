@@ -38,10 +38,15 @@ resource "aws_iam_role" "gh_tf_apply_baseline" {
           StringEquals = merge(
             {
               "${replace(local.github_oidc_url, "https://", "")}:aud" = "sts.amazonaws.com"
-              "${replace(local.github_oidc_url, "https://", "")}:sub" = "repo:${local.github_org}/${local.github_infra_repo}:ref:refs/heads/main"
             },
             local.github_oidc_infra_repo_id_claim,
           )
+          # Rename-proof: the immutable repository_id (StringEquals above) is the
+          # binding; the sub wildcards the repo NAME so a repo rename cannot break
+          # OIDC auth (the failure this trust restructure fixes).
+          StringLike = {
+            "${replace(local.github_oidc_url, "https://", "")}:sub" = "repo:${local.github_org}/*:ref:refs/heads/main"
+          }
         }
       }
     ]
