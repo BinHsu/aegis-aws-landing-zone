@@ -1,6 +1,6 @@
 # Runbook 001. Bootstrap AWS Account from Zero
 
-This runbook walks through the complete bootstrap of the `aegis-aws-landing-zone` project, from "I have nothing" to "I can run Terraform against my management account via AWS IAM Identity Center with no long-lived credentials on disk." It is written to be followable from scratch by anyone forking the repository.
+This runbook walks through the complete bootstrap of the `aegis-landing-zone-aws` project, from "I have nothing" to "I can run Terraform against my management account via AWS IAM Identity Center with no long-lived credentials on disk." It is written to be followable from scratch by anyone forking the repository.
 
 ## Time and Cost
 

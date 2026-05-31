@@ -8,7 +8,7 @@ This project is a reference implementation, not a released product. Only the `ma
 
 If you discover a security vulnerability in this repository, please **do not open a public issue**.
 
-Use GitHub's [Private Vulnerability Reporting](https://github.com/BinHsu/aegis-aws-landing-zone/security/advisories/new) to submit the report. The maintainer will acknowledge within 48 hours. Fixes are prepared in a private branch and disclosed publicly only after the fix is deployed.
+Use GitHub's [Private Vulnerability Reporting](https://github.com/BinHsu/aegis-landing-zone-aws/security/advisories/new) to submit the report. The maintainer will acknowledge within 48 hours. Fixes are prepared in a private branch and disclosed publicly only after the fix is deployed.
 
 ## Security controls in this repository
 

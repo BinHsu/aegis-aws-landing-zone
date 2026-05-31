@@ -62,7 +62,7 @@ sso:
 
 github:
   org: YourGitHubOrg
-  infra_repo: aegis-aws-landing-zone
+  infra_repo: aegis-landing-zone-aws
   # Optional — defense-in-depth against repo rename/transfer (ADR-030 Item C).
   # Run: gh api repos/<owner>/<repo> --jq .id
   # If unset, OIDC trust policies fall back to repo full_name pinning only.

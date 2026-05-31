@@ -8,7 +8,7 @@ The account fabric is steady-state infrastructure. AWS Organizations, the OUs, t
 
 What the account fabric still owns are the *account-lifecycle* operations: closing accounts at the end of the project, and cleaning up a single account when its Terraform state has drifted from reality. Both are destructive at the account level, and the blast radius of any account-lifecycle teardown is the entire account. A badly designed teardown here is either too easy to trigger accidentally or insufficiently guarded; a well-designed one has clearly differentiated safety UX for each path.
 
-This ADR defines the account-lifecycle teardown strategy for `aegis-aws-landing-zone`, including the deliberate rejection of AWS account closure as a routine cleanup mechanism and the deliberate introduction of friction into destructive operations.
+This ADR defines the account-lifecycle teardown strategy for `aegis-landing-zone-aws`, including the deliberate rejection of AWS account closure as a routine cleanup mechanism and the deliberate introduction of friction into destructive operations.
 
 ## Decision
 

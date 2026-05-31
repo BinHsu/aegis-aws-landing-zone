@@ -6,7 +6,7 @@ Accepted
 ## Context
 Every Terraform project requires a state backend. Every multi-account landing zone faces the same question twice: where does the state live, and how is it organized? The state backend itself has a chicken-and-egg problem — it must be created before Terraform can use it — and the state layout determines the blast radius of every future `terraform apply`. Getting both decisions right is cheap; getting them wrong is among the most painful refactors in infrastructure-as-code, because state migration is manual, error-prone, and blocks all parallel development during the migration window.
 
-This ADR locks both decisions for the `aegis-aws-landing-zone` project.
+This ADR locks both decisions for the `aegis-landing-zone-aws` project.
 
 ## Decision
 

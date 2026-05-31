@@ -113,7 +113,7 @@ Each entry: what was built → where to look in the repo → the kind of questio
 
 ### 2.7 Cross-repo coordination
 
-**Built**: a durable coordination protocol between independently-maintained repositories. The account fabric (`aegis-aws-landing-zone`) vends accounts, OIDC, and IPAM pools that downstream platform and application repositories consume. Standing GitHub Issues serve as the contract surface; label semantics (`cross-repo`, `cross-repo/blocking`, `cross-repo/fyi`) govern urgency. Either side can open issues on the other.
+**Built**: a durable coordination protocol between independently-maintained repositories. The account fabric (`aegis-landing-zone-aws`) vends accounts, OIDC, and IPAM pools that downstream platform and application repositories consume. Standing GitHub Issues serve as the contract surface; label semantics (`cross-repo`, `cross-repo/blocking`, `cross-repo/fyi`) govern urgency. Either side can open issues on the other.
 
 **Where to look**:
 - [README §Cross-repo coordination](../README.md#cross-repo-coordination)

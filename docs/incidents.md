@@ -532,18 +532,18 @@ The bisection, once understood, is generalizable: **"init green + plan red" almo
 ```bash
 gh secret set LANDING_ZONE_CONFIG \
   --app dependabot \
-  -R BinHsu/aegis-aws-landing-zone \
+  -R BinHsu/aegis-landing-zone-aws \
   < config/landing-zone.yaml
 
 # Verify the Dependabot namespace now has the secret:
-gh secret list --app dependabot -R BinHsu/aegis-aws-landing-zone
+gh secret list --app dependabot -R BinHsu/aegis-landing-zone-aws
 # Expect: LANDING_ZONE_CONFIG  <timestamp>
 ```
 
 Then trigger reruns on the failing PRs:
 
 ```bash
-gh run rerun <run_id> --failed -R BinHsu/aegis-aws-landing-zone
+gh run rerun <run_id> --failed -R BinHsu/aegis-landing-zone-aws
 ```
 
 Result on verification rerun (PR #18 `codeql-action v3→v4`): 6/6 matrix legs green within 35 seconds.
@@ -698,7 +698,7 @@ Standard apply-baseline workflow run logs. The error is unusually descriptive fo
 
 ### Resolution
 
-PR #175 ([commit 27eb246](https://github.com/BinHsu/aegis-aws-landing-zone/pull/175)):
+PR #175 ([commit 27eb246](https://github.com/BinHsu/aegis-landing-zone-aws/pull/175)):
 
 1. Removed `"arn:aws:iam::${local.account_id}:account-alias/*"` from the `IamScoped` Sid's `Resource` list in all three baseline-role files (`management/`, `shared/`, `staging/`).
 2. Added a new `AccountAliasManagement` Sid:
