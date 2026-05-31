@@ -22,7 +22,7 @@ This is partly an interview-prep artifact (the question comes up reliably) and p
 
 ## Decision
 
-**Maintain a single landing-zone repository** (`aegis-aws-landing-zone`) with per-account Terraform under `terraform/environments/<purpose>/<layer>/`. Achieve isolation at the **state, IAM, CI, approval-gate, and GitOps-workflow** levels — not at the repo level. Revisit only when one of the documented trigger signals (§ Consequences) fires.
+**Maintain a single landing-zone repository** (`aegis-landing-zone-aws`) with per-account Terraform under `terraform/environments/<purpose>/<layer>/`. Achieve isolation at the **state, IAM, CI, approval-gate, and GitOps-workflow** levels — not at the repo level. Revisit only when one of the documented trigger signals (§ Consequences) fires.
 
 ### Isolation mechanisms in use (repo-split-independent)
 

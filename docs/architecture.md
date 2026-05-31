@@ -1,7 +1,7 @@
 <!-- session-close-review: Mermaid diagrams reflect the account-fabric scope (Org/OU/SCP, Identity Center, OIDC, IPAM, baseline CI/CD) and current layer topology -->
 # Architecture
 
-This document is the authoritative visual reference for the `aegis-aws-landing-zone` deployment. Every diagram is **Mermaid** (text-based, GitHub-rendered) — no static images, no external renderers, no drift risk. Edit the diagram when you edit the code.
+This document is the authoritative visual reference for the `aegis-landing-zone-aws` deployment. Every diagram is **Mermaid** (text-based, GitHub-rendered) — no static images, no external renderers, no drift risk. Edit the diagram when you edit the code.
 
 Each diagram is cross-referenced to the Architecture Decision Record (ADR) that owns the underlying reasoning. When the diagram and an ADR disagree, the ADR wins and the diagram needs fixing in the same PR.
 
@@ -106,7 +106,7 @@ flowchart LR
   end
 
   subgraph CI["CI/CD Access (no static creds)"]
-    gha["GitHub Actions workflow<br/>BinHsu/aegis-aws-landing-zone"]
+    gha["GitHub Actions workflow<br/>BinHsu/aegis-landing-zone-aws"]
     oidc["token.actions<br/>.githubusercontent.com"]
   end
 

@@ -12,7 +12,7 @@ Splitting them into separate repositories with strict role separation aligns the
 
 Three repositories, organized as a tier model. Each tier owns one boundary and depends only downward.
 
-**Landing Zone tier — `aegis-aws-landing-zone` (this repository).** The AWS account fabric: AWS Organizations and OUs, Service Control Policies, AWS Identity Center, account bootstrap and vending, organization-wide IPAM, the centralized security and audit baseline, and the GitHub OIDC identity provider. It is pure infrastructure-as-code — Terraform modules and environments, GitHub Actions workflows — operating at the organization level. It provisions the accounts and the guardrails; it runs no cluster and no workload.
+**Landing Zone tier — `aegis-landing-zone-aws` (this repository).** The AWS account fabric: AWS Organizations and OUs, Service Control Policies, AWS Identity Center, account bootstrap and vending, organization-wide IPAM, the centralized security and audit baseline, and the GitHub OIDC identity provider. It is pure infrastructure-as-code — Terraform modules and environments, GitHub Actions workflows — operating at the organization level. It provisions the accounts and the guardrails; it runs no cluster and no workload.
 
 **Platform tier — `aegis-platform-aws`.** The Kubernetes platform: the EKS cluster, the cluster add-ons, ArgoCD itself, and the GitOps deploy manifests that ArgoCD reconciles. It is the bridge between the account fabric below it and the application above it. It consumes the account fabric — it allocates VPC CIDRs from the landing zone's IPAM, assumes roles vended through the landing zone's OIDC provider — and it delivers the application by syncing its manifests into the cluster.
 

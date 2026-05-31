@@ -1,8 +1,8 @@
 <!-- session-close-review: scope section + phase table, ADR table matches docs/decisions/, cost baseline, directory structure -->
 # Aegis AWS Landing Zone
 
-[![Terraform Apply](https://github.com/BinHsu/aegis-aws-landing-zone/actions/workflows/terraform-apply-baseline.yml/badge.svg)](https://github.com/BinHsu/aegis-aws-landing-zone/actions/workflows/terraform-apply-baseline.yml)
-[![Checkov](https://github.com/BinHsu/aegis-aws-landing-zone/actions/workflows/checkov.yml/badge.svg)](https://github.com/BinHsu/aegis-aws-landing-zone/actions/workflows/checkov.yml)
+[![Terraform Apply](https://github.com/BinHsu/aegis-landing-zone-aws/actions/workflows/terraform-apply-baseline.yml/badge.svg)](https://github.com/BinHsu/aegis-landing-zone-aws/actions/workflows/terraform-apply-baseline.yml)
+[![Checkov](https://github.com/BinHsu/aegis-landing-zone-aws/actions/workflows/checkov.yml/badge.svg)](https://github.com/BinHsu/aegis-landing-zone-aws/actions/workflows/checkov.yml)
 ![Terraform](https://img.shields.io/badge/Terraform-%E2%89%A51.10-5C4EE5?logo=terraform)
 ![License](https://img.shields.io/badge/License-MIT-yellow.svg)
 
@@ -187,7 +187,7 @@ This repository is the **Landing Zone** tier of a multi-tier model ([ADR-007](do
 
 | Tier | Owns | Repository |
 |---|---|---|
-| **Landing Zone** | Account fabric — Organizations, OUs, SCPs, Identity Center, account bootstrap/vending, IPAM, security baseline | `aegis-aws-landing-zone` (this repo) |
+| **Landing Zone** | Account fabric — Organizations, OUs, SCPs, Identity Center, account bootstrap/vending, IPAM, security baseline | `aegis-landing-zone-aws` (this repo) |
 | **Platform** | VPC, EKS, ArgoCD, cluster add-ons, observability, edge, auth, FIS — and the GitOps deploy manifests | `aegis-platform-aws` |
 | **App** | Application code, image build, signed/attested OCI artifacts | [`aegis-core`](https://github.com/BinHsu/aegis-core) |
 
@@ -214,7 +214,7 @@ The tiers are maintained independently and coordinate through GitHub Issues labe
 ## Directory structure
 
 ```
-aegis-aws-landing-zone/
+aegis-landing-zone-aws/
 ├── config/
 │   ├── landing-zone.example.yaml  # Template (committed)
 │   ├── landing-zone.yaml          # Real values (gitignored)

@@ -6,7 +6,7 @@ Accepted
 ## Context
 A landing zone can expand indefinitely. AWS Organizations, SCPs, Identity Center, networking, compute, observability, security services, compliance frameworks — each is its own multi-month project at enterprise scale. Without an explicit scope boundary, a portfolio-sized lab will either drift into incomplete coverage of too many areas, or exhaust its budget and time before the foundation is coherent.
 
-This ADR defines what is in scope and out of scope for the `aegis-aws-landing-zone` project, plus two architectural principles that constrain every subsequent decision: the management account boundary and the reproducibility requirement.
+This ADR defines what is in scope and out of scope for the `aegis-landing-zone-aws` project, plus two architectural principles that constrain every subsequent decision: the management account boundary and the reproducibility requirement.
 
 ## Decision
 
