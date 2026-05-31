@@ -84,7 +84,7 @@ budget:
 
 # Org-wide IPAM (ADR-012) — the account fabric's CIDR allocation authority.
 # Regional pools are RAM-shared to the whole organization; Platform-tier VPCs
-# (in the aegis-platform repo) draw non-overlapping CIDRs from them.
+# (in the aegis-platform-aws repo) draw non-overlapping CIDRs from them.
 ipam:
   top_cidr: "10.0.0.0/8"
   pools:
