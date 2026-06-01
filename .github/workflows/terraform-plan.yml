@@ -43,6 +43,8 @@ jobs:
             account_id: "345895787808"
           - env: staging/bootstrap
             account_id: "251774439261"
+          - env: prod/bootstrap
+            account_id: "506221082337"
 
     steps:
       - uses: actions/checkout@v6
