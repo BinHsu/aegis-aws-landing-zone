@@ -29,7 +29,7 @@ flowchart TB
   end
 
   subgraph Deployments["OU: Deployments (proposed — ADR-018)"]
-    Deploy["aegis-deployment<br/><br/>Shared ECR registry<br/>build once · promote by digest<br/>bootstrap only here;<br/>ECR in aegis-platform-aws"]
+    Deploy["aegis-deployment<br/><br/>Shared ECR registry<br/>build once · promote by digest<br/>bootstrap only here<br/>ECR in aegis-platform-aws"]
   end
 
   subgraph Work["OU: Workloads"]
