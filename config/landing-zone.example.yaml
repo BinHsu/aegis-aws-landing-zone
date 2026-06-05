@@ -33,6 +33,18 @@ accounts:
     id: "444444444444"
     email: "aws-aegis-shared@example.com"
     ou: Infrastructure
+  deployment:
+    # Shared release-artifact registry (ECR) for the build-once /
+    # promote-by-digest model (platform-aws ADR-10, this repo ADR-018).
+    # Distinct from `shared` by category: `shared` holds the control-plane
+    # state backend + IPAM + OIDC anchor; `deployment` holds the immutable
+    # release artifact that staging and prod both pull by digest. Lives in
+    # the Deployments OU. Account-creation is operator/Control-Tower-gated;
+    # leave id as the empty string until the account is vended, then fill in
+    # the 12-digit id (the `^$|^[0-9]{12}$` schema pattern permits empty).
+    id: ""
+    email: "aws-aegis-deployment@example.com"
+    ou: Deployments
   staging:
     id: "555555555555"
     email: "aws-aegis-staging@example.com"
