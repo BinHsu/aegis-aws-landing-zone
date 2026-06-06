@@ -1,5 +1,10 @@
 # AWS Landing Zone Lab — AI Operational Rules
 
+> ⚠️ **ACTIVE until 2026-06-12 — aegis multi-account joint-strike.** Canonical plan:
+> `aegis-platform-aws/docs/runbooks/2026-06-12-joint-strike.md`. Read it before touching
+> org OIDC providers, the `gh-tf-*` SCP glob, or the shared registry account for this
+> campaign. (Remove after the window.)
+
 > 📍 **Cross-project rules now live in `~/.claude/CLAUDE.md`** (auto-loads for every repo):
 > language · date · bash · safety (a)(h)(i)(k)(m) · externalize-decisions · pre-push-diff ·
 > non-host-install · reusable-PII · AWS-tech-blog tone · subagent-delegation · no-hallucination.
