@@ -128,11 +128,18 @@ anywhere in the trust policies.
 
 ## Consequences
 
-- The first CI apply after this lands adopts the two console budgets via the
-  import blocks and reconciles their notification sets to the code (in-place
-  update — the monthly budget's console-template notifications converge to
-  80%/100% actual). The import blocks can be deleted in a later cleanup once
-  state shows the budgets.
+- **Adoption is two-step, by necessity.** An `import` block makes `terraform
+  plan` call `budgets:DescribeBudget` at plan time, but the permission that
+  allows it ships in the same change — the live `gh-tf-plan` role cannot read
+  budgets until the baseline apply has landed the new policy. So the IAM
+  permissions (plus the OIDC fail-closed change) merge first; the
+  `aws_budgets_budget` resources + import blocks follow in a second PR once
+  the roles carry `budgets:ViewBudget`/`Describe*`.
+- The first CI apply after the second PR lands adopts the two console budgets
+  via the import blocks and reconciles their notification sets to the code
+  (in-place update — the monthly budget's console-template notifications
+  converge to 80%/100% actual). The import blocks can be deleted in a later
+  cleanup once state shows the budgets.
 - Three new budgets are created (staging, shared, logarchive-filtered).
   Budget alert delivery is free; the resources are $0.
 - **Forkers must set `github.infra_repo_id` before the first plan.** A fork
