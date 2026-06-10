@@ -140,6 +140,17 @@ resource "aws_iam_role_policy" "gh_tf_apply_baseline" {
         Resource = "*"
       },
       {
+        # AWS Budgets mutation — scoped to the project's budget-name prefix.
+        # ADR-019 adds the per-account monthly budget to this layer.
+        # CreateBudget / UpdateBudget / DeleteBudget all map to the condensed
+        # IAM action `budgets:ModifyBudget`; the budgets ARN carries no
+        # region segment.
+        Sid      = "BudgetsScoped"
+        Effect   = "Allow"
+        Action   = "budgets:*"
+        Resource = "arn:aws:budgets::${local.account_id}:budget/aegis-*"
+      },
+      {
         # Read shapes for `terraform plan` after apply (refresh + drift
         # detection). Resource: "*" is acceptable here because every
         # action listed is read-only — metadata disclosure is classified
@@ -161,6 +172,9 @@ resource "aws_iam_role_policy" "gh_tf_apply_baseline" {
           "kms:List*",
           "kms:GetKeyRotationStatus",
           "kms:GetKeyPolicy",
+          "budgets:ViewBudget",
+          "budgets:Describe*",
+          "budgets:ListTagsForResource",
           "tag:Get*",
           "sts:GetCallerIdentity",
         ]
