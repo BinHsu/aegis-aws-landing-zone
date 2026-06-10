@@ -51,10 +51,15 @@ This is the only line item where "what does it cost" depends on what is deployed
 
 ## Budget caps
 
-Configured in the `aegis-management` account:
+Managed by Terraform (ADR-019) in the `aegis-management` account:
 
 - **Daily**: $10 — a tripwire; the account fabric should never approach this.
 - **Monthly**: $30 — the hard ceiling for the lab.
+
+Each member account additionally carries a $10 monthly budget: staging and
+shared in their own bootstrap layers, logarchive via a LinkedAccount-filtered
+budget in the management layer (the logarchive account has no Terraform
+environment of its own).
 
 The expected envelope for this repo is comfortably under the ~$5/month baseline. The $10 daily / $30 monthly caps are kept as generous tripwires; if the daily alert fires for the account fabric alone, something is genuinely wrong (a runaway Config recorder, a misconfigured trail) and warrants investigation.
 

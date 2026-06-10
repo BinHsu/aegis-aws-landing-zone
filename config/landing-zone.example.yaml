@@ -63,9 +63,13 @@ sso:
 github:
   org: YourGitHubOrg
   infra_repo: aegis-landing-zone-aws
-  # Optional — defense-in-depth against repo rename/transfer (ADR-030 Item C).
-  # Run: gh api repos/<owner>/<repo> --jq .id
-  # If unset, OIDC trust policies fall back to repo full_name pinning only.
+  # REQUIRED (ADR-019) — the immutable repository binding for the CI OIDC trust.
+  # Get the numeric id: gh api repos/<owner>/<repo> --jq .id
+  # The gh-tf-* trust policies pin StringEquals on this repository_id; the sub
+  # claim only wildcards the repo NAME for rename-proofing. There is NO
+  # repo-name fallback: if this were unset, the trust would match any repo
+  # under `org` on main (owner-wide fail-open), so Terraform refuses to plan
+  # without it.
   infra_repo_id: "1234567890"  # placeholder — replace with actual numeric ID
 
 tags:
@@ -79,6 +83,9 @@ tags:
 budget:
   daily_usd: 10
   monthly_usd: 30
+  # Optional — per-member-account monthly ceiling in USD (the staging /
+  # shared / logarchive budgets added by ADR-019). Defaults to 10 when unset.
+  member_monthly_usd: 10
   alert_emails:
     - your-email@example.com
 
