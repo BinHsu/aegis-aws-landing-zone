@@ -25,6 +25,19 @@ locals {
   # Per-member-account monthly ceiling (USD). Optional config key; defaults
   # to 10 — the same shape as the org daily tripwire.
   member_budget_usd = tostring(try(local.config.budget.member_monthly_usd, 10))
+
+  # Empty on a fork where the account is not vended yet — gates the
+  # logarchive budget below (empty LinkedAccount filter fails the apply).
+  logarchive_account_id = try(local.config.accounts.logarchive.id, "")
+}
+
+# Loud-skip tripwire for the count gate below: a plan against a config with
+# no logarchive id WARNS instead of silently planning one budget fewer.
+check "logarchive_budget_present" {
+  assert {
+    condition     = local.logarchive_account_id != ""
+    error_message = "accounts.logarchive.id is empty — the aegis-logarchive member budget is SKIPPED this apply. Vend/record the account id in config/landing-zone.yaml and re-apply (ADR-019)."
+  }
 }
 
 import {
@@ -86,7 +99,14 @@ resource "aws_budgets_budget" "org_monthly" {
 # Per-account monthly budget for aegis-logarchive. New resource (the account
 # had none — one of the gaps the 2026-06-06 postmortem flagged). Unlike the
 # org budgets above it is filtered to a single linked account.
+#
+# count-gated on the account id: the schema permits an empty id (the account
+# may not be vended yet on a fresh fork), and an empty LinkedAccount filter
+# fails the apply. The skip is NOT silent — the check block below warns on
+# every plan until the id is set (ADR-019: no invisible missing guardrails).
 resource "aws_budgets_budget" "member_monthly_logarchive" {
+  count = local.logarchive_account_id != "" ? 1 : 0
+
   name         = "aegis-logarchive-monthly-usd${local.member_budget_usd}"
   budget_type  = "COST"
   limit_amount = local.member_budget_usd
@@ -95,7 +115,7 @@ resource "aws_budgets_budget" "member_monthly_logarchive" {
 
   cost_filter {
     name   = "LinkedAccount"
-    values = [local.config.accounts.logarchive.id]
+    values = [local.logarchive_account_id]
   }
 
   notification {
