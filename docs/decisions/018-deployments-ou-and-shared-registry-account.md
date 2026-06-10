@@ -21,9 +21,11 @@ by digest**: the workload image is built one time, and the immutable artifact is
 promoted across environments by its content digest (`name@sha256:...`), never
 rebuilt per environment. Environment differences — replica counts, resource limits,
 ingress host, IAM trust — live in the deploy-repo overlays, not in the artifact.
-The deploy repos pin images by `kustomize images[].digest`; the registry
-(`newName`) is injected at ArgoCD sync time, so the deploy repos carry only
-`name + digest`, not the registry URL.
+The deploy repos own the full `kustomize images[]` entry including the digest
+pin; the platform injects the registry as the `aegis.binhsu.org/ecr-repository`
+annotation at ArgoCD sync time (platform-aws ADR-12 — the platform never writes
+`kustomize.images`), so the deploy repos still carry no account-bearing
+registry URL.
 
 That model needs **one** registry that **every** cluster account pulls from. The
 cluster accounts that pull are `aegis-staging` and `aegis-prod` (both in the
