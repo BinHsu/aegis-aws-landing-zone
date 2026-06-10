@@ -79,6 +79,9 @@ tags:
 budget:
   daily_usd: 10
   monthly_usd: 30
+  # Optional — per-member-account monthly ceiling in USD (the staging /
+  # shared / logarchive budgets added by ADR-019). Defaults to 10 when unset.
+  member_monthly_usd: 10
   alert_emails:
     - your-email@example.com
 

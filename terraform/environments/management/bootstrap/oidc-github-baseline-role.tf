@@ -218,6 +218,18 @@ resource "aws_iam_role_policy" "gh_tf_apply_baseline" {
         Resource = "arn:aws:sns:${local.primary_region}:${local.account_id}:aegis-security-alerts*"
       },
       {
+        # AWS Budgets mutation — scoped to the project's budget-name prefix.
+        # ADR-019 manages the org cost guardrails (aegis-daily-usd10 /
+        # aegis-monthly-usd30) and the logarchive member budget in this
+        # layer. CreateBudget / UpdateBudget / DeleteBudget all map to the
+        # condensed IAM action `budgets:ModifyBudget`; the budgets ARN
+        # carries no region segment.
+        Sid      = "BudgetsScoped"
+        Effect   = "Allow"
+        Action   = "budgets:*"
+        Resource = "arn:aws:budgets::${local.account_id}:budget/aegis-*"
+      },
+      {
         # Read shapes for `terraform plan` after apply (refresh + drift
         # detection). Resource: "*" is acceptable here because every
         # action listed is read-only — metadata disclosure is classified
@@ -247,6 +259,9 @@ resource "aws_iam_role_policy" "gh_tf_apply_baseline" {
           "sso:Get*",
           "identitystore:Describe*",
           "identitystore:List*",
+          "budgets:ViewBudget",
+          "budgets:Describe*",
+          "budgets:ListTagsForResource",
           "tag:Get*",
           "sts:GetCallerIdentity",
         ]

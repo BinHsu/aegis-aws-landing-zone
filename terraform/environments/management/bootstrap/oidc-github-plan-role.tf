@@ -175,6 +175,11 @@ resource "aws_iam_role_policy" "gh_tf_plan" {
           "ecr:Get*",
           "ecr:List*",
           "elasticloadbalancing:Describe*",
+          # ADR-019 budgets-as-IaC — plan-tier refresh of the
+          # aws_budgets_budget resources (and their import-block reads).
+          "budgets:ViewBudget",
+          "budgets:Describe*",
+          "budgets:ListTagsForResource",
           "tag:Get*",
           "sts:GetCallerIdentity",
         ]
