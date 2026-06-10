@@ -14,6 +14,7 @@ on:
     paths:
       - 'terraform/environments/management/**'
       - 'terraform/environments/shared/**'
+      - 'terraform/environments/deployment/bootstrap/**'
       - 'terraform/environments/staging/bootstrap/**'
       - 'terraform/environments/prod/bootstrap/**'
       - 'config/**'
@@ -58,6 +59,8 @@ jobs:
             account_id: "345895787808"
           - env: shared/ipam
             account_id: "345895787808"
+          - env: deployment/bootstrap
+            account_id: "162975888022"
           - env: staging/bootstrap
             account_id: "251774439261"
           - env: prod/bootstrap
