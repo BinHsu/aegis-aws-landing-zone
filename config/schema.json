@@ -118,7 +118,7 @@
     },
     "github": {
       "type": "object",
-      "required": ["org", "infra_repo"],
+      "required": ["org", "infra_repo", "infra_repo_id"],
       "additionalProperties": false,
       "properties": {
         "org": {
@@ -131,7 +131,7 @@
         },
         "infra_repo_id": {
           "type": "string",
-          "description": "GitHub numeric repository ID for the landing-zone repo (run: gh api repos/OWNER/REPO --jq .id). When set, OIDC trust policies pin to this immutable ID in addition to the textual repo name. Defense-in-depth against repo rename/transfer edge cases.",
+          "description": "GitHub numeric repository ID for the landing-zone repo (run: gh api repos/OWNER/REPO --jq .id). Required (ADR-019): the OIDC trust policies pin StringEquals on this immutable ID; the sub claim only wildcards the repo NAME for rename-proofing, so without the ID the trust would match any repo under `org` on main (owner-wide fail-open). Terraform refuses to plan when it is unset.",
           "pattern": "^[0-9]+$"
         }
       }

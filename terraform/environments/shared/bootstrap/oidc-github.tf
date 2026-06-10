@@ -30,4 +30,16 @@ resource "aws_iam_openid_connect_provider" "github" {
   # This thumbprint is required by the API but not used for verification
   # when the OIDC provider is a known provider (GitHub, Google, etc.).
   thumbprint_list = ["6938fd4d98bab03faadb97b34396831e3780aea1"]
+
+  lifecycle {
+    # Fail closed (ADR-019). The immutable repository_id StringEquals claim is
+    # the ONLY repo binding in the gh-tf-* trust policies — the StringLike sub
+    # claim wildcards the repo name (`repo:<org>/*`) for rename-proofing.
+    # Without infra_repo_id, ANY repo under the GitHub owner could mint a
+    # main-branch token and assume the CI roles. Refuse to create that trust.
+    precondition {
+      condition     = local.github_infra_repo_id != null
+      error_message = "github.infra_repo_id is unset in config/landing-zone.yaml. Set it — get the numeric id via: gh api repos/<owner>/<repo> --jq .id — the OIDC trust will not be created owner-wide (ADR-019)."
+    }
+  }
 }
