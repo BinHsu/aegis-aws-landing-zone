@@ -43,7 +43,7 @@ where alternatives were genuinely weighed.
 | [015](015-permission-boundary-hardening.md) | IAM Permission-Boundary Hardening | Accepted |
 | [016](016-detective-controls.md) | Detective Control — Alert on Failed OIDC Assumption | Accepted |
 | [017](017-platform-tier-extraction.md) | Platform Tier Extracted from the Landing Zone | Accepted |
-| [018](018-deployments-ou-and-shared-registry-account.md) | Deployments OU + `aegis-deployment` Account for the Shared Release-Artifact Registry | Proposed |
+| [018](018-deployments-ou-and-shared-registry-account.md) | Deployments OU + `aegis-deployment` Account for the Shared Release-Artifact Registry | Accepted |
 | [019](019-budgets-iac-and-oidc-fail-closed.md) | Budgets Are IaC and the OIDC Trust Fails Closed | Accepted |
 
 ## Reading orders by audience

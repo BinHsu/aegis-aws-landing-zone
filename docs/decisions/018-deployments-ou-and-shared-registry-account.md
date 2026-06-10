@@ -2,12 +2,15 @@
 
 ## Status
 
-Proposed (2026-06-05)
+Accepted (2026-06-10 — account vended: 162975888022)
 
-Account creation is operator/Control-Tower-gated. This ADR records the fabric-side
-decision; the account id stays a placeholder (empty string) in
-`config/landing-zone.example.yaml` until the account is vended. The ECR registry
-that justifies the account does **not** live here — it is the platform tier's job
+Account creation is operator/Control-Tower-gated; the operator vended the account
+via Control Tower on 2026-06-10 (OU `Deployments`, status ACTIVE). The vended
+account NAME is `aegis-deployments` (plural, cosmetic only); the config key stays
+`deployment` (singular) per this ADR — code and config never read the display
+name. The account id lives in the operator's `LANDING_ZONE_CONFIG` secret;
+`config/landing-zone.example.yaml` keeps a placeholder. The ECR registry that
+justifies the account does **not** live here — it is the platform tier's job
 ([ADR-017](017-platform-tier-extraction.md)) and ships in the `aegis-platform-aws`
 sibling PR.
 
@@ -55,10 +58,11 @@ Concretely, this repository:
 
 - Adds the `Deployments` value to the OU enum in `config/schema.json` and an
   `accounts.deployment` block to `config/landing-zone.example.yaml`
-  (`ou: Deployments`, placeholder id). `deployment` is **not** yet in the schema's
-  `accounts.required` list — it graduates to required when the account is vended,
-  mirroring the existing "empty id until provisioned" pattern (the account `id`
-  pattern already permits the empty string).
+  (`ou: Deployments`, placeholder id). `deployment` started outside the schema's
+  `accounts.required` list and graduated to required when the account was vended
+  (2026-06-10), mirroring the existing "empty id until provisioned" pattern (the
+  account `id` pattern still permits the empty string, so a forker who has not
+  vended the account yet keeps validating with `id: ""`).
 - Adds `terraform/environments/deployment/bootstrap` — the same account-bootstrap
   shape as `staging/bootstrap`: account alias, the GitHub OIDC identity provider,
   the `gh-tf-plan` / `gh-tf-apply-baseline` CI roles, and the
@@ -135,10 +139,14 @@ future work rather than guessed at before the platform-aws ECR PR lands.
   The addition is additive per ADR-006 — no existing account moves OU, no Root SCP
   changes, the region/IPAM/identity layers are untouched.
 - `config/landing-zone.example.yaml` and `config/schema.json` gain the
-  `deployment` account and the `Deployments` OU value. A forker's live
-  `config/landing-zone.yaml` keeps validating unchanged because `deployment` is not
-  yet `required`; it becomes required when the account is vended (the same
-  graduation the empty-id pattern already encodes).
+  `deployment` account and the `Deployments` OU value. With the account vended,
+  `deployment` is in the schema's `accounts.required` list: a live
+  `config/landing-zone.yaml` must carry the block (the `id` may stay `""` until
+  a forker vends their own account — the empty-id pattern encodes that
+  graduation). The operator updates the `LANDING_ZONE_CONFIG` secret in the same
+  motion as this merge; nothing in CI validates the secret against the schema,
+  and no other Terraform layer reads `accounts.deployment`, so a briefly stale
+  secret cannot break the other layers' plans or applies.
 - A new Terraform layer `deployment/bootstrap` exists with state key
   `deployment/bootstrap/terraform.tfstate`. It cannot apply until the account id is
   filled in — the `check "config_account_id_not_empty"` block fails fast with the

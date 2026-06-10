@@ -138,7 +138,7 @@ terraform init && terraform plan
 
 ## Build phases
 
-Status reflects what exists in `main`. The 6-account fabric is complete; a 7th account (`aegis-deployment`, Deployments OU) is **proposed** in [ADR-018](docs/decisions/018-deployments-ou-and-shared-registry-account.md) — config + bootstrap Terraform are in the tree, but account creation is operator/Control-Tower-gated and the id is a placeholder until vended.
+Status reflects what exists in `main`. The account fabric is complete: the 7th account (`aegis-deployment`, Deployments OU) was vended via Control Tower on 2026-06-10 per [ADR-018](docs/decisions/018-deployments-ou-and-shared-registry-account.md); its bootstrap layer applies through the standard CI path once the per-account roles are seeded.
 
 | Phase | Scope | Cost | Status |
 |-------|-------|------|--------|
@@ -147,7 +147,7 @@ Status reflects what exists in `main`. The 6-account fabric is complete; a 7th a
 | 2. GitOps Pipeline | plan/apply workflows, Checkov, pre-commit, signed commits | ~Free | **Done** |
 | 3. IPAM | Org-wide IPAM + RAM cross-account sharing (ADR-012) | ~$0 idle | **Done** |
 | 4. Security baseline | Organizational CloudTrail, AWS Config, GuardDuty, IAM scope-down ladder (ADR-014–016) | ~$5/mo | **Done** |
-| 5. Deployments OU + registry account | Deployments OU + `aegis-deployment` bootstrap for the shared release-artifact registry (ADR-018; ECR lives in `aegis-platform-aws`) | ~Free fabric; ECR billed downstream | **Proposed** |
+| 5. Deployments OU + registry account | Deployments OU + `aegis-deployment` bootstrap for the shared release-artifact registry (ADR-018; ECR lives in `aegis-platform-aws`) | ~Free fabric; ECR billed downstream | **Account vended — first bootstrap apply pending role seed** |
 
 ## Reliability & Recovery Posture
 
@@ -162,7 +162,7 @@ The [improvements directory](docs/improvements/) is the productionization roadma
 
 ## Architecture Decision Records
 
-All ADRs are **Accepted** except ADR-018, which is **Proposed** (the Deployments OU + registry account; account creation is operator-gated).
+All ADRs are **Accepted**.
 
 | ADR | Decision |
 |-----|----------|
@@ -183,7 +183,8 @@ All ADRs are **Accepted** except ADR-018, which is **Proposed** (the Deployments
 | [015](docs/decisions/015-permission-boundary-hardening.md) | IAM permission-boundary hardening |
 | [016](docs/decisions/016-detective-controls.md) | Detective control — alert on failed OIDC assumption |
 | [017](docs/decisions/017-platform-tier-extraction.md) | Platform tier extracted from the landing zone |
-| [018](docs/decisions/018-deployments-ou-and-shared-registry-account.md) | Deployments OU + `aegis-deployment` account for the shared release-artifact registry (Proposed) |
+| [018](docs/decisions/018-deployments-ou-and-shared-registry-account.md) | Deployments OU + `aegis-deployment` account for the shared release-artifact registry |
+| [019](docs/decisions/019-budgets-iac-and-oidc-fail-closed.md) | Budgets are IaC and the OIDC trust fails closed |
 
 ## Runbooks
 

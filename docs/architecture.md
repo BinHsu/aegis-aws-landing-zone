@@ -11,7 +11,7 @@ Each diagram is cross-referenced to the Architecture Decision Record (ADR) that 
 
 ## 1. Account Topology
 
-AWS Organizations structure with the seven accounts, four OUs, and SCP attachment point. See [ADR-006](decisions/006-account-taxonomy-and-ou-structure.md) for rationale and [ADR-018](decisions/018-deployments-ou-and-shared-registry-account.md) for the Deployments OU + `aegis-deployment` (Proposed — account creation is operator-gated, id is a placeholder until vended).
+AWS Organizations structure with the seven accounts, four OUs, and SCP attachment point. See [ADR-006](decisions/006-account-taxonomy-and-ou-structure.md) for rationale and [ADR-018](decisions/018-deployments-ou-and-shared-registry-account.md) for the Deployments OU + `aegis-deployment` (vended 2026-06-10).
 
 ```mermaid
 flowchart TB
@@ -28,7 +28,7 @@ flowchart TB
     Shared["aegis-shared<br/><br/>Terraform state bucket<br/>IPAM pools<br/>GitHub OIDC<br/>AFT (committed, not deployed)"]
   end
 
-  subgraph Deployments["OU: Deployments (proposed — ADR-018)"]
+  subgraph Deployments["OU: Deployments (ADR-018)"]
     Deploy["aegis-deployment<br/><br/>Shared ECR registry<br/>build once · promote by digest<br/>bootstrap only here<br/>ECR in aegis-platform-aws"]
   end
 
@@ -177,7 +177,7 @@ flowchart TB
 
 IPAM is the org-wide CIDR allocation authority ([ADR-012](decisions/012-ipam-and-cidr-allocation.md)): it RAM-shares regional pools to the whole organization, and downstream VPCs in the member accounts allocate their CIDRs from those pools via `ipv4_ipam_pool_id` rather than hand-planning ranges. The pools live here; the VPCs that consume them do not.
 
-**State key convention:** `<account>/<layer>/terraform.tfstate`. Live layers: management/bootstrap, management/scps, shared/bootstrap, shared/ipam, shared/aft, staging/bootstrap, prod/bootstrap. Proposed (ADR-018): deployment/bootstrap — applies once the `aegis-deployment` account is vended.
+**State key convention:** `<account>/<layer>/terraform.tfstate`. Live layers: management/bootstrap, management/scps, shared/bootstrap, shared/ipam, shared/aft, deployment/bootstrap (ADR-018), staging/bootstrap, prod/bootstrap.
 
 ---
 
