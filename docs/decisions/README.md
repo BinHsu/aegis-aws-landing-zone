@@ -43,6 +43,7 @@ where alternatives were genuinely weighed.
 | [015](015-permission-boundary-hardening.md) | IAM Permission-Boundary Hardening | Accepted |
 | [016](016-detective-controls.md) | Detective Control — Alert on Failed OIDC Assumption | Accepted |
 | [017](017-platform-tier-extraction.md) | Platform Tier Extracted from the Landing Zone | Accepted |
+| [019](019-budgets-iac-and-oidc-fail-closed.md) | Budgets Are IaC and the OIDC Trust Fails Closed | Accepted |
 
 ## Reading orders by audience
 
@@ -79,12 +80,14 @@ piece of durable state the account fabric owns.
 
 Understand the guardrails and the blast-radius controls.
 
-`001` → `005` → `006` → `008` → `014` → `015` → `016` → `011`
+`001` → `005` → `006` → `008` → `014` → `015` → `016` → `019` → `011`
 
 Scope and the ISO 27001 mapping frame the compliance intent; account taxonomy
 and tooling show where the SCP guardrails sit. `014`–`016` are the CI security
 ladder (OIDC role scope-down → SCP permission-boundary inner wall → detective
-control on failed OIDC assumption). `011` covers account provisioning.
+control on failed OIDC assumption); `019` closes the ladder's fail-open gap
+(required `infra_repo_id`) and moves the cost guardrails into Terraform.
+`011` covers account provisioning.
 
 ### Forker / new contributor
 
