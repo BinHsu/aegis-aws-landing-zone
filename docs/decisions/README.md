@@ -43,18 +43,19 @@ where alternatives were genuinely weighed.
 | [015](015-permission-boundary-hardening.md) | IAM Permission-Boundary Hardening | Accepted |
 | [016](016-detective-controls.md) | Detective Control — Alert on Failed OIDC Assumption | Accepted |
 | [017](017-platform-tier-extraction.md) | Platform Tier Extracted from the Landing Zone | Accepted |
+| [018](018-deployments-ou-and-shared-registry-account.md) | Deployments OU + `aegis-deployment` Account for the Shared Release-Artifact Registry | Accepted |
 | [019](019-budgets-iac-and-oidc-fail-closed.md) | Budgets Are IaC and the OIDC Trust Fails Closed | Accepted |
 
 ## Reading orders by audience
 
-You do not need to read all 17 ADRs front to back. Pick the path for why you
+You do not need to read all 19 ADRs front to back. Pick the path for why you
 are here. Each list is ordered so the argument builds on itself.
 
 ### Senior platform / infrastructure reviewer
 
 Understand the shape of the account fabric and why it is shaped that way.
 
-`001` → `006` → `008` → `011` → `010` → `003` → `004` → `013` → `007` → `017` → `002` → `012`
+`001` → `006` → `008` → `011` → `010` → `003` → `004` → `013` → `007` → `017` → `018` → `002` → `012`
 
 Scope boundary first, then the account/OU taxonomy, the
 Control-Tower-plus-Terraform tooling split, and how accounts are provisioned

@@ -10,7 +10,7 @@
 
 Software is a bridge; business is the ground beneath it. A bridge can be rebuilt; a foundation cannot. This landing zone is built in that posture — speed where it helps, sovereignty where it matters, automation that assumes human judgment rather than replaces it — so that whatever the principals above decide to build can stand on ground that holds.
 
-What that looks like in practice: six AWS accounts under a single Organization with SCPs enforcing guardrails before any workload runs. Zero static credentials — humans authenticate through SSO, CI through OIDC federation. Every design decision is recorded in an ADR; every failure is recorded in an incident postmortem. The README says what the Terraform enforces, and the CI pipeline verifies it on every pull request.
+What that looks like in practice: seven AWS accounts under a single Organization with SCPs enforcing guardrails before any workload runs. Zero static credentials — humans authenticate through SSO, CI through OIDC federation. Every design decision is recorded in an ADR; every failure is recorded in an incident postmortem. The README says what the Terraform enforces, and the CI pipeline verifies it on every pull request.
 
 > A reference implementation of a production-grade multi-account AWS **account fabric**, managed entirely through GitOps — for single-operator labs and small-team deployments that want AWS best-practice structure without the enterprise overhead.
 
@@ -24,7 +24,7 @@ This repository is the **account fabric**: the multi-account AWS governance plan
 
 ## Features at a glance
 
-- **Multi-account AWS Organizations** — 6 accounts under Control Tower, 3 OUs, custom SCPs aligned to ISO 27001:2022 Annex A
+- **Multi-account AWS Organizations** — 7 accounts under Control Tower, 4 OUs, custom SCPs aligned to ISO 27001:2022 Annex A
 - **Zero static credentials** — AWS IAM Identity Center for humans, GitHub OIDC for CI/CD; no IAM users (enforced by SCP, not just policy)
 - **Terraform ≥ 1.10 with S3 native state locking** — no DynamoDB, Terraservices layered state (ADR-003)
 - **GitHub Actions GitOps pipeline** — plan on PR, apply on merge, Checkov security scan, all required status checks
@@ -78,6 +78,10 @@ flowchart TB
       Shared["aegis-shared<br/>Terraform state · IPAM"]
     end
 
+    subgraph Dep["OU: Deployments"]
+      Deploy["aegis-deployment<br/>Shared ECR registry<br/>(build once · promote by digest)"]
+    end
+
     subgraph Wrk["OU: Workloads"]
       Stg["aegis-staging"]
       Prd["aegis-prod"]
@@ -87,6 +91,7 @@ flowchart TB
   CI -. OIDC federation<br/>(no static creds) .-> Org
   Mgmt -. SCPs .-> Sec
   Mgmt -. SCPs .-> Inf
+  Mgmt -. SCPs .-> Dep
   Mgmt -. SCPs .-> Wrk
 ```
 
@@ -133,7 +138,7 @@ terraform init && terraform plan
 
 ## Build phases
 
-Status reflects what exists in `main`. The account fabric is complete.
+Status reflects what exists in `main`. The account fabric is complete: the 7th account (`aegis-deployment`, Deployments OU) was vended via Control Tower on 2026-06-10 per [ADR-018](docs/decisions/018-deployments-ou-and-shared-registry-account.md); its bootstrap layer applies through the standard CI path once the per-account roles are seeded.
 
 | Phase | Scope | Cost | Status |
 |-------|-------|------|--------|
@@ -142,6 +147,7 @@ Status reflects what exists in `main`. The account fabric is complete.
 | 2. GitOps Pipeline | plan/apply workflows, Checkov, pre-commit, signed commits | ~Free | **Done** |
 | 3. IPAM | Org-wide IPAM + RAM cross-account sharing (ADR-012) | ~$0 idle | **Done** |
 | 4. Security baseline | Organizational CloudTrail, AWS Config, GuardDuty, IAM scope-down ladder (ADR-014–016) | ~$5/mo | **Done** |
+| 5. Deployments OU + registry account | Deployments OU + `aegis-deployment` bootstrap for the shared release-artifact registry (ADR-018; ECR lives in `aegis-platform-aws`) | ~Free fabric; ECR billed downstream | **Account vended — first bootstrap apply pending role seed** |
 
 ## Reliability & Recovery Posture
 
@@ -176,6 +182,9 @@ All ADRs are **Accepted**.
 | [014](docs/decisions/014-iam-permission-scope-down.md) | CI OIDC role scope-down |
 | [015](docs/decisions/015-permission-boundary-hardening.md) | IAM permission-boundary hardening |
 | [016](docs/decisions/016-detective-controls.md) | Detective control — alert on failed OIDC assumption |
+| [017](docs/decisions/017-platform-tier-extraction.md) | Platform tier extracted from the landing zone |
+| [018](docs/decisions/018-deployments-ou-and-shared-registry-account.md) | Deployments OU + `aegis-deployment` account for the shared release-artifact registry |
+| [019](docs/decisions/019-budgets-iac-and-oidc-fail-closed.md) | Budgets are IaC and the OIDC trust fails closed |
 
 ## Runbooks
 
@@ -228,6 +237,7 @@ aegis-landing-zone-aws/
 │       │   ├── bootstrap/         # State bucket, OIDC
 │       │   ├── ipam/              # Org-wide IPAM pools + RAM share
 │       │   └── aft/               # AFT code (committed, not deployed — ADR-011 Path A)
+│       ├── deployment/bootstrap/  # Alias, GitHub OIDC provider, gh-tf-* + break-glass (ADR-018; ECR lives in aegis-platform-aws)
 │       ├── staging/bootstrap/     # Alias, GitHub OIDC provider, gh-tf-* + break-glass roles
 │       └── prod/bootstrap/        # Alias only
 ├── scripts/
