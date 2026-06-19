@@ -17,12 +17,12 @@ The project is organized around six design principles that live at the top of th
 
 1. Trade cost for reproducibility, not vice versa
 2. Document decisions, not just code
-3. Cost-conscious by default
+3. A landing zone is the account fabric, not the platform.
 4. Zero static credentials. Anywhere.
-5. Drift is a bug
+5. Drift is a bug.
 6. Automate the steady state. Accept one manual break.
 
-The first principle is the reason `config/landing-zone.yaml` + `scripts/configure-backends.sh` exists. The second is the reason every load-bearing decision has its own ADR. The third is the reason this repo carries no idle-billing resources. The fourth is enforced by a Service Control Policy at the organization level, not just IAM policy. The fifth is why the README and the architecture diagrams update in the same PR as the code. The sixth is why `aegis-shared` is created by hand and every other account is fully automated.
+The first principle is the reason `config/landing-zone.yaml` + `scripts/configure-backends.sh` exists. The second is the reason every load-bearing decision has its own ADR. The third is why this repo carries no idle-billing resources — the account fabric governs accounts; it does not run workloads. The fourth is enforced by a Service Control Policy at the organization level, not just IAM policy. The fifth is why the README and the architecture diagrams update in the same PR as the code. The sixth is why `aegis-shared` is created by hand and every other account is fully automated.
 
 None of these were obvious up front. They emerged from working through the actual constraints and will be explained below.
 

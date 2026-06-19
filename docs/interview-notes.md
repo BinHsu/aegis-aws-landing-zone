@@ -39,7 +39,7 @@ Each entry: what was built → where to look in the repo → the kind of questio
 
 ### 2.1 Multi-account AWS governance
 
-**Built**: six accounts (`aegis-management`, `-security`, `-logarchive`, `-shared`, `-staging`, `-prod`) under an AWS Control Tower foundation, across three OUs (Security / Infrastructure / Workloads). Three custom SCPs at the org root (deny-root-user-actions, deny-iam-user-creation, deny-leave-organization). IAM Identity Center for human access; no IAM users anywhere (enforced by SCP, not policy).
+**Built**: seven accounts (`aegis-management`, `-security`, `-logarchive`, `-shared`, `-deployment`, `-staging`, `-prod`) under an AWS Control Tower foundation, across four OUs (Security / Infrastructure / Deployments / Workloads). `aegis-deployment` was vended on 2026-06-10 as the shared release-artifact registry account (ADR-018). Three custom SCPs at the org root (deny-root-user-actions, deny-iam-user-creation, deny-leave-organization). IAM Identity Center for human access; no IAM users anywhere (enforced by SCP, not policy).
 
 **Where to look**:
 - [`docs/decisions/006-account-taxonomy-and-ou-structure.md`](decisions/006-account-taxonomy-and-ou-structure.md)
@@ -48,7 +48,7 @@ Each entry: what was built → where to look in the repo → the kind of questio
 - [`terraform/environments/management/scps/`](../terraform/environments/management/scps/)
 - [`terraform/environments/management/bootstrap/sso-assignments.tf`](../terraform/environments/management/bootstrap/sso-assignments.tf)
 
-**Likely questions**: why 6 accounts (blast-radius + segregation-of-duties, ADR-006); why Control Tower + Terraform hybrid rather than native Organizations (ADR-008 — don't reinvent the CT StackSets); how would this scale to 60 accounts (Path B / AFT pivot, code already committed but not applied per ADR-011).
+**Likely questions**: why 7 accounts (blast-radius + segregation-of-duties, ADR-006; the 7th `aegis-deployment` separates the release-artifact registry from workload accounts, ADR-018); why Control Tower + Terraform hybrid rather than native Organizations (ADR-008 — don't reinvent the CT StackSets); how would this scale to 60 accounts (Path B / AFT pivot, code already committed but not applied per ADR-011).
 
 ### 2.2 CI/CD — OIDC-federated, no static credentials
 

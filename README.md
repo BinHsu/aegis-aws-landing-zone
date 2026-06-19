@@ -22,6 +22,17 @@ What that looks like in practice: seven AWS accounts under a single Organization
 
 This repository is the **account fabric**: the multi-account AWS governance plane an application team lands *into*. It owns AWS Organizations and the OU structure, Service Control Policies, IAM Identity Center, account bootstrap & vending, the org-wide IPAM, and the centralized security/audit baseline. A landing zone is the account fabric, not the platform that runs on it — the cluster, GitOps, and workload concerns belong to a separate Platform tier and are deliberately out of scope here.
 
+This repo is **layer 1** of a four-layer "四件套" architecture:
+
+| Layer | Repository | Role |
+|-------|-----------|------|
+| 1 | `aegis-landing-zone-aws` (this repo) | Account fabric — OIDC trust anchor, Organizations, SCPs, Identity Center, IPAM, security baseline |
+| 2 | `aegis-platform-aws` | Platform tier — VPC, EKS, ArgoCD, cluster add-ons, observability, edge, auth |
+| 3 | `aegis-core` | Service app — application code, image build, signed OCI artifacts |
+| 4 | `aegis-core-deploy` | GitOps manifests — Kubernetes manifests, Kustomize overlays, ArgoCD Application resources |
+
+The landing zone is kept thin deliberately: it is the foundation the platform stands on, not the platform itself. Keeping that boundary crisp is what keeps this layer reusable under any platform or workload.
+
 ## Features at a glance
 
 - **Multi-account AWS Organizations** — 7 accounts under Control Tower, 4 OUs, custom SCPs aligned to ISO 27001:2022 Annex A
@@ -199,8 +210,13 @@ This repository is the **Landing Zone** tier of a multi-tier model ([ADR-007](do
 | **Landing Zone** | Account fabric — Organizations, OUs, SCPs, Identity Center, account bootstrap/vending, IPAM, security baseline | `aegis-landing-zone-aws` (this repo) |
 | **Platform** | VPC, EKS, ArgoCD, cluster add-ons, observability, edge, auth, FIS — and the GitOps deploy manifests | `aegis-platform-aws` |
 | **App** | Application code, image build, signed/attested OCI artifacts | [`aegis-core`](https://github.com/BinHsu/aegis-core) |
+| **App GitOps** | Kubernetes manifests, Kustomize overlays, ArgoCD Application resources | [`aegis-core-deploy`](https://github.com/BinHsu/aegis-core-deploy) |
 
 The tiers are maintained independently and coordinate through GitHub Issues labeled `cross-repo`, not direct IPC or shared state.
+
+## Cross-repo coordination
+
+Changes that cross tier boundaries — OIDC trust anchor updates, IPAM pool changes, new account bootstrap — are tracked through GitHub Issues labeled [`cross-repo`](https://github.com/BinHsu/aegis-landing-zone-aws/labels/cross-repo) on the affected repositories. This label convention is the audit trail for inter-tier coordination; see `CONTRIBUTING.md` for the full label semantics and standing issue links.
 
 ## Cost management
 
