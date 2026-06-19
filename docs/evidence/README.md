@@ -2,6 +2,8 @@
 
 # Evidence
 
+> **No artifacts are committed yet.** To reproduce the expected proof items from scratch, follow [docs/runbooks/001-bootstrap-aws-account.md](../runbooks/001-bootstrap-aws-account.md).
+
 This directory holds **proof artifacts from real runs** — committed, not
 linked.
 

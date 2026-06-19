@@ -50,6 +50,29 @@ A landing zone built by a **hands-on architect** — designed AND implemented en
 
 The project value is execution *and* discipline, layered together: ADRs in [`docs/decisions/`](docs/decisions/) (several with honest "Design iteration" sections documenting reversed decisions), incident postmortems in [`docs/incidents.md`](docs/incidents.md) (written after the fact, never softened retroactively), a runbook in [`docs/runbooks/`](docs/runbooks/), and a CI/CD pipeline shaped by cost profile rather than template copy-paste. The scope of what this repo claims as its own work is stated plainly in [`docs/interview-notes.md`](docs/interview-notes.md) — the account fabric.
 
+## The Aegis portfolio (4 repos)
+
+| Tier | Repo | Role |
+|------|------|------|
+| Account fabric | **[`aegis-landing-zone-aws`](https://github.com/BinHsu/aegis-landing-zone-aws)** | **AWS Organizations, OIDC trust anchor, SCPs** |
+| Platform | [`aegis-platform-aws`](https://github.com/BinHsu/aegis-platform-aws) | Terraform substrate (EKS/VPC), ArgoCD, Crossplane XRDs, observability |
+| Application | [`aegis-core`](https://github.com/BinHsu/aegis-core) | The service — gateway + C++ engine + web frontend |
+| Deploy (GitOps) | [`aegis-core-deploy`](https://github.com/BinHsu/aegis-core-deploy) | Kustomize + Crossplane claims; ArgoCD syncs from here |
+
+> **You are here: `aegis-landing-zone-aws`.**
+
+```mermaid
+flowchart LR
+    dev([Developer]) --> core["aegis-core<br/>app code"]
+    core -->|"CI build → image"| ecr[("ECR / registry")]
+    core -->|"manifests"| deploy["aegis-core-deploy<br/>GitOps source of truth"]
+    deploy -->|"ArgoCD sync"| platform["aegis-platform-aws<br/>EKS · ArgoCD · Crossplane"]
+    ecr -->|"pull by digest"| platform
+    platform -->|"runs in accounts &<br/>OIDC trust from"| ldz["aegis-landing-zone-aws<br/>account fabric"]
+    classDef here fill:#f5a623,stroke:#c07d10,color:#000;
+    class ldz here;
+```
+
 ## Reading guide
 
 Different readers have different goals. Start here:
@@ -208,7 +231,7 @@ This repository is the **Landing Zone** tier of a multi-tier model ([ADR-007](do
 | Tier | Owns | Repository |
 |---|---|---|
 | **Landing Zone** | Account fabric — Organizations, OUs, SCPs, Identity Center, account bootstrap/vending, IPAM, security baseline | `aegis-landing-zone-aws` (this repo) |
-| **Platform** | VPC, EKS, ArgoCD, cluster add-ons, observability, edge, auth, FIS — and the GitOps deploy manifests | `aegis-platform-aws` |
+| **Platform** | VPC, EKS, ArgoCD, cluster add-ons, observability, edge, auth, FIS — and the GitOps deploy manifests | [`aegis-platform-aws`](https://github.com/BinHsu/aegis-platform-aws) |
 | **App** | Application code, image build, signed/attested OCI artifacts | [`aegis-core`](https://github.com/BinHsu/aegis-core) |
 | **App GitOps** | Kubernetes manifests, Kustomize overlays, ArgoCD Application resources | [`aegis-core-deploy`](https://github.com/BinHsu/aegis-core-deploy) |
 
