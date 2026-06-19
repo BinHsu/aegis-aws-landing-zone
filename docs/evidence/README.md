@@ -2,7 +2,7 @@
 
 # Evidence
 
-> **No artifacts are committed yet.** To reproduce the expected proof items from scratch, follow [docs/runbooks/001-bootstrap-aws-account.md](../runbooks/001-bootstrap-aws-account.md).
+> **One redacted artifact is committed** (see below). To reproduce proof items from scratch, follow [docs/runbooks/001-bootstrap-aws-account.md](../runbooks/001-bootstrap-aws-account.md).
 
 This directory holds **proof artifacts from real runs** — committed, not
 linked.
@@ -50,3 +50,9 @@ repo (`CLAUDE.md` Security): AWS account IDs, Org/OU IDs, ARNs, and bucket
 names are **metadata, not secrets** — safe to include. Static credentials
 (access keys, tokens, private keys) must never appear; this project has none
 by design. Scrub any screenshot or log that would otherwise leak one.
+
+## Committed artifacts
+
+| File | What it proves | Related ADR |
+|------|----------------|-------------|
+| [`oidc-assumerole-sample.md`](oidc-assumerole-sample.md) | GitHub Actions assumes `gh-tf-plan-baseline` via OIDC — no static credentials; subject claim matches enforced trust condition; trust fails closed when `infra_repo_id` is unset (ADR-019) | ADR-014, ADR-019 |

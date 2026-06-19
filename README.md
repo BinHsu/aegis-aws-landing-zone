@@ -3,6 +3,7 @@
 
 [![Terraform Apply](https://github.com/BinHsu/aegis-landing-zone-aws/actions/workflows/terraform-apply-baseline.yml/badge.svg)](https://github.com/BinHsu/aegis-landing-zone-aws/actions/workflows/terraform-apply-baseline.yml)
 [![Checkov](https://github.com/BinHsu/aegis-landing-zone-aws/actions/workflows/checkov.yml/badge.svg)](https://github.com/BinHsu/aegis-landing-zone-aws/actions/workflows/checkov.yml)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/BinHsu/aegis-landing-zone-aws/badge)](https://securityscorecards.dev/viewer/?uri=github.com/BinHsu/aegis-landing-zone-aws)
 ![Terraform](https://img.shields.io/badge/Terraform-%E2%89%A51.10-5C4EE5?logo=terraform)
 ![License](https://img.shields.io/badge/License-MIT-yellow.svg)
 
