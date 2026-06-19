@@ -14,9 +14,9 @@ Use GitHub's [Private Vulnerability Reporting](https://github.com/BinHsu/aegis-l
 
 This project enforces defense-in-depth controls at multiple layers. A security finding here means one of these controls failed:
 
-- **Zero static credentials** — IAM Identity Center for humans, OIDC federation for CI, IRSA for workloads (planned). No IAM users, no access keys. Enforced by SCP `deny-iam-user-creation`, not just IAM policy.
+- **Zero static credentials** — IAM Identity Center for humans, OIDC federation for CI. No IAM users, no access keys. Enforced by SCP `deny-iam-user-creation`, not just IAM policy.
 - **Signed commits required on `main`** — every commit is cryptographically signed with a key the author controls. Required by branch protection.
-- **Branch protection** with 5 required status checks (Terraform plan × 4 environments + Checkov). No direct pushes to `main`.
+- **Branch protection** with 8 required status checks (Terraform plan × 7 environments + Checkov). No direct pushes to `main`.
 - **Admin bypass allowed but logged** — single-operator workflow; every bypass appears in GitHub's branch protection events.
 - **IaC security scanning** — Checkov runs on every PR with a triaged skip list. New findings fail the build; documented skips require inline justification. See [`.github/workflows/checkov.yml`](.github/workflows/checkov.yml).
 - **Schema validation on the configuration contract** — JSON Schema enforced by pre-commit hook. Blocks invalid config before commit.

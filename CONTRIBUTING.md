@@ -33,7 +33,7 @@ Scope boundaries are documented in [ADR-001](docs/decisions/001-landing-zone-sco
 5. **Add or update an ADR** if you are making a load-bearing decision (something a future reader would need to understand).
 6. **Update affected documentation** in the same PR — README, `docs/architecture.md`, runbooks. Drift is a bug per the project's stated policy.
 7. **Open a PR** against `main`. The PR template ([`.github/pull_request_template.md`](.github/pull_request_template.md)) guides what is expected.
-8. **CI must pass** — 5× Terraform Plan + Checkov. Required by branch protection, not waivable.
+8. **CI must pass** — 7× Terraform Plan + Checkov. Required by branch protection, not waivable.
 9. **Commits must be signed** — SSH or GPG, verified by GitHub. Required by branch protection.
 
 ## ADR process
