@@ -32,6 +32,12 @@ jobs:
         # Account-fabric layers only — Organizations / SCPs / Identity Center,
         # account bootstrap, and the org-wide IPAM. Every layer uses a
         # full-literal S3 backend, so `terraform init` needs no extra config.
+        #
+        # Optional `paths` key: when set, the job detects whether the PR
+        # touched those paths. If not, it short-circuits to green without
+        # running `terraform plan` — so the required-status-check is ALWAYS
+        # reported, but a real plan only fires when the layer is affected.
+        # Rows WITHOUT `paths` always run a full plan (no short-circuit).
         include:
           - env: management/bootstrap
             account_id: "186052668286"
@@ -45,13 +51,68 @@ jobs:
             account_id: "162975888022"
           - env: staging/bootstrap
             account_id: "251774439261"
+          - env: staging/network
+            account_id: "251774439261"
+            # Only run the real plan when staging/network files or the shared
+            # config change; otherwise short-circuit to green so the required
+            # status check is satisfied without a real AWS plan call.
+            paths: "terraform/environments/staging/network/ config/"
           - env: prod/bootstrap
             account_id: "506221082337"
 
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          # Need full history to compare with the base branch for path detection.
+          fetch-depth: 0
+
+      # -----------------------------------------------------------------------
+      # Path-change detection (only runs when matrix.paths is set).
+      # Compares the PR head against the merge base to decide whether any
+      # file under the watched paths changed. Sets output `changed` = true/false.
+      # -----------------------------------------------------------------------
+      - name: Detect path changes
+        id: paths
+        if: matrix.paths != ''
+        env:
+          WATCH_PATHS: ${{ matrix.paths }}
+        run: |
+          BASE="${{ github.event.pull_request.base.sha }}"
+          HEAD="${{ github.event.pull_request.head.sha }}"
+          CHANGED="false"
+          for p in $WATCH_PATHS; do
+            if git diff --name-only "$BASE" "$HEAD" -- "$p" | grep -q .; then
+              CHANGED="true"
+              break
+            fi
+          done
+          echo "changed=${CHANGED}" >> "$GITHUB_OUTPUT"
+          echo "Watched paths: ${WATCH_PATHS}"
+          echo "Changes detected: ${CHANGED}"
+
+      # Short-circuit: post a green "no changes to this layer" status and exit
+      # without touching AWS when no relevant paths changed.
+      - name: Skip — no relevant path changes
+        if: matrix.paths != '' && steps.paths.outputs.changed == 'false'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          MATRIX_ENV: ${{ matrix.env }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          ACTOR: ${{ github.actor }}
+        with:
+          script: |
+            const matrixEnv = process.env.MATRIX_ENV || '';
+            const headRef   = process.env.HEAD_REF   || '';
+            const actor     = process.env.ACTOR      || '';
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `### ✅ Terraform Plan: \`${matrixEnv}\`\n\n**Result:** No changes to this layer — plan skipped.\n\n*Triggered by @${actor} on \`${headRef}\`*`,
+            });
 
       - name: Write config
+        if: matrix.paths == '' || steps.paths.outputs.changed == 'true'
         run: |
           mkdir -p config
           cat <<'EOFCONFIG' > config/landing-zone.yaml
@@ -59,20 +120,24 @@ jobs:
           EOFCONFIG
 
       - uses: aws-actions/configure-aws-credentials@d979d5b3a71173a29b74b5b88418bfda9437d885 # v6.1.1
+        if: matrix.paths == '' || steps.paths.outputs.changed == 'true'
         with:
           role-to-assume: arn:aws:iam::${{ matrix.account_id }}:role/gh-tf-plan
           aws-region: ${{ env.AWS_REGION }}
 
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        if: matrix.paths == '' || steps.paths.outputs.changed == 'true'
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
       - name: Terraform Init
+        if: matrix.paths == '' || steps.paths.outputs.changed == 'true'
         working-directory: terraform/environments/${{ matrix.env }}
         run: terraform init -input=false
 
       - name: Terraform Plan
         working-directory: terraform/environments/${{ matrix.env }}
+        if: matrix.paths == '' || steps.paths.outputs.changed == 'true'
         id: plan
         # -lock-timeout=10m serializes concurrent plans that hit the same state
         # file (Dependabot bulk rebases — see Incident 10).
@@ -81,6 +146,7 @@ jobs:
 
       - name: Determine plan status
         id: status
+        if: matrix.paths == '' || steps.paths.outputs.changed == 'true'
         run: |
           if [ "${{ steps.plan.outcome }}" == "failure" ]; then
             echo "icon=❌" >> "$GITHUB_OUTPUT"
@@ -95,7 +161,7 @@ jobs:
 
       - name: Comment Plan on PR
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
-        if: github.event_name == 'pull_request'
+        if: (matrix.paths == '' || steps.paths.outputs.changed == 'true') && github.event_name == 'pull_request'
         env:
           # Pass user-controlled strings through env rather than direct
           # template interpolation — plan output can contain backticks or
@@ -137,5 +203,5 @@ jobs:
             });
 
       - name: Fail if plan errored
-        if: steps.plan.outcome == 'failure'
+        if: (matrix.paths == '' || steps.paths.outputs.changed == 'true') && steps.plan.outcome == 'failure'
         run: exit 1
