@@ -63,6 +63,23 @@ locals {
   ])
 }
 
+# ---------------------------------------------------------------------------
+# Import blocks — adopt the break-glass-seeded role so Terraform can manage
+# it going forward (root cause: EntityAlreadyExists on baseline apply, #15).
+# These blocks are safe to leave in place; after a successful apply+state
+# reconcile they become no-ops. Remove them once the role is confirmed in
+# state (i.e. a subsequent plan shows "No changes").
+# ---------------------------------------------------------------------------
+import {
+  to = aws_iam_role.gh_tf_apply_deployment
+  id = "gh-tf-apply-deployment"
+}
+
+import {
+  to = aws_iam_role_policy_attachment.gh_tf_apply_deployment_admin
+  id = "gh-tf-apply-deployment/arn:aws:iam::aws:policy/AdministratorAccess"
+}
+
 resource "aws_iam_role" "gh_tf_apply_deployment" {
   name = "gh-tf-apply-deployment"
 
