@@ -74,9 +74,9 @@ jobs:
           # bootstrap row (foundation-first, SCPs-last ordering, see comment
           # above).
           - env: security/bootstrap
-            account_id: "<SECURITY_ACCOUNT_ID>"
+            account_id: "763879260536"
           - env: logarchive/bootstrap
-            account_id: "<LOGARCHIVE_ACCOUNT_ID>"
+            account_id: "118907880354"
           - env: management/scps
             account_id: "186052668286"
 
