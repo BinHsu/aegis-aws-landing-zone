@@ -122,13 +122,26 @@ resource "aws_iam_role_policy" "gh_tf_apply_baseline" {
         }
       },
       {
-        # State bucket — created and managed in this account. Full
-        # bucket-level mutation plus object-level read/write for both the
-        # state object itself and any other state files in the bucket.
-        Sid      = "StateBucketFull"
+        # State bucket — bucket-level configuration on the state bucket this
+        # account owns (policy, versioning, encryption, lifecycle, public-
+        # access-block, ListBucket, GetBucketLocation). Bucket-level actions
+        # target the bucket ARN; object read/write is the next Sid.
+        Sid      = "StateBucketManage"
         Effect   = "Allow"
         Action   = "s3:*"
-        Resource = "arn:aws:s3:::${local.org_name}-*"
+        Resource = "arn:aws:s3:::${local.bucket_name}"
+      },
+      {
+        # State objects — read/write limited to the shared account's own
+        # `shared/` key prefix (issue #314). The shared account owns the
+        # bucket, so same-account access is the union of this identity policy
+        # and the bucket policy; the per-prefix cap has to be asserted here,
+        # not only in the bucket policy. `management/`, `staging/`, `prod/`,
+        # and `deployment/` state stay unreachable from the shared CI role.
+        Sid      = "StateObjectsOwnPrefix"
+        Effect   = "Allow"
+        Action   = "s3:*"
+        Resource = "arn:aws:s3:::${local.bucket_name}/shared/*"
       },
       {
         # KMS — state encryption key lives in this account. `aegis-*`
