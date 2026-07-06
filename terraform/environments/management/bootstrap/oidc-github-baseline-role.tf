@@ -58,7 +58,7 @@ resource "aws_iam_role_policy" "gh_tf_apply_baseline" {
   # checkov:skip=CKV_AWS_287: ReadOnlyAwsApiSurface Sid uses Resource:* on Get*/List*/Describe* actions only — restrictable per-ARN scoping is not meaningful for inventory-style API calls. Mutation prevention is enforced by the absence of any Create/Update/Delete action paired with Resource:*. See ADR-014.
   # checkov:skip=CKV_AWS_288: Same as CKV_AWS_287 — read-shape data disclosure is the explicit threat model accepted by ADR-014. AWS metadata is classified non-secret per CLAUDE.md "What is NOT a secret" clause.
   # checkov:skip=CKV_AWS_289: `iam:*` is intentionally scoped to project-prefixed resources (aegis-*/github-actions-*/gh-tf-*) plus the OIDC provider and account alias — see Sid IamScoped Resource list. The role is the apply-tier identity for `terraform-apply-baseline.yml` and must be able to manage the project's own IAM resources. Permission-management within a fixed prefix is the apply contract, not a misuse.
-  # checkov:skip=CKV_AWS_290: Service-namespace wildcards (organizations:*, sso:*, identitystore:*) are needed because these AWS APIs do not support resource-level ARN constraints on most write actions; service-namespace scoping is the tightest contract available and is gated by trust policy `sub: ref:refs/heads/main` plus branch protection on main.
+  # checkov:skip=CKV_AWS_290: Service-namespace wildcards (organizations:*, sso:*, identitystore:*, guardduty:*OrganizationAdmin*, securityhub:*OrganizationAdmin*) are needed because these AWS APIs do not support resource-level ARN constraints on most write actions; service-namespace scoping is the tightest contract available and is gated by trust policy `sub: ref:refs/heads/main` plus branch protection on main.
   # checkov:skip=CKV_AWS_355: Resource:* is by design on the read-only Sid and on AWS APIs without resource-level ARN support. Every mutating action with Resource:* is service-namespace-scoped and trust-policy-gated.
   # checkov:skip=CKV2_AWS_40: `iam:*` is intentionally allowed within the aegis-*/github-actions-*/gh-tf-* prefix scope for apply-tier baseline operations (creating IRSA roles, OIDC providers, account aliases). Full IAM privileges on a fixed ARN-prefix scope is a deliberate design — an enumerated whitelist of iam:CreateRole/UpdateRole/DeleteRole/...x20+ would be a maintenance liability with the same effective surface. ADR-014 §Decision describes the apply-baseline scope. Same pattern applies to `events:*` (scoped to `rule/aegis-detective-*`) and `sns:*` (scoped to `aegis-security-alerts*`) added by ADR-016 Item A.
   name = "apply-baseline-scoped"
@@ -122,10 +122,42 @@ resource "aws_iam_role_policy" "gh_tf_apply_baseline" {
       },
       {
         # Organizations — mgmt-only. Covers SCPs, OUs, accounts, delegated-
-        # administrator (used to delegate IPAM to shared per ADR).
+        # administrator (used to delegate IPAM to shared per ADR). This
+        # Sid already covers organizations:RegisterDelegatedAdministrator
+        # and organizations:EnableAWSServiceAccess — the GuardDuty/Security
+        # Hub delegation added by Epic #302 Stage S2 needed no additions
+        # here, only the service-specific Sids below.
         Sid      = "OrganizationsFull"
         Effect   = "Allow"
         Action   = "organizations:*"
+        Resource = "*"
+      },
+      {
+        # GuardDuty organization delegated-admin registration — Epic #302
+        # Stage S2. `guardduty:*OrganizationAdmin*` is a single wildcard
+        # that matches Enable/Disable/ListOrganizationAdminAccount(s) — the
+        # full lifecycle needed for `terraform apply` (create), `terraform
+        # plan` (read/refresh), and `terraform destroy -target` (the
+        # documented revert path in issue #304). Listing
+        # `EnableOrganizationAdminAccount` on its own would be redundant
+        # (it's a strict substring match of the wildcard) so only the
+        # wildcard is kept. Resource:"*" because GuardDuty's org-admin API
+        # does not support resource-level ARNs.
+        Sid      = "GuardDutyOrgAdminDelegation"
+        Effect   = "Allow"
+        Action   = "guardduty:*OrganizationAdmin*"
+        Resource = "*"
+      },
+      {
+        # Security Hub organization delegated-admin registration — Epic
+        # #302 Stage S2. Same rationale as GuardDuty above: the wildcard
+        # covers Enable/Disable/List so `terraform plan` refresh and the
+        # `terraform destroy -target` revert path both work, not just the
+        # initial apply. Resource:"*" because Security Hub's org-admin API
+        # does not support resource-level ARNs.
+        Sid      = "SecurityHubOrgAdminDelegation"
+        Effect   = "Allow"
+        Action   = "securityhub:*OrganizationAdmin*"
         Resource = "*"
       },
       {

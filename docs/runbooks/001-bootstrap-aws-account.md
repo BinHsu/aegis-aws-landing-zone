@@ -822,6 +822,13 @@ This file should not exist or should be empty of `aegis-*` content. If it does c
 
   See also [Incident 7](../incidents.md#incident-7--ipam-delegated-admin-not-configured-for-cross-account-vpc-allocation) for the full story of discovering this sequence the hard way.
 
+- **`aws_guardduty_organization_admin_account` / `aws_securityhub_organization_admin_account` apply fails with `AccessDeniedException: ... you must enable service access before you can delegate an administrator for this service`**: Same root cause as the IPAM entry above — GuardDuty and Security Hub each require AWS Organizations trusted-service access enabled for their own service principal before the delegated-admin resource can be created. This is independent per service (enabling it for `ipam.amazonaws.com` does NOT cover `guardduty.amazonaws.com` or `securityhub.amazonaws.com`), and the AWS Terraform provider does not expose it as a standalone resource, so it is a one-time manual CLI step per organization:
+  ```
+  aws organizations enable-aws-service-access --service-principal guardduty.amazonaws.com
+  aws organizations enable-aws-service-access --service-principal securityhub.amazonaws.com
+  ```
+  Run this under `aegis-management-admin` before the first `terraform apply` of `terraform/environments/management/bootstrap/detective-delegation.tf` (Epic #302 Stage S2). Both are idempotent no-ops if already enabled. Unlike Security Hub in some Control Tower landing zones, this org's precheck (2026-07-06) found BOTH `list-organization-admin-accounts` calls empty — the Terraform resources are pure `create`, not imports.
+
 ## Cross-References
 
 - ADR-001: Landing Zone Scope Boundary — the "SSO only for humans" principle.
