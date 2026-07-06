@@ -17,6 +17,8 @@ on:
       - 'terraform/environments/deployment/bootstrap/**'
       - 'terraform/environments/staging/bootstrap/**'
       - 'terraform/environments/prod/bootstrap/**'
+      - 'terraform/environments/security/bootstrap/**'
+      - 'terraform/environments/logarchive/bootstrap/**'
       - 'config/**'
 
   # Manual safety valve. Use when:
@@ -65,6 +67,16 @@ jobs:
             account_id: "251774439261"
           - env: prod/bootstrap
             account_id: "506221082337"
+          # Account IDs not yet known to this PR — config/landing-zone.yaml is
+          # gitignored and not populated with real security/logarchive account
+          # IDs at authoring time (#303). Replace before merge; see the PR body.
+          # Placed before management/scps like every other member-account
+          # bootstrap row (foundation-first, SCPs-last ordering, see comment
+          # above).
+          - env: security/bootstrap
+            account_id: "763879260536"
+          - env: logarchive/bootstrap
+            account_id: "118907880354"
           - env: management/scps
             account_id: "186052668286"
 
