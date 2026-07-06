@@ -223,6 +223,7 @@ All ADRs are **Accepted**.
 ## Runbooks
 
 - [001 — Bootstrap AWS Account](docs/runbooks/001-bootstrap-aws-account.md): Step-by-step from zero to SSO-authenticated CLI — Control Tower setup, KMS key policy, Identity Center, Account Factory for member accounts, GitHub repo configuration, signed commits, and the gotchas encountered.
+- [002 — Cold Account Bootstrap (Seed + Adopt)](docs/runbooks/002-cold-account-bootstrap.md): The two-phase procedure for a brand-new member account's first apply — seed the CI IAM roles with local state under `AWSControlTowerExecution`, then adopt them into the real S3 state with a split-credential (ambient backend + temporary provider override) apply. Run via `scripts/cold-start-bootstrap.sh`.
 
 ## Repository tiers
 
@@ -284,12 +285,13 @@ aegis-landing-zone-aws/
 │   ├── configure-github.sh        # Upload config to GitHub secret
 │   ├── validate-config.py         # JSON Schema validator (pre-commit)
 │   ├── install-tools.sh           # Install the pinned local toolchain
+│   ├── cold-start-bootstrap.sh    # Seed + adopt CI IAM roles into a cold account
 │   ├── teardown/                  # hard-teardown-landing-zone.sh (project-end)
 │   └── emergency/                 # nuke-workload-account.sh
 ├── docs/
 │   ├── architecture.md            # Mermaid diagrams
 │   ├── decisions/                 # Architecture Decision Records (ADRs)
-│   ├── runbooks/                  # Operational runbook
+│   ├── runbooks/                  # Operational runbooks
 │   ├── improvements/              # Known gaps + productionization roadmap
 │   ├── principles/                # Cross-cutting discipline docs
 │   └── evidence/                  # Apply / verification evidence
