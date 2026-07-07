@@ -12,6 +12,14 @@ locals {
 
   bucket_name = "${local.org_name}-terraform-state-${local.account_id}"
 
+  # Accounts whose CI (`gh-tf-*`) roles write Terraform state. Each account's
+  # state lives under a `<account-name>/` key prefix in the shared state bucket
+  # (e.g. `staging/bootstrap/terraform.tfstate`); the map keys match those
+  # prefixes. Empty ids (an un-vended account in a fork's config) are excluded
+  # so the bucket policy never emits a statement with a malformed principal ARN.
+  # Consumed by the per-account state-isolation statements in main.tf (#314).
+  ci_state_accounts = { for name, acct in local.config.accounts : name => acct.id if acct.id != "" }
+
   tags = merge(local.config.tags, {
     Environment = "shared"
   })
