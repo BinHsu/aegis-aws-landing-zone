@@ -154,6 +154,13 @@ resource "aws_iam_role_policy" "gh_tf_plan" {
           # rule on the default bus + an SNS topic. Plan-tier refresh needs
           # the read shapes for both services.
           "events:Get*",
+          # LZ-baseline S2 (#311) added GuardDuty + Security Hub delegated-admin
+          # registration in this layer; plan-tier refresh needs both read shapes.
+          "guardduty:Get*",
+          "guardduty:List*",
+          "securityhub:Describe*",
+          "securityhub:Get*",
+          "securityhub:List*",
           "sns:Get*",
           "sns:List*",
           "ram:Get*",
