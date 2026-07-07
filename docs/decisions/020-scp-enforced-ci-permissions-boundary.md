@@ -97,7 +97,8 @@ floor:
 - **Allow**: the union of service namespaces the roles above legitimately use:
   `iam`, `s3`, `kms`, `ec2` (IPAM + Describe), `ram`, `tag`, `budgets`,
   `events`, `sns`, `organizations`, `sso`, `identitystore`, `guardduty`,
-  `securityhub`, `ssm`, `sts`, `ecr` *(conditional — see OQ-2)*. The boundary
+  `securityhub`, `ssm`, `sts`, `ecr` *(per OQ-2, decided by Bin 2026-07-07;
+  exact platform surface verified pre-PR-1 — see D4)*. The boundary
   is the outer cap; fine-grained scoping stays in each role's own policy
   (ADR-014). Action-enumerating the boundary would duplicate ADR-014 at a
   second layer and break on every legitimate surface addition.
@@ -193,6 +194,11 @@ SCP lands before the boundary policy exists in an account, CI's next
 `CreateRole` there references a nonexistent boundary ARN and fails. Ordering
 (same per-item logic as ADR-015's A3):
 
+0. **Pre-PR-1 (required, per OQ-2 decision)** — verify the platform CI's
+   actual service surface against `aegis-platform-aws` `deployment-ecr.tf`
+   (what `gh-tf-apply-deployment` executes when platform CI assumes it) and
+   fold every namespace found into the boundary allow-list. PR-1 must not
+   open until this survey is done.
 1. **PR-1 — boundary + attachments.** `aws_iam_policy.ci_boundary` in every
    `*/bootstrap` layer; `permissions_boundary` added to every `aws_iam_role` in
    the inventory above. Applied via the normal baseline path. Verification
@@ -215,7 +221,7 @@ name matches the `policy/aegis-*` resource scope of break-glass's
 boundary to seeded roles" (attachment at seed time is hygiene, not a hard
 requirement — CI converges it, per D2).
 
-### Open sub-choices for Bin (marked inline, decision needed before PR-1)
+### Sub-choices — all three decided by Bin, 2026-07-07
 
 - **OQ-1 — one boundary document or per-tier variants.** A single org-uniform
   document must include the management-only namespaces (`organizations`, `sso`,
@@ -223,25 +229,29 @@ requirement — CI converges it, per D2).
   never use — wider than necessary in 6 of 7 accounts, but one document to
   audit and zero drift between variants. Per-tier variants (management vs
   member) are tighter but double the maintenance and the cold-start surface.
-  *Recommendation: single document; the extra namespaces carry no escalation
-  primitive and the deny floor is identical.* **Awaiting decision.**
+  **Decided by Bin 2026-07-07: single org-uniform document.** The extra
+  namespaces carry no escalation primitive and the deny floor is identical
+  either way.
 - **OQ-2 — `gh-tf-apply-deployment` and its `AdministratorAccess`.** This role
   is CI-created, so S1 forces the boundary onto it, and the boundary then
   de-facto scope-downs its admin attachment to the boundary's allow-list — a
   security *win*, but it breaks the platform repo's shared-registry management
-  if the allow-list misses a namespace platform CI uses (`ecr` at minimum;
-  needs verification against `aegis-platform-aws` `deployment-ecr.tf` before
-  PR-1). Options: (a) include `ecr` (plus verified platform surface) in the
+  if the allow-list misses a namespace platform CI uses (`ecr` at minimum).
+  Options were: (a) include `ecr` (plus verified platform surface) in the
   boundary and let the boundary be the promised tightening; (b) do the role's
-  own deferred policy tightening first, then boundary. *Recommendation: (a) —
-  it delivers the deferred hardening as a side effect; verify the namespace
-  list cross-repo first.* **Awaiting decision.**
+  own deferred policy tightening first, then boundary.
+  **Decided by Bin 2026-07-07: option (a).** The boundary includes `ecr` plus
+  the verified platform surface. The cross-repo verification against
+  `aegis-platform-aws` `deployment-ecr.tf` is a **required pre-PR-1 step**
+  (see D4). Tightening `gh-tf-apply-deployment`'s own role policy remains a
+  follow-up outside this ADR's rollout.
 - **OQ-3 — attach the boundary in the management account too.** Management is
   outside SCP reach, so attachment there is Terraform-driven only — but once
   attached, the boundary's own deny floor (D1) blocks self-stripping even
   without the SCP. Skipping management would keep its roles boundary-less for
-  zero benefit. *Recommendation: attach uniformly in all 7 accounts.*
-  **Awaiting decision.**
+  zero benefit.
+  **Decided by Bin 2026-07-07: yes — attach uniformly in all 7 accounts.**
+  The boundary's own deny floor is the protection in management.
 
 ## Alternatives Considered
 
@@ -285,8 +295,9 @@ escalation we are closing and nothing else.
   the minted role is capped by the boundary no matter its name or attachments.
 - The boundary is self-propagating (D1 deny floor): bounded roles can only
   create bounded roles, transitively.
-- `gh-tf-apply-deployment`'s `AdministratorAccess` gets a real ceiling (OQ-2a),
-  discharging that file's documented deferred hardening.
+- `gh-tf-apply-deployment`'s `AdministratorAccess` gets a real ceiling (OQ-2,
+  decided (a)), delivering the first slice of that file's documented deferred
+  hardening; the role-policy tightening itself stays a follow-up.
 - Denied `iam:*` events from boundary enforcement are high-signal detective
   input, same class ADR-016 already alerts on.
 
@@ -312,8 +323,8 @@ escalation we are closing and nothing else.
   management (186052668286) — including its own `gh-tf-apply-baseline` /
   `gh-tf-plan`. This is **not a regression**: ADR-015 Item A never bound
   management either; the escalation path there has always been outside SCP
-  reach. Partial compensation from this ADR: with OQ-3 the boundary is attached
-  in management too, and its own deny floor blocks self-stripping — the
+  reach. Partial compensation from this ADR: per OQ-3 (decided) the boundary is
+  attached in management too, and its own deny floor blocks self-stripping — the
   residual narrows to "a management principal with `iam:*` outside the
   boundary's reach mutates the role's identity policy," which changes nothing
   about the boundary cap. Standing compensating controls in management: OIDC
@@ -377,7 +388,7 @@ Union of service namespaces actually used by CI-managed roles on `main`
 | `guardduty`, `securityhub` | apply (management) | `GuardDutyOrgAdminDelegation`, `SecurityHubOrgAdminDelegation` |
 | `ssm` | break-glass (read) | `SsmReadProject` |
 | `sts` | all | trust policies, `StsAndTagRead` |
-| `ecr` | `gh-tf-apply-deployment` (OQ-2) | via `AdministratorAccess` today; verify against `aegis-platform-aws` `deployment-ecr.tf` |
+| `ecr` | `gh-tf-apply-deployment` (OQ-2, decided (a)) | via `AdministratorAccess` today; exact surface verified against `aegis-platform-aws` `deployment-ecr.tf` in the required pre-PR-1 step (D4) |
 
 The boundary allows these namespaces wholesale and relies on ADR-014's
 per-role policies for fine-grained scoping; the boundary's job is the deny
