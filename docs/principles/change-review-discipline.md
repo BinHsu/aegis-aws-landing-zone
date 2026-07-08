@@ -72,6 +72,7 @@ Before merging a change — whether a Terraform diff or a workflow edit — the 
 - Variable names descriptive enough to re-parse in a coffee-deprived brain?
 - Comments where the *why* is non-obvious and not captured elsewhere?
 - Resource names following the repo-scoped naming convention so they do not collide with sibling repos' resources in the same AWS account? (See `CLAUDE.md` naming discipline — bare `aegis-` prefixes collided twice with a sibling repo.)
+- Does every new CI `aws_iam_role` set `permissions_boundary = aws_iam_policy.ci_boundary.arn`? Post-ADR-020 (PR-1) a CI-managed role without the boundary leaves an unbounded escalation gap, and once SCP S1 lands (PR-2) a `gh-tf-*` caller creating a role without the boundary fails `AccessDenied` at creation. The one deliberate exception is `aegis-emergency-*` (break-glass) — it is the boundary's in-account repair path (ADR-020 D3) and is intentionally left unbounded.
 - ADR reference in the PR description for the decision this change embodies?
 
 **Rule**: the code you ship is the code someone else will read under stress. Optimize for that reader.
