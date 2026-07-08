@@ -45,7 +45,7 @@ where alternatives were genuinely weighed.
 | [017](017-platform-tier-extraction.md) | Platform Tier Extracted from the Landing Zone | Accepted |
 | [018](018-deployments-ou-and-shared-registry-account.md) | Deployments OU + `aegis-deployment` Account for the Shared Release-Artifact Registry | Accepted |
 | [019](019-budgets-iac-and-oidc-fail-closed.md) | Budgets Are IaC and the OIDC Trust Fails Closed | Accepted |
-| [020](020-scp-enforced-ci-permissions-boundary.md) | SCP-Enforced Permissions Boundary for the CI Apply Tier | Proposed |
+| [020](020-scp-enforced-ci-permissions-boundary.md) | SCP-Enforced Permissions Boundary for the CI Apply Tier | Accepted |
 
 ## Reading orders by audience
 
@@ -89,7 +89,7 @@ and tooling show where the SCP guardrails sit. `014`–`016` are the CI security
 ladder (OIDC role scope-down → SCP permission-boundary inner wall → detective
 control on failed OIDC assumption); `019` closes the ladder's fail-open gap
 (required `infra_repo_id`) and moves the cost guardrails into Terraform.
-`020` (Proposed) upgrades the inner wall from a name-based SCP exemption to an
+`020` upgrades the inner wall from a name-based SCP exemption to an
 SCP-enforced permissions boundary on the CI tier. `011` covers account
 provisioning.
 

@@ -2,14 +2,15 @@
 
 ## Status
 
-Proposed (2026-07-07). Awaiting owner review; no Terraform ships until this ADR
-is Accepted.
+Accepted (2026-07-07, decided by Bin). Proposed and accepted the same day; the
+three implementation sub-choices (OQ-1..3, see Decision) were decided by Bin
+before acceptance. Implementation follows the D4 sequencing.
 
 **Supersedes [ADR-015](015-permission-boundary-hardening.md) §Alternatives A2
 only** (the rejection of permission boundaries). This is a partial supersession:
 ADR-015 Item A (the `deny-iam-privilege-escalation` SCP) remains in force and is
-extended, not replaced, by this ADR. On acceptance, ADR-015 gains a status note
-pointing here; its body stays untouched per the README convention.
+extended, not replaced, by this ADR. ADR-015's Status line carries the pointer
+note; its body stays untouched per the README convention.
 
 Resolves issue #313 ([HIGH] CI apply-tier role has no permissions boundary; SCP
 escalation guard exempts it by name).

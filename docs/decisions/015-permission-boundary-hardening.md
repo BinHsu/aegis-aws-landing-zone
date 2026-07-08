@@ -2,7 +2,12 @@
 
 ## Status
 
-Accepted (2026-05-04)
+Accepted (2026-05-04). §Alternatives A2 (the rejection of permission
+boundaries) superseded by
+[ADR-020](020-scp-enforced-ci-permissions-boundary.md) on 2026-07-07 — ADR-020
+requires and protects the boundary at the SCP layer, answering A2's
+self-removal objection. Item A (the `deny-iam-privilege-escalation` SCP) is
+unaffected and remains in force.
 
 ## Context
 
