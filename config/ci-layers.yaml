@@ -1,0 +1,48 @@
+# =============================================================================
+# CI layer manifest — single source of truth for the plan/apply matrices
+# =============================================================================
+# Issue #320: account IDs used to be hand-copied into terraform-plan.yml AND
+# terraform-apply-baseline.yml (two matrices) AND backend.tf. Every copy could
+# drift from config/landing-zone.yaml silently. This file removes the copies:
+# the pipeline renders its matrix from THIS list joined with the account IDs in
+# config/landing-zone.yaml (scripts/ci/render-ci-matrix.py).
+#
+# What lives here (committed, diffable): the ordered list of account-fabric
+# Terraform layers and which logical account each targets.
+# What does NOT live here: real 12-digit account IDs — those are resolved at
+# pipeline time from config/landing-zone.yaml (accounts.<account>.id). The
+# logical account keys below already appear in config/landing-zone.example.yaml,
+# so this file leaks nothing new.
+#
+# `account` MUST equal the first path segment of `env` (the renderer asserts
+# this). Apply order is significant: foundation first, org-root SCPs last, so
+# the guardrails never fence off the resources they govern (matches the inline
+# ordering comment the apply workflow carried before this change).
+#
+# Add a layer here (and create its terraform/environments/<env>/ directory) to
+# have it appear in both the plan and apply pipelines. See ADR-022.
+# =============================================================================
+---
+layers:
+  - env: management/bootstrap
+    account: management
+  - env: shared/bootstrap
+    account: shared
+  - env: shared/ipam
+    account: shared
+  - env: deployment/bootstrap
+    account: deployment
+  - env: staging/bootstrap
+    account: staging
+  - env: prod/bootstrap
+    account: prod
+  - env: security/bootstrap
+    account: security
+  - env: logarchive/bootstrap
+    account: logarchive
+  # Org-root SCPs: applied LAST (foundation-first ordering) and the single
+  # highest-blast-radius layer. `gate: scps` routes it through the human-review
+  # apply path (issue #316) instead of the auto-apply matrix.
+  - env: management/scps
+    account: management
+    gate: scps

@@ -19,7 +19,7 @@ BIN    := $(CURDIR)/bin
 export PATH := $(BIN):$(PATH)
 
 .DEFAULT_GOAL := help
-.PHONY: help dev-setup fmt config-check _check-config
+.PHONY: help dev-setup fmt config-check policy _check-config
 
 help: ## Show this help
 	@echo "Landing zone — local quality gates"
@@ -36,6 +36,10 @@ fmt: ## terraform fmt across the whole tree
 config-check: _check-config ## Validate config/landing-zone.yaml + sync backend.tf files
 	python3 scripts/validate-config.py
 	./scripts/configure-backends.sh
+
+policy: ## Run the policy-as-code guardrail suite (mirrors the config-policy CI gate, #321)
+	terraform fmt -check -recursive terraform/
+	python3 scripts/ci/policy_test.py
 
 _check-config:
 	@test -f $(CONFIG) || { \

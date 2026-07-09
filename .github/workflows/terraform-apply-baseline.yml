@@ -1,12 +1,33 @@
 name: Terraform Apply (Baseline)
 
-# Auto-applies the account-fabric Terraservice layers on push to main.
-# This workflow applies the *entire* repository — Organizations + SCPs, the
-# shared-account bootstrap + org-wide IPAM, and the per-account bootstrap
-# layers. All of it is negligible always-on cost (< $10/mo): no NAT, no EKS,
-# no workload compute, so a single auto-apply workflow covers every layer.
+# Applies the account-fabric Terraservice layers on push to main.
+# This workflow applies the *entire* repository — the shared-account bootstrap +
+# org-wide IPAM, the per-account bootstrap layers, and (last, gated) the
+# Organizations + SCPs layer. All of it is negligible always-on cost (< $10/mo):
+# no NAT, no EKS, no workload compute.
 #
-# See ADR-009 (lifecycle).
+# TWO SECURITY CHANGES vs the old single-matrix auto-apply (#316):
+#
+#   1. Saved-plan apply (all layers). Each layer runs `terraform plan -out` and
+#      then `terraform apply <plan file>` — apply executes the plan that was
+#      just computed and shown, not a fresh re-plan. This closes the TOCTOU gap
+#      where the plan a human reviewed differed from what -auto-approve applied.
+#
+#   2. Human gate on the org-root SCP layer only (management/scps). The SCP
+#      layer is planned in `plan-scps` (its plan is uploaded as an artifact and
+#      printed in the logs), then applied in `apply-scps`, which is bound to the
+#      GitHub Environment `landing-zone-apply-scps`. If that environment has a
+#      required reviewer, the apply WAITS for a human to approve the exact
+#      uploaded plan before it runs. If state drifts while awaiting approval,
+#      `terraform apply <plan file>` fails stale — forcing a re-plan/re-review.
+#
+#      ARMING THE GATE IS A ONE-TIME REPO-SETTINGS ACTION (see PR body): until
+#      you create environment `landing-zone-apply-scps` with yourself as a
+#      required reviewer, the SCP apply still runs automatically (now via the
+#      reviewed saved plan). Merging this PR references the environment; it does
+#      not by itself pause anything.
+#
+# See ADR-009 (lifecycle), ADR-022 (this hardening).
 
 on:
   push:
@@ -23,7 +44,7 @@ on:
 
   # Manual safety valve. Use when:
   #   - A baseline layer was added in a PR that didn't touch any path-filter
-  #     directory (e.g. a CI-only PR adding the layer to the matrix; the
+  #     directory (e.g. a CI-only PR adding the layer to the manifest; the
   #     push trigger won't fire).
   #   - A previous auto-apply failed mid-matrix and you want to re-run
   #     without a no-op code commit.
@@ -45,41 +66,55 @@ env:
   AWS_REGION: "eu-central-1"
 
 jobs:
-  apply:
+  # ---------------------------------------------------------------------------
+  # discover — render the apply matrices from the single source of truth
+  # (config/ci-layers.yaml + config/landing-zone.yaml), #320. `baseline` is
+  # every layer WITHOUT a gate, in manifest order (foundation-first). `scps` is
+  # the gated org-root SCP layer, applied last via the human-review path.
+  # ---------------------------------------------------------------------------
+  discover:
+    name: Discover apply matrices
+    runs-on: ubuntu-latest
+    outputs:
+      baseline: ${{ steps.render.outputs.baseline }}
+      scps: ${{ steps.render.outputs.scps }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Write config
+        run: |
+          mkdir -p config
+          cat <<'EOFCONFIG' > config/landing-zone.yaml
+          ${{ secrets.LANDING_ZONE_CONFIG }}
+          EOFCONFIG
+
+      - name: Install PyYAML
+        run: python3 -m pip install --quiet pyyaml
+
+      - name: Render matrices
+        id: render
+        run: |
+          baseline="$(python3 scripts/ci/render-ci-matrix.py --select apply-baseline)"
+          scps="$(python3 scripts/ci/render-ci-matrix.py --select apply-scps)"
+          echo "baseline=${baseline}" >> "$GITHUB_OUTPUT"
+          echo "scps=${scps}" >> "$GITHUB_OUTPUT"
+          echo "Baseline (auto):" && echo "${baseline}" | python3 -m json.tool
+          echo "SCPs (gated):"     && echo "${scps}"     | python3 -m json.tool
+
+  # ---------------------------------------------------------------------------
+  # apply-baseline — the auto-applied layers. Saved-plan pattern: plan -out,
+  # then apply the saved plan file (not a fresh re-plan). max-parallel: 1 keeps
+  # the manifest order and avoids racing the S3 state lock.
+  # ---------------------------------------------------------------------------
+  apply-baseline:
     name: Apply ${{ matrix.env }}
+    needs: discover
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       max-parallel: 1
       matrix:
-        # Order documented inline — foundation first, SCPs last so the
-        # guardrails do not interfere with the resources they govern.
-        include:
-          - env: management/bootstrap
-            account_id: "186052668286"
-          - env: shared/bootstrap
-            account_id: "345895787808"
-          - env: shared/ipam
-            account_id: "345895787808"
-          - env: deployment/bootstrap
-            account_id: "162975888022"
-          - env: staging/bootstrap
-            account_id: "251774439261"
-          - env: prod/bootstrap
-            account_id: "506221082337"
-          # Account IDs not yet known to this PR — config/landing-zone.yaml is
-          # gitignored and not populated with real security/logarchive account
-          # IDs at authoring time (#303). Replace before merge; see the PR body.
-          # Placed before management/scps like every other member-account
-          # bootstrap row (foundation-first, SCPs-last ordering, see comment
-          # above).
-          - env: security/bootstrap
-            account_id: "763879260536"
-          - env: logarchive/bootstrap
-            account_id: "118907880354"
-          - env: management/scps
-            account_id: "186052668286"
-
+        include: ${{ fromJSON(needs.discover.outputs.baseline) }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
@@ -103,6 +138,123 @@ jobs:
         working-directory: terraform/environments/${{ matrix.env }}
         run: terraform init -input=false
 
-      - name: Terraform Apply
+      - name: Terraform Plan (saved)
         working-directory: terraform/environments/${{ matrix.env }}
-        run: terraform apply -auto-approve -input=false -no-color
+        run: terraform plan -out=tfplan -input=false -no-color -lock-timeout=10m
+
+      - name: Terraform Apply (saved plan)
+        working-directory: terraform/environments/${{ matrix.env }}
+        # Apply the reviewed/saved plan file, never a fresh re-plan (#316).
+        run: terraform apply -input=false -no-color -lock-timeout=10m tfplan
+
+  # ---------------------------------------------------------------------------
+  # plan-scps — plan the org-root SCP layer and hand the exact plan to the
+  # gated apply job as an artifact. Runs AFTER every baseline layer (needs:
+  # apply-baseline) so SCPs land last. No human gate on the plan itself.
+  # ---------------------------------------------------------------------------
+  plan-scps:
+    name: Plan ${{ matrix.env }}
+    needs: [discover, apply-baseline]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include: ${{ fromJSON(needs.discover.outputs.scps) }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Write config
+        run: |
+          mkdir -p config
+          cat <<'EOFCONFIG' > config/landing-zone.yaml
+          ${{ secrets.LANDING_ZONE_CONFIG }}
+          EOFCONFIG
+
+      - uses: aws-actions/configure-aws-credentials@d979d5b3a71173a29b74b5b88418bfda9437d885 # v6.1.1
+        with:
+          role-to-assume: arn:aws:iam::${{ matrix.account_id }}:role/gh-tf-apply-baseline
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        working-directory: terraform/environments/${{ matrix.env }}
+        run: terraform init -input=false
+
+      - name: Terraform Plan (saved)
+        working-directory: terraform/environments/${{ matrix.env }}
+        run: |
+          terraform plan -out=tfplan -input=false -no-color -lock-timeout=10m
+          # Stage the binary plan + a human-readable rendering into a fixed
+          # workspace dir so the artifact root is deterministic (no nested path).
+          mkdir -p "${GITHUB_WORKSPACE}/scps-plan"
+          cp tfplan "${GITHUB_WORKSPACE}/scps-plan/tfplan"
+          terraform show -no-color tfplan > "${GITHUB_WORKSPACE}/scps-plan/tfplan.txt"
+          echo "----- SCP plan (management/scps) -----"
+          cat "${GITHUB_WORKSPACE}/scps-plan/tfplan.txt"
+
+      - name: Upload SCP plan artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: scps-plan
+          path: |
+            scps-plan/tfplan
+            scps-plan/tfplan.txt
+          retention-days: 5
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # apply-scps — apply the reviewed SCP plan. Bound to the GitHub Environment
+  # `landing-zone-apply-scps`: if that environment has a required reviewer, this
+  # job WAITS for human approval before applying the org-root SCPs (#316). It
+  # applies the SAVED plan from plan-scps — if state drifted during the approval
+  # wait, `terraform apply tfplan` fails stale and nothing is applied.
+  # ---------------------------------------------------------------------------
+  apply-scps:
+    name: Apply ${{ matrix.env }} (gated)
+    needs: [discover, plan-scps]
+    runs-on: ubuntu-latest
+    environment: landing-zone-apply-scps
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include: ${{ fromJSON(needs.discover.outputs.scps) }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Write config
+        run: |
+          mkdir -p config
+          cat <<'EOFCONFIG' > config/landing-zone.yaml
+          ${{ secrets.LANDING_ZONE_CONFIG }}
+          EOFCONFIG
+
+      - uses: aws-actions/configure-aws-credentials@d979d5b3a71173a29b74b5b88418bfda9437d885 # v6.1.1
+        with:
+          role-to-assume: arn:aws:iam::${{ matrix.account_id }}:role/gh-tf-apply-baseline
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        working-directory: terraform/environments/${{ matrix.env }}
+        run: terraform init -input=false
+
+      - name: Download reviewed SCP plan
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: scps-plan
+          path: scps-plan
+
+      - name: Terraform Apply (reviewed saved plan)
+        working-directory: terraform/environments/${{ matrix.env }}
+        # Apply the EXACT plan reviewed in plan-scps (absolute path — the plan
+        # was staged in the workspace root). A stale plan (state moved during
+        # the approval wait) fails here rather than applying silently.
+        run: terraform apply -input=false -no-color -lock-timeout=10m "${GITHUB_WORKSPACE}/scps-plan/tfplan"
