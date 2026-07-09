@@ -28,6 +28,65 @@ locals {
   # only ever resolves to the in-account Aegis boundary.
   ci_boundary_name        = "aegis-landing-zone-aws-ci-boundary"
   ci_boundary_arn_pattern = "arn:aws:iam::*:policy/${local.ci_boundary_name}"
+
+  # ---------------------------------------------------------------------------
+  # #319 — account-bound escalation exemptions
+  # ---------------------------------------------------------------------------
+  # The base `deny-iam-privilege-escalation` exemptions used to match a role
+  # NAME under an account WILDCARD (`arn:aws:iam::*:role/<name-glob>`). A name
+  # glob beneath `::*:` is spoofable per the finding: a role minted with a
+  # matching name in ANY account inherits the exemption, so the guardrail
+  # trusts a name in a context nobody vetted. #319 removes the account wildcard
+  # by qualifying every exemption to the org's OWN, config-declared account IDs
+  # (`config/landing-zone.yaml`, the same source `config.tf` already reads),
+  # scoped per role family to the accounts where that identity legitimately
+  # exists. SCPs never bind the management account, so exemptions are only
+  # meaningful in member accounts; the not-yet-vended deployment account (empty
+  # id, schema permits "") drops out until it is created.
+  member_account_ids = sort([
+    for k, a in local.config.accounts : a.id
+    if k != "management" && try(a.id, "") != ""
+  ])
+
+  # Karpenter/EKS runs only in the Workloads-OU accounts (staging, prod); the
+  # `*-karpenter-controller` IRSA role — the loosest exemption, a LEADING
+  # wildcard — has no legitimate presence in security, logarchive, shared, or
+  # deployment, so it is exempt there and nowhere else. Keyed on the fixed
+  # schema account keys, not the free-form `ou` string, so an OU rename cannot
+  # silently widen the exemption.
+  workload_account_ids = sort([
+    for k, a in local.config.accounts : a.id
+    if contains(["staging", "prod"], k) && try(a.id, "") != ""
+  ])
+
+  # Break-glass (`aegis-emergency-*`) exemption, account-qualified. Reused by
+  # both the base statement AND S2's ProtectBoundaryPolicy so the two never
+  # drift. Present in every member account (ADR-020 D1 inventory), so it is
+  # exempt in every member account — which is exactly what ADR-020 D3's
+  # in-account boundary-repair path requires; the account wildcard is dropped,
+  # the in-account power is not.
+  break_glass_exempt_arns = [
+    for id in local.member_account_ids : "arn:aws:iam::${id}:role/aegis-emergency-*"
+  ]
+
+  # Full account-qualified exemption set for the base escalation statement.
+  # AWS-managed families (AWSControlTowerExecution, aws-controltower-*,
+  # stacksets-exec-*) and gh-tf-* exist in every member account, so they are
+  # qualified to `member_account_ids`. The residual name globs inside a family
+  # (e.g. `aws-controltower-*`, `gh-tf-*`, `stacksets-exec-<hash>`) are AWS- or
+  # tooling-generated and cannot be enumerated exactly; account-qualification
+  # removes the org-wide/future-account spoof surface #319 targets, and for the
+  # CI tier the created-identity ceiling is separately closed by ADR-020 S1's
+  # permissions boundary (this statement narrows the caller set; S1 kills the
+  # primitive — ADR-020 Alt #2).
+  escalation_exempt_arns = concat(
+    [for id in local.member_account_ids : "arn:aws:iam::${id}:role/AWSControlTowerExecution"],
+    [for id in local.member_account_ids : "arn:aws:iam::${id}:role/aws-controltower-*"],
+    [for id in local.member_account_ids : "arn:aws:iam::${id}:role/stacksets-exec-*"],
+    [for id in local.member_account_ids : "arn:aws:iam::${id}:role/gh-tf-*"],
+    local.break_glass_exempt_arns,
+    [for id in local.workload_account_ids : "arn:aws:iam::${id}:role/*-karpenter-controller"],
+  )
 }
 
 # -----------------------------------------------------------------------------
@@ -191,6 +250,22 @@ resource "aws_organizations_policy_attachment" "deny_leave_org" {
 #     Pod Identity; no in-cluster principal calls iam:CreateRole anymore, so the
 #     carve-out is removed to re-tighten the wall.
 #
+# #319 — account-bound exemptions (was name-only). The allow-list above is
+# no longer `arn:aws:iam::*:role/<name>`: the account segment is now the org's
+# real, config-declared account IDs (see the `escalation_exempt_arns` /
+# `break_glass_exempt_arns` locals). Each family is bound to the accounts where
+# it legitimately runs — the AWS-managed families, `gh-tf-*`, and
+# `aegis-emergency-*` to every member account; `*-karpenter-controller` to the
+# workload accounts (staging, prod) only. This retires the org-wide name-spoof
+# surface #319 flags: a role minted with an exempt name in an account (or
+# future/un-vended account) the family does not belong to no longer inherits
+# the exemption. S1a/S1b are deliberately NOT account-qualified — they are
+# deny-SCOPED-TO `gh-tf-*` (a Deny that binds the CI tier, the shape #319
+# prefers), not an allow-list exemption; narrowing their account scope would
+# shrink enforcement, not tighten it. Per ADR-020 Alt #2 this caller-set
+# narrowing complements — does not replace — the boundary (S1) that actually
+# kills the create-then-escalate primitive.
+#
 # Service-Linked Roles (`iam:CreateServiceLinkedRole`) are intentionally
 # NOT in the deny list — AWS auto-creates SLRs for many services
 # (`spot.amazonaws.com`, `eks.amazonaws.com`, etc.) and apply roles
@@ -242,7 +317,7 @@ resource "aws_organizations_policy_attachment" "deny_leave_org" {
 
 resource "aws_organizations_policy" "deny_iam_privilege_escalation" {
   name        = "deny-iam-privilege-escalation"
-  description = "Deny IAM principal/policy mutation by non-AWS-managed/break-glass identities; force+protect the CI permissions boundary (ADR-015 Item A + ADR-020 S1/S2). ISO 27001 A.8.2."
+  description = "Deny IAM principal/policy mutation by non-AWS-managed/break-glass identities; force+protect the CI permissions boundary (ADR-015 Item A + ADR-020 S1/S2); account-bound exemptions (#319). ISO 27001 A.8.2."
   type        = "SERVICE_CONTROL_POLICY"
 
   content = jsonencode({
@@ -269,15 +344,13 @@ resource "aws_organizations_policy" "deny_iam_privilege_escalation" {
         ]
         Resource = "*"
         Condition = {
+          # #319: account-qualified exemptions (was `arn:aws:iam::*:role/<glob>`
+          # — a name glob under an account wildcard, spoofable in any account).
+          # Built in locals from the org's own config so each family is bound to
+          # the accounts where it legitimately exists (karpenter → workload only;
+          # everything else → all member accounts).
           ArnNotLike = {
-            "aws:PrincipalArn" = [
-              "arn:aws:iam::*:role/AWSControlTowerExecution",
-              "arn:aws:iam::*:role/aws-controltower-*",
-              "arn:aws:iam::*:role/stacksets-exec-*",
-              "arn:aws:iam::*:role/gh-tf-*",
-              "arn:aws:iam::*:role/aegis-emergency-*",
-              "arn:aws:iam::*:role/*-karpenter-controller",
-            ]
+            "aws:PrincipalArn" = local.escalation_exempt_arns
           }
         }
       },
@@ -347,8 +420,13 @@ resource "aws_organizations_policy" "deny_iam_privilege_escalation" {
         ]
         Resource = local.ci_boundary_arn_pattern
         Condition = {
+          # #319: account-qualified break-glass exemption (was
+          # `arn:aws:iam::*:role/aegis-emergency-*`). Same account-bound list the
+          # base statement uses — break-glass stays exempt in every member
+          # account, so ADR-020 D3's in-account boundary repair is preserved
+          # exactly; only the org-wide name-spoof surface is removed.
           ArnNotLike = {
-            "aws:PrincipalArn" = "arn:aws:iam::*:role/aegis-emergency-*"
+            "aws:PrincipalArn" = local.break_glass_exempt_arns
           }
         }
       },
