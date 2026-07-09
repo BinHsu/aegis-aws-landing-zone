@@ -84,6 +84,35 @@ resource "aws_iam_role_policy" "aegis_emergency_break_glass" {
         Resource = "*"
       },
       {
+        # Cross-repo emergency access to the platform tier's Terraform state
+        # (platform#90 residual, closed here per platform PR #194's pointer;
+        # pattern follows this repo's own per-account isolation in LDZ #322).
+        # `aegis-platform-aws`'s `envs/bootstrap` provisions one globally-
+        # unique bucket per account — `aegis-platform-aws-tfstate-<account-
+        # id>` — with NO bucket policy of its own, so same-account IAM grant
+        # is the only access path. The account-id suffix makes this
+        # name-pattern self-scoping even though S3 ARNs carry no account
+        # segment: a break-glass role in another account cannot use this
+        # statement to reach a bucket it doesn't own, because cross-account
+        # S3 access would still need an explicit bucket-policy grant that
+        # the platform bucket does not have. Read+write (Get/Put/Delete) to
+        # match "repair/inspect" from the residual — break-glass state
+        # recovery is not read-only.
+        Sid    = "PlatformStateBreakGlass"
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject",
+          "s3:ListBucket",
+          "s3:GetBucketLocation",
+        ]
+        Resource = [
+          "arn:aws:s3:::aegis-platform-aws-tfstate-*",
+          "arn:aws:s3:::aegis-platform-aws-tfstate-*/*",
+        ]
+      },
+      {
         # KMS read + Decrypt scoped to local-account keys only. Required
         # for reading SSM PS SecureString values during diagnosis. No
         # Encrypt / GenerateDataKey — break-glass is read-recovery.
