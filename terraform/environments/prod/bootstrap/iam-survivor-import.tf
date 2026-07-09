@@ -1,10 +1,11 @@
 # ============================================================================
-# One-time adoption (prod cold-start) of the IAM roles this bootstrap layer
-# manages but that survived a state clear.
+# One-time adoption (prod cold-start) of the IAM roles and the CI permissions
+# boundary policy this bootstrap layer manages but that survived a state clear.
 #
 # WHY: the prod account had its prod/bootstrap Terraform STATE cleared, but the
-# three roles below still EXIST as live AWS resources (survivors — IAM roles are
-# account-global and outlive the state). A prod cold-start `terraform apply`
+# three roles and the CI boundary policy below still EXIST as live AWS
+# resources (survivors — IAM roles and policies are account-global and outlive
+# the state). A prod cold-start `terraform apply`
 # would otherwise fail EntityAlreadyExists when it tries to CREATE each role that
 # already exists. These config-driven import blocks ADOPT the existing roles into
 # state instead. After import, apply UPDATEs each role in place to match the
@@ -52,4 +53,16 @@ import {
   for_each = var.adopt_seeded_iam_roles ? toset(["plan"]) : toset([])
   to       = aws_iam_role.gh_tf_plan
   id       = "gh-tf-plan"
+}
+
+# ADR-020 CI permissions boundary policy (ci-permissions-boundary.tf), attached
+# as permissions_boundary on all three roles above. Import id is the policy
+# ARN; reuses `local.ci_boundary_arn` already declared in that file so it can
+# never drift from the resource's own `name` argument. Closes the gap where
+# the hand-seed escape hatch would otherwise hit EntityAlreadyExists on this
+# policy (runbook 002 §4 / Gotchas).
+import {
+  for_each = var.adopt_seeded_iam_roles ? toset(["ci_boundary"]) : toset([])
+  to       = aws_iam_policy.ci_boundary
+  id       = local.ci_boundary_arn
 }

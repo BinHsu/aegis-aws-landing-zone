@@ -5,7 +5,7 @@
 # WHY: `security/bootstrap` is a BRAND NEW Terraform environment (#303) — the
 # account has never had Terraform managing it. The normal cold-start path is
 # a first LOCAL `terraform apply` under break-glass credentials (see the PR
-# body for #303 / issue #303's manual-seed runbook), which CREATEs all eight
+# body for #303 / issue #303's manual-seed runbook), which CREATEs all nine
 # resources below fresh — no import needed.
 #
 # This file exists as the ESCAPE HATCH for the other case: an operator who
@@ -21,9 +21,10 @@
 # as prod/bootstrap's iam-survivor-import.tf (#278) and #15
 # (oidc-github-apply-deployment-role.tf in the deployment account).
 #
-# SCOPE: covers all eight resources this layer creates in a member account —
-# the account alias, the GitHub OIDC provider, the three gh-tf-*/aegis-
-# emergency-* roles, and their three inline role policies. The role policies
+# SCOPE: covers all nine resources this layer creates in a member account —
+# the account alias, the GitHub OIDC provider, the ADR-020 CI permissions
+# boundary policy, the three gh-tf-*/aegis-emergency-* roles, and their three
+# inline role policies. The role policies
 # are Put*-idempotent (PutRolePolicy upserts, no EntityAlreadyExists) so they
 # are technically safe to leave un-imported, but importing them too avoids a
 # spurious "will be created" noise in the first plan/apply against adopted
@@ -94,8 +95,8 @@ import {
 }
 
 # ---- Account-global singletons ----------------------------------------------
-# Unlike the roles above, these two import ids are NOT stable literals across
-# accounts — they must resolve per-account, so each uses a dynamic or
+# Unlike the roles above, these three import ids are NOT stable literals
+# across accounts — they must resolve per-account, so each uses a dynamic or
 # per-account-config expression rather than a hardcoded string shared with
 # another environment's copy of this file.
 
@@ -110,6 +111,19 @@ import {
   for_each = var.adopt_seeded_iam_roles ? toset(["oidc_provider"]) : toset([])
   to       = aws_iam_openid_connect_provider.github
   id       = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/${replace(local.github_oidc_url, "https://", "")}"
+}
+
+# ADR-020 CI permissions boundary policy (ci-permissions-boundary.tf), attached
+# as permissions_boundary on the gh-tf-* roles above. Import id is the policy
+# ARN, which embeds this account's id — reuses `local.ci_boundary_arn` already
+# declared in that file so it can never drift from the resource's own `name`
+# argument. Must exist before the roles that carry it (runbook 002 §4);
+# closes the gap where the hand-seed escape hatch would otherwise hit
+# EntityAlreadyExists on this policy (runbook 002 Gotchas).
+import {
+  for_each = var.adopt_seeded_iam_roles ? toset(["ci_boundary"]) : toset([])
+  to       = aws_iam_policy.ci_boundary
+  id       = local.ci_boundary_arn
 }
 
 # IAM account alias (main.tf). Import id is the alias string itself; this
