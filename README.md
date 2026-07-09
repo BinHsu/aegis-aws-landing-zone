@@ -42,7 +42,7 @@ The landing zone is kept thin deliberately: it is the foundation the platform st
 - **Signed commits enforced** — branch protection + SSH-key signing
 - **Centralized IPAM with RAM cross-account sharing** — the org-wide, collision-free authority that hands non-overlapping VPC CIDRs to every account and every downstream consumer (ADR-012)
 - **Fork-and-deploy by config** — one YAML file + two scripts; no per-deployment forks
-- **Account-fabric security baseline** — organizational CloudTrail, AWS Config, GuardDuty, a layered IAM scope-down ladder (ADR-014–016)
+- **Account-fabric security baseline** — Control-Tower-managed organizational CloudTrail + AWS Config (documented reliance, ADR-023), a layered IAM scope-down ladder (ADR-014–016), and a codified, lifecycle-coupled detective baseline: GuardDuty org-wide + Security Hub FSBP (ADR-023)
 
 ## About this project
 
@@ -180,8 +180,9 @@ Status reflects what exists in `main`. The account fabric is complete: the 7th a
 | 1. Foundation | Config contract, state bucket, SCPs, OIDC, account provisioning | ~Free | **Done** |
 | 2. GitOps Pipeline | plan/apply workflows, Checkov, pre-commit, signed commits | ~Free | **Done** |
 | 3. IPAM | Org-wide IPAM + RAM cross-account sharing (ADR-012) | ~$0 idle | **Done** |
-| 4. Security baseline | Organizational CloudTrail, AWS Config, GuardDuty, IAM scope-down ladder (ADR-014–016) | ~$5/mo | **Done** |
+| 4. Security baseline | CT-managed organizational CloudTrail + AWS Config (documented reliance), IAM scope-down ladder (ADR-014–016) | In the ~$5/mo CT baseline | **Done** (earlier "GuardDuty done" claim was false — corrected by Phase 6) |
 | 5. Deployments OU + registry account | Deployments OU + `aegis-deployment` bootstrap for the shared release-artifact registry (ADR-018; ECR lives in `aegis-platform-aws`) | ~Free fabric; ECR billed downstream | **Account vended — first bootstrap apply pending role seed** |
+| 6. Detective baseline | GuardDuty org auto-enable + Security Hub FSBP + CT Config-aggregator assert, delegated to the security account (epic #302, ADR-023) | ~$12–17/mo **only while `detective_enabled = true`**; $0 toggled off | **Codified — lifecycle-coupled, enabled per validation window** |
 
 ## Reliability & Recovery Posture
 
@@ -222,6 +223,7 @@ All ADRs are **Accepted**.
 | [020](docs/decisions/020-scp-enforced-ci-permissions-boundary.md) | SCP-enforced permissions boundary for the CI apply tier |
 | [021](docs/decisions/021-ci-native-cold-account-bootstrap.md) | CI-native cold-account bootstrap — retire manual seed + adopt (Proposed) |
 | [022](docs/decisions/022-ci-pipeline-hardening.md) | CI pipeline hardening — saved-plan apply + SCP human gate, config-derived matrix, policy-as-code gate |
+| [023](docs/decisions/023-detective-baseline-guardduty-securityhub.md) | Detective baseline — GuardDuty org auto-enable + Security Hub FSBP, lifecycle-coupled |
 
 ## Runbooks
 
@@ -249,7 +251,8 @@ Changes that cross tier boundaries — OIDC trust anchor updates, IPAM pool chan
 
 - Phases 0–3 are ~free (Organizations, SSO, SCPs, S3, IPAM idle, public-repo GitHub Actions).
 - The account-fabric always-on baseline is **~$5/month**: Control Tower + AWS Config recorder + organizational CloudTrail + S3 log storage. IPAM advanced tier bills ~$0 idle.
-- There are **no per-session cost-incurring layers** in this repo — no EKS, no NAT Gateway, no ALB.
+- The **detective baseline adds ~$12–17/month while enabled** (GuardDuty org-wide + Security Hub FSBP, `eu-central-1`) and $0 toggled off — it is lifecycle-coupled to validation windows, not always-on. Full pricing breakdown in [`docs/finops.md`](docs/finops.md); decision in [ADR-023](docs/decisions/023-detective-baseline-guardduty-securityhub.md).
+- There is no EKS, NAT Gateway, or ALB anywhere in this repo; the detective layer is the only toggled cost.
 - Budget alerts: daily $10, monthly $30 (enforced via AWS Budgets in the management account).
 - The account fabric is steady-state — it is not destroyed between sessions. The only destroy is the project-end [`hard-teardown-landing-zone.sh`](scripts/teardown/README.md). See [ADR-009](docs/decisions/009-lifecycle-and-teardown-strategy.md).
 
@@ -282,6 +285,10 @@ aegis-landing-zone-aws/
 │       │   └── aft/               # AFT code (committed, not deployed — ADR-011 Path A)
 │       ├── deployment/bootstrap/  # Alias, GitHub OIDC provider, gh-tf-* + break-glass (ADR-018; ECR lives in aegis-platform-aws)
 │       ├── staging/bootstrap/     # Alias, GitHub OIDC provider, gh-tf-* + break-glass roles
+│       ├── security/
+│       │   ├── bootstrap/         # Alias, GitHub OIDC provider, gh-tf-* + break-glass roles
+│       │   └── detective/         # GuardDuty org auto-enable + Security Hub FSBP (ADR-023, lifecycle-coupled)
+│       ├── logarchive/bootstrap/  # Alias, GitHub OIDC provider, gh-tf-* + break-glass roles
 │       └── prod/bootstrap/        # Alias only
 ├── scripts/
 │   ├── configure-backends.sh      # Sync backend.tf from config

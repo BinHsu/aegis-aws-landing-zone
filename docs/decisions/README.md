@@ -46,10 +46,13 @@ where alternatives were genuinely weighed.
 | [018](018-deployments-ou-and-shared-registry-account.md) | Deployments OU + `aegis-deployment` Account for the Shared Release-Artifact Registry | Accepted |
 | [019](019-budgets-iac-and-oidc-fail-closed.md) | Budgets Are IaC and the OIDC Trust Fails Closed | Accepted |
 | [020](020-scp-enforced-ci-permissions-boundary.md) | SCP-Enforced Permissions Boundary for the CI Apply Tier | Accepted |
+| [021](021-ci-native-cold-account-bootstrap.md) | CI-Native Cold-Account Bootstrap | Accepted |
+| [022](022-ci-pipeline-hardening.md) | CI Pipeline Hardening — Saved-Plan Apply, Config-Derived Matrix, Policy Gate | Accepted |
+| [023](023-detective-baseline-guardduty-securityhub.md) | Detective Baseline — GuardDuty Org Auto-Enable + Security Hub FSBP, Lifecycle-Coupled | Accepted |
 
 ## Reading orders by audience
 
-You do not need to read all 20 ADRs front to back. Pick the path for why you
+You do not need to read all the ADRs front to back. Pick the path for why you
 are here. Each list is ordered so the argument builds on itself.
 
 ### Senior platform / infrastructure reviewer
@@ -82,7 +85,7 @@ piece of durable state the account fabric owns.
 
 Understand the guardrails and the blast-radius controls.
 
-`001` → `005` → `006` → `008` → `014` → `015` → `016` → `019` → `020` → `011`
+`001` → `005` → `006` → `008` → `014` → `015` → `016` → `019` → `020` → `023` → `011`
 
 Scope and the ISO 27001 mapping frame the compliance intent; account taxonomy
 and tooling show where the SCP guardrails sit. `014`–`016` are the CI security
@@ -90,8 +93,9 @@ ladder (OIDC role scope-down → SCP permission-boundary inner wall → detectiv
 control on failed OIDC assumption); `019` closes the ladder's fail-open gap
 (required `infra_repo_id`) and moves the cost guardrails into Terraform.
 `020` upgrades the inner wall from a name-based SCP exemption to an
-SCP-enforced permissions boundary on the CI tier. `011` covers account
-provisioning.
+SCP-enforced permissions boundary on the CI tier. `023` adds the org-wide
+detective baseline (GuardDuty auto-enable + Security Hub FSBP,
+lifecycle-coupled to keep the lab frugal). `011` covers account provisioning.
 
 ### Forker / new contributor
 

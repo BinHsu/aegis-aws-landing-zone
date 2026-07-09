@@ -4,15 +4,15 @@
 
 This repository owns the **AWS account fabric** — Organizations, OUs, SCPs, IAM Identity Center, account bootstrap and vending, the Terraform state backend, the GitHub OIDC provider, the centralized security/audit baseline, and the org-wide IPAM. Resources that bill while idle — EKS, NAT Gateways, ALBs — are platform concerns and out of scope here.
 
-The consequence for cost: this repo has **no per-session cost-incurring layers**. Every layer here is a cheap, persistent baseline layer. The cost model is "what does the always-on fabric cost", not "what leaks if a destroy is skipped" — there is nothing to destroy.
+The consequence for cost: almost every layer here is a cheap, persistent baseline layer, and the cost model is "what does the always-on fabric cost". The one exception since epic #302 is the **detective baseline** (`security/detective` — GuardDuty org-wide + Security Hub FSBP): it is deliberately **lifecycle-coupled**, not always-on — enabled for validation windows, disabled between them (see "Detective baseline" below and ADR-023).
 
 Region for all figures: `eu-central-1` (Frankfurt). Prices are on-demand list and rounded; they move — treat them as order-of-magnitude, not invoices.
 
 ## Cost philosophy
 
-One tier, one lifecycle. Every layer — `management/*`, `shared/*`, `staging/bootstrap`, `prod/bootstrap` — is a baseline layer: cheap, persistent, auto-applied on merge to main. They hold organization structure, SCPs, CloudTrail, AWS Config, GuardDuty, IPAM, and the Terraform state bucket. They cost a few dollars per month and are *never* destroyed.
+Two lifecycles. The baseline layers — `management/*`, `shared/*`, and every `*/bootstrap` — are cheap, persistent, auto-applied on merge to main. They hold organization structure, SCPs, IAM/OIDC, IPAM, and the Terraform state bucket; they cost a few dollars per month and are *never* destroyed. The **detective layer** (`security/detective`) is the exception: it carries a `detective_enabled` toggle and rides the platform bring-up/teardown lifecycle, because idle landing-zone accounts have nothing to detect (decided by Bin on #305/#306; ADR-023).
 
-The discipline in one sentence: **the account fabric runs forever and costs ~$5/month; there is no ephemeral cost in this repo.**
+The discipline in one sentence: **the account fabric runs forever at ~$5/month; the detective baseline adds ~$12–17/month only while a validation window is active.**
 
 ## Per-layer cost breakdown
 
@@ -25,6 +25,8 @@ The discipline in one sentence: **the account fabric runs forever and costs ~$5/
 | `shared/aft` | AFT pipeline (committed, not deployed — ADR-011) | Free while not applied | $0 |
 | `staging/bootstrap` | S3 state bucket (native locking), KMS, GitHub OIDC role | Storage + per-key | <$2/mo |
 | `prod/bootstrap` | Same shape as `staging/bootstrap` | Storage + per-key | <$2/mo |
+| `deployment/bootstrap` / `security/bootstrap` / `logarchive/bootstrap` | IAM roles, OIDC provider, account alias | Free | $0 |
+| `security/detective` | GuardDuty org-wide + Security Hub FSBP (lifecycle-coupled) | Per-event + per-check (see below) | $0 toggled off; ~$12–17/mo enabled |
 
 ## The always-on baseline (~$5/month)
 
@@ -36,9 +38,35 @@ The persistent cost of the account fabric is dominated by the Control Tower base
 | CloudTrail org trail | First trail free; S3 storage + events | ~$0.50 |
 | S3 log storage (CloudTrail + Config archive in `aegis-logarchive`) | Storage + lifecycle | ~$0.50 |
 | KMS customer-managed keys (state bucket, log encryption) | $1/key/mo + per-request | ~$2 |
-| GuardDuty (org-wide) | Per GB of analyzed events / logs | ~$0–1 at fabric-only traffic |
 
-Total order of magnitude: **~$5/month**, persistent. None of it is destroyed — it is the cost of having a governed multi-account organization at all.
+Total order of magnitude: **~$5/month**, persistent. None of it is destroyed — it is the cost of having a governed multi-account organization at all. GuardDuty and Security Hub are deliberately NOT in this table — they belong to the lifecycle-coupled detective baseline below, not the always-on floor.
+
+## Detective baseline (lifecycle-coupled) — ~$12–17/month while enabled
+
+Epic #302 codified GuardDuty (org-wide auto-enable, foundational data sources
+only) and Security Hub (FSBP standard only) in
+`terraform/environments/security/detective/`. Decided by Bin (2026-07-06,
+recorded on #305/#306): these are **not always-on** — the `detective_enabled`
+toggle enables them for platform validation windows and destroys them at
+teardown (member-detector cleanup:
+`terraform/environments/security/detective/scripts/disable-member-detectors.sh`).
+See ADR-023.
+
+Pricing (`eu-central-1`, verified against the AWS Pricing API 2026-07-09):
+
+| Component | Billing shape | This org, ~Monthly while enabled |
+|-----------|---------------|----------------------------------|
+| GuardDuty foundational — CloudTrail management events, all 7 accounts | $0.0000046 per event analyzed ($4.60/M) | ~$2–9 at idle-to-light API traffic |
+| GuardDuty foundational — VPC Flow Logs + DNS logs | $1.15/GB (first 500 GB tier) | ~$0 until platform VPCs exist |
+| Security Hub — FSBP checks (security account only; see ADR-023 OQ-1) | $0.0010 per check, first 100k/account/region/mo | ~$1–5 |
+| Security Hub — finding ingestion | Check-generated findings free; first 10k other events free | ~$0 |
+| GuardDuty paid add-ons (S3/EKS/Malware/RDS/Lambda/Runtime) | Explicitly pinned OFF in Terraform | $0 |
+
+Net new while enabled: **~$3–14/month at today's idle traffic; budget
+~$12–17/month for an active validation window** (more API activity = more
+CloudTrail events analyzed). Both services grant each account a one-time
+30-day free trial, so the first validation window is largely free. Toggled
+off: $0.
 
 ## IPAM — the only usage-priced item
 
@@ -61,7 +89,7 @@ shared in their own bootstrap layers, logarchive via a LinkedAccount-filtered
 budget in the management layer (the logarchive account has no Terraform
 environment of its own).
 
-The expected envelope for this repo is comfortably under the ~$5/month baseline. The $10 daily / $30 monthly caps are kept as generous tripwires; if the daily alert fires for the account fabric alone, something is genuinely wrong (a runaway Config recorder, a misconfigured trail) and warrants investigation.
+The expected envelope for this repo is the ~$5/month always-on baseline, rising to ~$17–22/month total while a detective-enabled validation window is active — still under the $30 monthly cap, but no longer far under it. The $10 daily / $30 monthly caps are kept as tripwires; if the daily alert fires for the account fabric alone, something is genuinely wrong (a runaway Config recorder, a misconfigured trail, or a detective window someone forgot to close) and warrants investigation.
 
 ## Cost-saving levers
 
@@ -72,3 +100,4 @@ The expected envelope for this repo is comfortably under the ~$5/month baseline.
 | Single org CloudTrail trail | First trail per account is free; avoid redundant trails |
 | Config recorder scoped to relevant resource types | Per-configuration-item pricing rewards not recording noise |
 | AFT committed but not deployed (ADR-011) | The scaling path stays fresh via CI validation without incurring the ~$10–15/mo AFT pipeline cost |
+| Detective baseline lifecycle-coupled (`detective_enabled`, ADR-023) | GuardDuty + Security Hub bill only during validation windows, not 24/7; paid GuardDuty add-ons pinned off; FSBP is the only Security Hub standard |
