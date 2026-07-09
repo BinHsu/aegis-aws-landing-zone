@@ -5,7 +5,13 @@
 Proposed (2026-07-09). Raised as issue #309 on 2026-07-06 during the LZ-S1
 (`security`/`logarchive`, #303) cold-start. **Bin decides acceptance** — this
 ADR proposes a design and stages a rollout; it does not itself change any
-Terraform, and it leaves the sub-choices in "Open questions" for Bin.
+Terraform.
+
+Three sub-choices — OQ-1 (dedicated role), OQ-3 (`workflow_dispatch` +
+approval gate), OQ-7 (keep the script as break-glass fallback) — were
+**decided by Bin, 2026-07-09** (recorded in each OQ below). Deciding
+sub-choices does not accept the ADR: acceptance and implementation remain a
+separate, later decision by Bin. OQ-2, OQ-4, OQ-5, OQ-6 stay open.
 
 Depends on [ADR-020](020-scp-enforced-ci-permissions-boundary.md): a CI-native
 bootstrap that mints `gh-tf-*` roles must create them *with* the
@@ -110,10 +116,17 @@ except the first.
 Replace the laptop seed+adopt ceremony with a single CI-driven apply that
 bootstraps a cold member account end to end. The design has four parts.
 
+**Framing (confirmed by Bin, 2026-07-09):** what this refactoring eliminates
+is *routine* reliance on break-glass-grade manual access for onboarding — a
+predictable, recurring event should not require an operator wielding
+CT-exec-level credentials by hand. Break-glass itself is untouched: it remains
+the emergency repair hatch, and the target state is that it almost never
+fires.
+
 ### D1. A management-level bootstrap role, assumable by CI via OIDC
 
-Add one role in `management/bootstrap` — provisionally `gh-tf-cold-bootstrap`
-(name in OQ-1) — that CI assumes via GitHub OIDC, trust-pinned like every
+Add one **dedicated** role in `management/bootstrap` — `gh-tf-cold-bootstrap`
+(per OQ-1, decided by Bin 2026-07-09) — that CI assumes via GitHub OIDC, trust-pinned like every
 other `gh-tf-*` role (repo id + `ref:refs/heads/main`, fail-closed per
 ADR-019). It holds exactly two cross-account powers the steady-state CI roles
 do not:
@@ -172,10 +185,12 @@ throwaway-state-then-import bridge:
 
 - `iam-survivor-import.tf` and `var.adopt_seeded_iam_roles` in every
   `*/bootstrap` layer.
-- `scripts/cold-start-bootstrap.sh` is either deleted or **downgraded to a
-  documented break-glass fallback** for when CI is unavailable (OQ-7).
+- `scripts/cold-start-bootstrap.sh` is **downgraded to a documented
+  break-glass fallback** for when CI is unavailable (per OQ-7, decided by Bin
+  2026-07-09: keep it until CI-native is proven at Stage 3; only then retire
+  its role as the routine path).
 - Runbook 002 is rewritten around the CI-native path, keeping the manual
-  ceremony only as the break-glass appendix if OQ-7 keeps the script.
+  ceremony as the break-glass appendix.
 
 ## Alternatives Considered
 
@@ -206,9 +221,10 @@ is what its customization step would invoke (OQ-6).
 This is effectively the *staged* form of the Decision, not a rival. CI-native
 becomes the normal path; the manual script survives (downgraded) as the
 break-glass path for when CI itself is the thing that is broken — the same
-posture ADR-020 D3 takes for boundary repair. OQ-7 decides whether the script
-is kept for that role or fully deleted. Captured here so the choice is explicit
-rather than implied.
+posture ADR-020 D3 takes for boundary repair. OQ-7 (decided by Bin
+2026-07-09) confirms exactly this shape: the script is kept as a documented
+break-glass fallback until CI-native is proven at Stage 3. Captured here so
+the choice is explicit rather than implied.
 
 ### 4. Add CT-exec to the state-bucket allow-list and skip the bootstrap role
 
@@ -236,7 +252,7 @@ project's own identity model.
   until CI's first converging apply" residual ADR-020 lists (Risks →
   boundary-less window).
 - **Auditable trigger.** Cold bootstrap becomes a workflow run with a commit,
-  logs, and (if OQ-3 chooses so) a GitHub environment approval gate — a
+  logs, and a GitHub environment approval gate (per OQ-3, decided) — a
   cleaner audit trail than a laptop session.
 
 ### Makes harder / new obligations
@@ -252,8 +268,10 @@ project's own identity model.
 - **Bootstrap is a distinct workflow from steady-state apply.** The cold path
   (management role + CT-exec provider) and the warm path (account's own
   `gh-tf-apply-baseline`, no provider assume) are different credential shapes.
-  How they are expressed — a separate `workflow_dispatch` bootstrap workflow
-  vs. a conditional in the main apply workflow — is OQ-3.
+  Per OQ-3 (decided by Bin 2026-07-09) they are expressed as a separate
+  `workflow_dispatch` bootstrap workflow with an approval gate — one more
+  workflow file to maintain, in exchange for onboarding staying a visible,
+  gated event rather than a branch inside routine applies.
 
 ### Consistency with ADR-020 (dependency, not optional)
 
@@ -294,10 +312,10 @@ project's own identity model.
 attached; add the state-bucket grant (D3). No behavior change — the role exists
 but no flow uses it yet. Status quo is untouched.
 
-**Stage 1 — build the CI-native apply path.** Add the bootstrap workflow (or
-conditional, per OQ-3): OIDC → `gh-tf-cold-bootstrap` → S3 backend as that
-role + provider assumes CT-exec. Guard it behind a manual dispatch. Nothing
-runs automatically.
+**Stage 1 — build the CI-native apply path.** Add the dedicated
+`workflow_dispatch` bootstrap workflow with its approval gate (per OQ-3,
+decided): OIDC → `gh-tf-cold-bootstrap` → S3 backend as that role + provider
+assumes CT-exec. Nothing runs automatically.
 
 **Stage 2 — dry-run on a throwaway account.** Vend a disposable member account
 and bootstrap it CI-native end to end. Verify: boundary created first, roles
@@ -307,45 +325,55 @@ created bounded, state written to S3, and a subsequent *ordinary* CI apply
 **Stage 3 — cut over on the next real cold account, then retire.** Use
 CI-native bootstrap for the next real member account. Once it is proven on at
 least one real account, execute D4: remove `iam-survivor-import.tf` +
-`var.adopt_seeded_iam_roles`, downgrade-or-delete
-`scripts/cold-start-bootstrap.sh` (OQ-7), and rewrite Runbook 002 around the
-CI-native path. This is the first irreversible stage — everything before it
-leaves the manual ceremony fully intact as the fallback.
+`var.adopt_seeded_iam_roles`, downgrade `scripts/cold-start-bootstrap.sh` to
+a documented break-glass fallback (per OQ-7, decided), and rewrite Runbook 002
+around the CI-native path. This is the first irreversible stage — everything
+before it leaves the manual ceremony fully intact as the fallback.
 
-## Open questions — for Bin to decide
+## Sub-choices — OQ-1/3/7 decided by Bin 2026-07-09; OQ-2/4/5/6 open
 
 - **OQ-1 — bootstrap identity: new role or extend an existing one.** A
-  dedicated `gh-tf-cold-bootstrap` (proposed) keeps the two cross-account
-  powers on a single-purpose, mostly-idle identity. Extending management's
-  existing `gh-tf-apply-baseline` avoids a new role but widens a
-  steady-state role's blast radius to include cross-account CT-exec assume +
-  cross-account state write. *Proposed: dedicated role.*
+  dedicated `gh-tf-cold-bootstrap` keeps the two cross-account powers on a
+  single-purpose, mostly-idle identity. Extending management's existing
+  `gh-tf-apply-baseline` avoids a new role but widens a steady-state role's
+  blast radius to include cross-account CT-exec assume + cross-account state
+  write. **Decided by Bin 2026-07-09: dedicated `gh-tf-cold-bootstrap` role.**
+  Extending the daily apply role would merge cold-start-grade power into a
+  standing high-privilege identity — the same disease this ADR treats; a
+  dedicated role sits at zero use in steady state, so any invocation is a
+  discrete audit event.
 - **OQ-2 — state-bucket grant scope.** One statement letting the bootstrap
   role write *any* member account's state key (simple, broad) vs. a grant
   scoped/added per onboarding (tighter, more churn). Sets the role's blast
-  radius directly.
+  radius directly. **Open.**
 - **OQ-3 — trigger model.** A dedicated `workflow_dispatch` bootstrap workflow
   with a GitHub environment approval gate (preserves a human-in-the-loop
   equivalent to today's interactive `yes`, appropriate for minting trust
   anchors) vs. a conditional branch inside the main apply workflow (fewer
-  files, harder to gate). *Proposed: dedicated dispatch workflow with an
-  approval gate.*
+  files, harder to gate). **Decided by Bin 2026-07-09: dedicated
+  `workflow_dispatch` workflow with an approval gate.** Onboarding is a
+  low-frequency, high-stakes event; a human approval click is governance, not
+  the old disease (the disease was "human does the whole ceremony by hand",
+  not "human nods") — and a conditional branch in the main apply would make
+  onboarding invisible inside routine applies.
 - **OQ-4 — provider credential source.** Assume CT-exec directly (proposed;
   matches today's ADOPT override) vs. introduce a per-account bootstrap role
   that CT-exec seeds first. The latter removes the CT-exec dependency at the
   cost of another chicken-and-egg. *Proposed: CT-exec, as today.*
 - **OQ-5 — confirm scope excludes management.** This ADR asserts management's
   own bootstrap stays manual (Runbook 001), being irreducible. Confirm that
-  boundary is accepted rather than something to chase.
+  boundary is accepted rather than something to chase. **Open.**
 - **OQ-6 — relationship to Path B (real AFT).** If AFT is ever activated, is
   `gh-tf-cold-bootstrap` the identity AFT's global-customizations step invokes,
   or does Path B get its own bootstrap path? Affects whether D1's role is
-  designed AFT-aware now or later.
+  designed AFT-aware now or later. **Open.**
 - **OQ-7 — keep the manual script as break-glass, or delete it.** Downgrade
   `scripts/cold-start-bootstrap.sh` to a documented break-glass fallback for
   when CI is unavailable (mirrors ADR-020 D3's break-glass posture) vs. delete
-  it outright once CI-native is proven. *Proposed: keep as break-glass
-  fallback.*
+  it outright once CI-native is proven. **Decided by Bin 2026-07-09: keep it,
+  downgraded to a documented break-glass fallback, until CI-native bootstrap
+  is proven on a real account (Stage 3); only then retire it as the routine
+  path.**
 
 ## Related
 
