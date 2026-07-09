@@ -95,12 +95,19 @@ parallel management-area workstreams. Follow-up: add `config:*` (or
 
 ## Consequences
 
-- Merging + applying with `detective_enabled = true` starts recurring spend
-  (table above) — detective-layer PRs are **cost-gated**: the PR body carries
-  the cost table and merge is the conscious acceptance of it.
-- Disable path: flip `detective_enabled = false` (one-line PR) → apply destroys
-  the delegated-admin detector, org auto-enable, and Security Hub resources;
-  then run `scripts/disable-member-detectors.sh --execute` under a
+- `detective_enabled` defaults to **false** (decided by Bin, 2026-07-09): the
+  layer lands and merges **dormant** — applying the default creates the layer
+  scaffolding with zero billable resources. Turning the services on (recurring
+  spend per the table above) is a deliberate follow-up: flip
+  `detective_enabled = true` (one-line PR or tfvars override) and apply, timed
+  together with the ephemeral-EKS validation run rather than as a side effect
+  of landing this code. Detective-layer PRs stay **cost-gated** in spirit —
+  the PR body carries the cost table — but the gate now protects the
+  true-flip, not the initial merge.
+- Disable path (future enabled→disabled transition): flip
+  `detective_enabled = false` (one-line PR) → apply destroys the
+  delegated-admin detector, org auto-enable, and Security Hub resources; then
+  run `scripts/disable-member-detectors.sh --execute` under a
   management-account admin to delete the auto-created member detectors, which
   are outside Terraform state and would otherwise keep billing.
 - `CKV2_AWS_3` (GuardDuty org-wide) left the Checkov skip list — the control is

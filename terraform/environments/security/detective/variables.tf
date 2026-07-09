@@ -8,16 +8,23 @@
 #   false → every billable resource in this layer is destroyed on the next
 #           apply; the layer (and its CI wiring) stays in place, code-complete.
 #
-# CAVEAT on disable: Terraform only destroys what it owns — the delegated-
-# admin detector, the org auto-enable configuration, and the Security Hub
-# resources in THIS account. Member-account GuardDuty detectors that were
-# auto-created by `auto_enable_organization_members = "ALL"` are not in this
-# state and keep billing until removed. Run
-# scripts/disable-member-detectors.sh (this layer's scripts/ dir) after the
-# toggle-off apply to stop member-side cost. See ADR-023.
+# DEFAULT IS false (decided by Bin, 2026-07-09): this layer lands DORMANT.
+# Merging with the default applies only the layer scaffolding — zero billable
+# resources. The paid validation window opens later, deliberately, via a
+# one-line PR flipping this to true (paired with the ephemeral-EKS validation
+# run), not as a side effect of this merge.
+#
+# CAVEAT on disable (applies to the future enabled→disabled path): Terraform
+# only destroys what it owns — the delegated-admin detector, the org
+# auto-enable configuration, and the Security Hub resources in THIS account.
+# Member-account GuardDuty detectors that were auto-created by
+# `auto_enable_organization_members = "ALL"` are not in this state and keep
+# billing until removed. Run scripts/disable-member-detectors.sh (this
+# layer's scripts/ dir) after the toggle-off apply to stop member-side cost.
+# See ADR-023.
 # -----------------------------------------------------------------------------
 variable "detective_enabled" {
-  description = "Master lifecycle switch for the detective services (GuardDuty org auto-enable + Security Hub FSBP). false destroys all billable resources in this layer on the next apply while keeping the layer code-complete. Flip via a one-line PR; pair toggle-off with scripts/disable-member-detectors.sh to stop member-account GuardDuty cost."
+  description = "Master lifecycle switch for the detective services (GuardDuty org auto-enable + Security Hub FSBP). Defaults to false so this layer lands dormant (zero billable resources); flip to true via a one-line PR to open a paid validation window, pairing toggle-off with scripts/disable-member-detectors.sh to stop member-account GuardDuty cost."
   type        = bool
-  default     = true
+  default     = false
 }
