@@ -14,8 +14,41 @@ env:
   AWS_REGION: "eu-central-1"
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # discover — render the plan matrix from the single source of truth
+  # (config/ci-layers.yaml + config/landing-zone.yaml) instead of hand-copied
+  # account IDs (#320). scripts/ci/render-ci-matrix.py fails closed if any
+  # layer's account ID is empty, so a misconfigured config surfaces here rather
+  # than as a confusing assume-role error mid-plan.
+  # ---------------------------------------------------------------------------
+  discover:
+    name: Discover plan matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.render.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Write config
+        run: |
+          mkdir -p config
+          cat <<'EOFCONFIG' > config/landing-zone.yaml
+          ${{ secrets.LANDING_ZONE_CONFIG }}
+          EOFCONFIG
+
+      - name: Install PyYAML
+        run: python3 -m pip install --quiet pyyaml
+
+      - name: Render matrix
+        id: render
+        run: |
+          matrix="$(python3 scripts/ci/render-ci-matrix.py --select plan)"
+          echo "matrix=${matrix}" >> "$GITHUB_OUTPUT"
+          echo "Plan matrix:" && echo "${matrix}" | python3 -m json.tool
+
   plan:
     name: Plan ${{ matrix.env }}
+    needs: discover
     # -----------------------------------------------------------------------
     # Concurrency — serialize matrix rows that share the same env + branch.
     # Terraform's S3 backend (`use_lockfile = true`, ADR-003) conditional-puts
@@ -29,31 +62,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Account-fabric layers only — Organizations / SCPs / Identity Center,
-        # account bootstrap, and the org-wide IPAM. Every layer uses a
-        # full-literal S3 backend, so `terraform init` needs no extra config.
-        include:
-          - env: management/bootstrap
-            account_id: "186052668286"
-          - env: management/scps
-            account_id: "186052668286"
-          - env: shared/bootstrap
-            account_id: "345895787808"
-          - env: shared/ipam
-            account_id: "345895787808"
-          - env: deployment/bootstrap
-            account_id: "162975888022"
-          - env: staging/bootstrap
-            account_id: "251774439261"
-          - env: prod/bootstrap
-            account_id: "506221082337"
-          # Account IDs not yet known to this PR — config/landing-zone.yaml is
-          # gitignored and not populated with real security/logarchive account
-          # IDs at authoring time (#303). Replace before merge; see the PR body.
-          - env: security/bootstrap
-            account_id: "763879260536"
-          - env: logarchive/bootstrap
-            account_id: "118907880354"
+        # Account-fabric layers, rendered from config/ci-layers.yaml joined
+        # with config/landing-zone.yaml (#320). The 9-layer set (management
+        # bootstrap + scps, shared bootstrap + ipam, and the five member
+        # bootstraps) is defined once in the manifest; both this plan matrix
+        # and the apply pipeline derive from it, so they cannot drift.
+        include: ${{ fromJSON(needs.discover.outputs.matrix) }}
 
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6

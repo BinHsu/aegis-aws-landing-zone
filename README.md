@@ -221,6 +221,7 @@ All ADRs are **Accepted**.
 | [019](docs/decisions/019-budgets-iac-and-oidc-fail-closed.md) | Budgets are IaC and the OIDC trust fails closed |
 | [020](docs/decisions/020-scp-enforced-ci-permissions-boundary.md) | SCP-enforced permissions boundary for the CI apply tier |
 | [021](docs/decisions/021-ci-native-cold-account-bootstrap.md) | CI-native cold-account bootstrap — retire manual seed + adopt (Proposed) |
+| [022](docs/decisions/022-ci-pipeline-hardening.md) | CI pipeline hardening — saved-plan apply + SCP human gate, config-derived matrix, policy-as-code gate |
 
 ## Runbooks
 

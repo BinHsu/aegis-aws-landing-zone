@@ -47,3 +47,7 @@ docs/personal/
 
 # Obsidian vault metadata — local note-taking workspace, not project state.
 .obsidian/
+
+# Python bytecode
+__pycache__/
+*.pyc
