@@ -75,6 +75,30 @@ This is the same precedent as `prod/bootstrap`'s `iam-survivor-import.tf`
 are simply the first pair of accounts where the seed+adopt ceremony had to run
 against a truly cold account rather than one break-glass-created resource.
 
+### 4. ADR-020: the boundary must exist before the CI roles that carry it
+
+ADR-020 (PR-1) added the `aegis-landing-zone-aws-ci-boundary` permissions
+boundary to every `*/bootstrap` layer and set `permissions_boundary` on all
+three `gh-tf-*`/`gh-tf-apply-*` roles. Two consequences for cold-start:
+
+- **Ordering within the seed apply is automatic.** The seed layer now creates
+  `aws_iam_policy.ci_boundary` too, and each `gh-tf-*` role references
+  `aws_iam_policy.ci_boundary.arn`, so Terraform creates the boundary *before*
+  the roles inside the same apply. No manual pre-create is needed on the normal
+  path. `aegis-emergency-break-glass` is deliberately **not** bounded (it is the
+  boundary's own in-account repair path — ADR-020 D3).
+- **Post-PR-2, the org-root SCP requires the boundary at role-create time.**
+  Once ADR-020 PR-2's SCP S1 is attached at the org root, a `gh-tf-*` caller
+  that runs `iam:CreateRole` without the boundary is denied
+  (`DenyUnboundedRoleCreateByCi`). Cold-start is unaffected **by construction**:
+  the seed runs under `AWSControlTowerExecution`, which is outside S1's
+  `gh-tf-*` scope, and the boundary is created first in the same apply — so CI
+  (`gh-tf-*`) only ever runs against an account that already has the boundary.
+  If the boundary is somehow absent or corrupt on a fresh account, break-glass
+  (`aegis-emergency-*`, exempt from S1 and from S2's `ProtectBoundaryPolicy`)
+  can create or repair it with `iam:CreatePolicy` — that action is in no deny
+  list.
+
 ## Prerequisites
 
 - `aws sso login --sso-session aegis` already run.
@@ -91,6 +115,34 @@ against a truly cold account rather than one break-glass-created resource.
   `--account-id` explicitly.
 
 ## Procedure
+
+### Phase 0 — Boundary preflight (ADR-020)
+
+Before seeding `gh-tf-*` roles on any cold account, create or verify the
+`aegis-landing-zone-aws-ci-boundary` permissions boundary exists in the target
+account. On the normal path this is automatic — the seed apply in Phase 1
+creates the boundary before the roles that reference it (see "The problem" §4) —
+so this step is a **verify**, not a manual create:
+
+```
+aws iam get-policy \
+  --policy-arn "arn:aws:iam::<target-account-id>:policy/aegis-landing-zone-aws-ci-boundary" \
+  --query 'Policy.PolicyName' --output text 2>/dev/null || echo "ABSENT — expected during Phase 1"
+```
+
+- **Absent before Phase 1**: expected on a truly cold account — Phase 1 creates
+  it. Proceed.
+- **Absent after Phase 1 completed**: a bug — the seed apply should have created
+  it. Do not let CI (`gh-tf-*`) run against this account until it exists (post-
+  PR-2, CI's first `CreateRole` would be denied `AccessDenied` by SCP S1). Repair
+  via break-glass `iam:CreatePolicy` (the only identity SCP S2 exempts), then
+  re-run Phase 1's converge.
+
+Attaching the boundary to the seeded roles at seed time is hygiene, not a hard
+requirement: the roles carry `permissions_boundary` in code, so Phase 1's apply
+attaches it, and any later CI apply converges a boundary-less seeded role via
+`iam:PutRolePermissionsBoundary` to the correct ARN — which SCP S1 allows
+(ADR-020 D2).
 
 ### Phase 1 — Seed
 
@@ -184,6 +236,17 @@ its `terraform-plan.yml` run should also show no diff once merged and
   trap can catch) blocks the next run. The script's own EXIT/INT/TERM trap
   cleans these up on every normal exit and on `Ctrl-C`; if one is still
   present, delete it manually before re-running.
+- **The ADR-020 boundary is not yet in the `iam-survivor-import.tf` gate.** The
+  import blocks adopt the eight original bootstrap resources; PR-1 added
+  `aws_iam_policy.ci_boundary` on top of them but did not extend the import
+  gate. On the normal seed then adopt path this is harmless — seed discards its
+  local state and adopt re-imports only the gated eight, then apply *creates*
+  the boundary fresh in S3 state. It only bites the manual hand-seed escape
+  hatch (`var.adopt_seeded_iam_roles=true` after pre-creating resources by
+  hand): adopt would then `EntityAlreadyExists` on the boundary. If you hit
+  that, add a gated `import` block for `aws_iam_policy.ci_boundary` (mirror the
+  role blocks), or delete the hand-created boundary before adopt. Tracked as an
+  ADR-020 PR-1 follow-up.
 
 ## Cross-references
 
@@ -204,6 +267,10 @@ its `terraform-plan.yml` run should also show no diff once merged and
   scripts seed and adopt.
 - [ADR-015](../decisions/015-permission-boundary-hardening.md) — the
   `aegis-emergency-break-glass` role.
+- [ADR-020](../decisions/020-scp-enforced-ci-permissions-boundary.md) — the
+  `aegis-landing-zone-aws-ci-boundary` permissions boundary (PR-1) and the
+  SCP S1/S2 that force and protect it (PR-2); the source of the Phase 0
+  boundary preflight above.
 - [Runbook 001](001-bootstrap-aws-account.md) — the from-zero project
   bootstrap this runbook assumes is already complete (management account,
   Control Tower, state bucket, SSO).
