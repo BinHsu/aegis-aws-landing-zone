@@ -946,6 +946,94 @@ After the SLR was destroyed the `IamServiceLinkedRoleLifecycle` Sid was removed 
 
 ---
 
+## Incident 16 — `apply-scps` OIDC assumption fails closed after Environment binding (PR #330)
+
+**Date**: 2026-07-08 (post-ADR-022 gated SCP apply)
+**Severity**: S3
+**Duration**: detected immediately (first run after merge); no partial apply, ~1 day to land the fix PR
+
+### Symptom
+
+The first baseline apply run after PR #330 merged (run 29015217599) failed in job
+"Apply management/scps (gated)" with:
+
+```
+Could not assume role with OIDC: Not authorized to perform sts:AssumeRoleWithWebIdentity
+```
+
+The job failed at the `aws-actions/configure-aws-credentials` step, before any
+`terraform plan` or `apply` ran — nothing was applied, no state drift.
+
+### Root cause
+
+PR #330 (ADR-022) bound the `apply-scps` job in
+`.github/workflows/terraform-apply-baseline.yml` to the GitHub Environment
+`landing-zone-apply-scps` (`environment: landing-zone-apply-scps`) so a required
+reviewer can gate the org-root SCP apply. A job running under a GitHub
+Environment presents a different OIDC `sub` claim shape than a plain branch
+push: `repo:<org>/<repo>:environment:<name>` instead of
+`repo:<org>/<repo>:ref:refs/heads/main`. The `gh-tf-apply-baseline` role's trust
+policy in `terraform/environments/management/bootstrap/oidc-github-baseline-role.tf`
+only allowed the `ref:refs/heads/main` sub shape — PR #330 changed the
+workflow's job-to-environment binding without updating the IAM trust policy
+that job depends on, so the two drifted out of sync in the same merge.
+
+### Detection
+
+The scheduled/push-triggered `terraform-apply-baseline.yml` run failed in CI;
+the job log showed the `configure-aws-credentials` STS error directly — no
+digging required beyond reading the failed step's log.
+
+### Resolution
+
+Added the environment sub shape as a second, additive `StringLike` value on
+the existing `gh-tf-apply-baseline` trust policy (list form, same condition
+key), keeping the pre-existing `ref:refs/heads/main` value untouched:
+
+```hcl
+StringLike = {
+  "${replace(local.github_oidc_url, "https://", "")}:sub" = [
+    "repo:${local.github_org}/*:ref:refs/heads/main",
+    "repo:${local.github_org}/*:environment:landing-zone-apply-scps",
+  ]
+}
+```
+
+Verified no other job in the workflow gained an environment binding in #330
+(`gh pr diff 330 | grep -n environment` — only `apply-scps`). The fix
+self-heals on merge: the `management/bootstrap` layer (which owns this trust
+policy) applies through the still-working, non-gated `apply-baseline` job, so
+merging the trust-policy PR re-applies it and the next `apply-scps` run
+authenticates.
+
+### Prevention
+
+- **Rule for future Environment bindings**: whenever a workflow job's
+  `environment:` key is added or changed, grep every IAM trust policy the
+  job's role appears in for `StringLike`/`sub` conditions and add the matching
+  `repo:<org>/<repo>:environment:<name>` shape in the same PR. A job-to-role
+  binding and the role's trust policy are two halves of one contract; #330
+  changed only one half.
+- Consider a CI lint step that diffs `environment:` keys across
+  `.github/workflows/*.yml` against the sub patterns present in
+  `terraform/environments/*/bootstrap/oidc-github-*-role.tf` and fails the
+  plan job if a job references an environment with no matching trust-policy
+  sub. Not implemented yet — flagged as a gap, not a promise.
+
+### Lessons
+
+- OIDC `sub` claim shape is trigger-dependent, not just repo-dependent: `push`,
+  `pull_request`, and `environment`-bound jobs each mint a structurally
+  different `sub` string. A trust policy written for one trigger shape does
+  not implicitly cover another, even for the same repo and the same role.
+- A failure that happens at `configure-aws-credentials` (before `terraform
+  init`) is always a trust-policy problem, not a permissions problem — the
+  role's IAM policy is never consulted until after the `AssumeRoleWithWebIdentity`
+  call succeeds. Read the failing step first; it narrows the search
+  immediately.
+
+---
+
 ## Adding a new incident
 
 Append new sections at the bottom, before this footer, using the format below. The next incident to be recorded is Incident 16.
