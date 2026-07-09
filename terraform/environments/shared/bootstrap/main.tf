@@ -46,8 +46,16 @@ resource "aws_s3_bucket_lifecycle_configuration" "terraform_state" {
 
     filter {}
 
+    # #317 (free/reversible durability tier): a noncurrent state version is
+    # expired only when it is BOTH older than 30 days AND beyond the 10 newest
+    # noncurrent versions. `newer_noncurrent_versions` is a retention FLOOR:
+    # the 10 most recent prior states are always recoverable regardless of age,
+    # so a burst of overwrites (accidental or malicious `PutObject` on the state
+    # key) cannot age-out every good version inside the 30-day window. Storage
+    # cost is negligible (state objects are ~KB–low-MB). Fully reversible.
     noncurrent_version_expiration {
-      noncurrent_days = 30
+      noncurrent_days           = 30
+      newer_noncurrent_versions = 10
     }
 
     # Clean up failed multipart uploads after 7 days (CKV_AWS_300)
