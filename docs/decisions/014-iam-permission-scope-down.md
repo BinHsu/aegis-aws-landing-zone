@@ -77,7 +77,7 @@ Rejected. This is a public repository; the audit trail is itself part of the art
 
 ### Risks
 
-- `terraform plan -refresh=true` (Terraform's default) may write to the state object during refresh. This would break the `gh-tf-plan` read-only design. The `gh-tf-plan` policy therefore permits `s3:PutObject` on the state-key suffix as a worst-case guard; empirical observation under the S3 native-locking backend can later tighten this if `plan -refresh` proves not to write state.
+- ~~`terraform plan -refresh=true` (Terraform's default) may write to the state object during refresh. This would break the `gh-tf-plan` read-only design. The `gh-tf-plan` policy therefore permits `s3:PutObject` on the state-key suffix as a worst-case guard; empirical observation under the S3 native-locking backend can later tighten this if `plan -refresh` proves not to write state.~~ **Superseded 2026-07-09 (#318).** The empirical answer is that `terraform plan` does not persist refreshed state to the S3 backend — refresh is in-memory and only `apply` / `refresh-only` write the state object. The `WriteStateOnRefreshGuard` (`s3:PutObject` on `*.tfstate`) statement was therefore removed from all seven `gh-tf-plan` role policies; the plan role's only state-bucket write is now the `*.tflock` lockfile (`WriteStateLockSuffixOnly`). This restores the strict plan-reads / apply-writes split — a fork-PR-OIDC-leaked plan token can no longer overwrite state.
 - Trust policy refinements that would help against "main got compromised + new workflow file added" (Layer 2 `job_workflow_ref` pinning) are not part of this ADR. They are decorative against fork-PR specifically but do help against a post-merge attacker on `main`.
 
 ## Related
@@ -115,12 +115,6 @@ Region tokens are `${primary_region}` placeholders consistent with the CLAUDE.md
       "Effect": "Allow",
       "Action": ["s3:PutObject", "s3:DeleteObject"],
       "Resource": "arn:aws:s3:::aegis-terraform-state-345895787808/*.tflock"
-    },
-    {
-      "Sid": "WriteStateOnRefreshGuard",
-      "Effect": "Allow",
-      "Action": ["s3:PutObject"],
-      "Resource": "arn:aws:s3:::aegis-terraform-state-345895787808/*"
     },
     {
       "Sid": "StateKmsForLockfile",

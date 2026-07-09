@@ -9,7 +9,7 @@ All Terraform state — every account, every layer — lives in a single S3 buck
 |---|---|---|
 | S3 versioning | ✅ | `terraform/environments/shared/bootstrap/main.tf:20` |
 | KMS SSE with customer-managed CMK | ✅ | `terraform/environments/shared/bootstrap/kms-state.tf:19` |
-| Non-current version expiration (30 days) | ✅ | `main.tf:40` |
+| Non-current version expiration (30 days, floor of 10 newest kept) | ✅ | `main.tf` — `newer_noncurrent_versions = 10` retention floor (#317) |
 | `prevent_destroy = true` on bucket | ✅ | `main.tf:15` |
 | Public access block | ✅ | `main.tf:60` |
 | Org-scoped bucket policy (`aws:PrincipalOrgID`) | ✅ | `main.tf:69` |
@@ -18,6 +18,21 @@ All Terraform state — every account, every layer — lives in a single S3 buck
 | MFA Delete | ❌ | — |
 | Cross-region replication | ❌ | — |
 | Cross-account replication | ❌ | — |
+
+## Update — 2026-07-09 (#317 free/reversible tier)
+
+The security-review finding #317 splits into a **free/reversible tier** (implementable now,
+no cost or irreversibility decision) and a **gated tier** (Object Lock, MFA-delete, CRR — a
+cost / irreversibility / new-region decision reserved for the operator).
+
+- **Free tier — in place.** Versioning, deny-insecure-transport, public-access-block, and
+  lifecycle noncurrent-version retention were already present; this PR adds a
+  `newer_noncurrent_versions = 10` retention floor so the 10 most recent prior states are
+  always recoverable regardless of the 30-day age cutoff.
+- **Gated tier — still open, decision for the operator.** Object Lock (irreversible on the
+  bucket), MFA-delete, and cross-region + cross-account replication remain as designed in the
+  "Proposed mitigation" section below. They are presented as an options table in the PR that
+  references this finding and are **awaiting decision** — not silently descoped.
 
 ## Gap / risk
 

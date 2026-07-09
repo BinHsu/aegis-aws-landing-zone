@@ -84,17 +84,6 @@ resource "aws_iam_role_policy" "gh_tf_plan" {
         Resource = "arn:aws:s3:::${local.config.organization.name}-terraform-state-${local.config.accounts.shared.id}/*.tflock"
       },
       {
-        # OQ-3 worst-case guard: `terraform plan -refresh=true` may write the
-        # state object during refresh. Allow PutObject on the state-key suffix
-        # to absorb that worst case. PR-1 will empirically observe whether
-        # plan-refresh writes state under our backend; if no, this statement
-        # tightens or is removed in a follow-up PR.
-        Sid      = "WriteStateOnRefreshGuard"
-        Effect   = "Allow"
-        Action   = ["s3:PutObject"]
-        Resource = "arn:aws:s3:::${local.config.organization.name}-terraform-state-${local.config.accounts.shared.id}/*.tfstate"
-      },
-      {
         # KMS decryption gated by service condition. Two ViaService entries:
         # - `s3.<region>.amazonaws.com` — for cross-account state-bucket
         #   reads (state KMS lives in shared account)
