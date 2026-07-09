@@ -16,7 +16,8 @@
 # -----------------------------------------------------------------------------
 
 resource "aws_iam_role" "gh_tf_plan" {
-  name = "gh-tf-plan"
+  name                 = "gh-tf-plan"
+  permissions_boundary = aws_iam_policy.ci_boundary.arn
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"

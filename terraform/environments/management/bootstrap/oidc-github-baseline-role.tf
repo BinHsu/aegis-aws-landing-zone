@@ -22,7 +22,8 @@
 # -----------------------------------------------------------------------------
 
 resource "aws_iam_role" "gh_tf_apply_baseline" {
-  name = "gh-tf-apply-baseline"
+  name                 = "gh-tf-apply-baseline"
+  permissions_boundary = aws_iam_policy.ci_boundary.arn
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
