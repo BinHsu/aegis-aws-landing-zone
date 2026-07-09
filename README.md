@@ -219,6 +219,8 @@ All ADRs are **Accepted**.
 | [017](docs/decisions/017-platform-tier-extraction.md) | Platform tier extracted from the landing zone |
 | [018](docs/decisions/018-deployments-ou-and-shared-registry-account.md) | Deployments OU + `aegis-deployment` account for the shared release-artifact registry |
 | [019](docs/decisions/019-budgets-iac-and-oidc-fail-closed.md) | Budgets are IaC and the OIDC trust fails closed |
+| [020](docs/decisions/020-scp-enforced-ci-permissions-boundary.md) | SCP-enforced permissions boundary for the CI apply tier |
+| [021](docs/decisions/021-ci-native-cold-account-bootstrap.md) | CI-native cold-account bootstrap — retire manual seed + adopt (Proposed) |
 
 ## Runbooks
 
