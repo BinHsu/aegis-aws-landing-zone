@@ -13,6 +13,13 @@ Post-v1.0.0 changes on `main`. All changes are to the **account-fabric** scope
 
 ### Added
 
+- **Detective baseline** (ADR-023, epic #302 S3–S5): new `security/detective`
+  Terraform layer — GuardDuty org-wide auto-enable (foundational only, all paid
+  add-ons pinned off), Security Hub LOCAL org config + FSBP standard, read-only
+  CT Config-aggregator assertion. Lifecycle-coupled via `detective_enabled`
+  (~$12–17/mo only while enabled); member-detector teardown script included.
+  Docs reconciled: finops cost model, README Phase-4/Phase-6 status, ADR index,
+  `CKV2_AWS_3` Checkov skip removed. (#305, #306, #307)
 - **Deployments OU + `aegis-deployment` account** (ADR-018): seventh AWS account
   vended via Control Tower; dedicated OU for the shared release-artifact registry.
   Bootstrap layer (OIDC provider, `gh-tf-plan/apply`, break-glass role) wired into

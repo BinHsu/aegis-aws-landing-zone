@@ -4,16 +4,20 @@
 # Apply role for the `ref:refs/heads/main` trigger. The `pull_request` trigger
 # assumes its own read-only role, `gh-tf-plan`. These two are the only CI roles.
 #
-# Scope: the security account's only landing-zone Terraform is
-# `security/bootstrap` itself — the account alias, the GitHub OIDC provider,
-# and the gh-tf-* / aegis-emergency-* roles. The permission policy below is
-# therefore exactly IAM-on-project-prefixes + account alias + cross-account
-# Terraform state.
+# Scope: the security account's landing-zone Terraform is `security/bootstrap`
+# (account alias, GitHub OIDC provider, gh-tf-* / aegis-emergency-* roles) plus
+# the `security/detective` layer (epic #302 D5). The permission policy below is
+# IAM-on-project-prefixes + account alias + cross-account Terraform state +
+# the detective-service surface.
 #
-# Scope note (LZ-baseline S1, #303): this is the plain member-account subset —
-# no detective-service (GuardDuty / Security Hub) mutation permissions yet.
-# Those land in #304/#305/#306 once this layer (or a sibling `security/
-# detective` layer, per epic #302 D5) owns those resources.
+# Scope note (LZ-baseline S3/S4, #305/#306 — supersedes the S1 note): the
+# DetectiveServicesAdmin Sid grants guardduty:* + securityhub:* so this role
+# can apply the security/detective layer (delegated-admin org configuration,
+# detector, FSBP subscription). Both namespaces are inside the ADR-020
+# boundary ceiling. `config:Describe*` (read-only CT-aggregator check) is
+# also granted but currently sits OUTSIDE the boundary ceiling — the check
+# degrades to a warning in CI until the org-uniform boundary adds the
+# `config` namespace (see ADR-023).
 # -----------------------------------------------------------------------------
 
 resource "aws_iam_role" "gh_tf_apply_baseline" {
@@ -54,8 +58,8 @@ resource "aws_iam_role_policy" "gh_tf_apply_baseline" {
   # checkov:skip=CKV_AWS_287: ReadOnlyAwsApiSurface Sid uses Resource:* on Get*/List*/Simulate* actions only — restrictable per-ARN scoping is not meaningful for inventory-style API calls. Mutation prevention is enforced by the absence of any Create/Update/Delete action paired with Resource:*. See ADR-014.
   # checkov:skip=CKV_AWS_288: Same as CKV_AWS_287 — read-shape data disclosure is the explicit threat model accepted by ADR-014. AWS metadata is classified non-secret per CLAUDE.md "What is NOT a secret" clause.
   # checkov:skip=CKV_AWS_289: `iam:*` is intentionally scoped to project-prefixed resources (aegis-*/github-actions-*/gh-tf-*) plus the OIDC provider and account alias. Permission-management within a fixed prefix is the apply contract for the security baseline role.
-  # checkov:skip=CKV_AWS_290: Service-namespace wildcard `tag:*` is needed because the AWS tagging API does not support resource-level ARN constraints on write actions; service-namespace scoping is the tightest contract available and is gated by trust policy `sub: ref:refs/heads/main` plus branch protection on main.
-  # checkov:skip=CKV_AWS_355: Resource:* is by design on the read-only Sid and on the account-alias actions (AWS rejects resource-level ARNs there). Every mutating action with Resource:* is service-namespace-scoped and trust-policy-gated.
+  # checkov:skip=CKV_AWS_290: Service-namespace wildcards (`tag:*`, and `guardduty:*`/`securityhub:*` for the delegated-admin detective layer) are needed because these APIs create-then-reference their ARNs (or, for tagging, reject resource-level ARN constraints on writes); service-namespace scoping is the tightest contract available and is gated by trust policy `sub: ref:refs/heads/main` plus branch protection on main.
+  # checkov:skip=CKV_AWS_355: Resource:* is by design on the read-only Sid and on the account-alias actions (AWS rejects resource-level ARNs there). Every mutating action with Resource:* (tag/guardduty/securityhub) is service-namespace-scoped and trust-policy-gated.
   # checkov:skip=CKV2_AWS_40: `iam:*` is intentionally allowed within aegis-*/github-actions-*/gh-tf-* prefix scope for apply-tier baseline operations. Full IAM privileges on a fixed ARN-prefix is the deliberate apply-baseline design (ADR-014 §Decision).
   name = "apply-baseline-scoped"
   role = aws_iam_role.gh_tf_apply_baseline.id
@@ -144,6 +148,24 @@ resource "aws_iam_role_policy" "gh_tf_apply_baseline" {
         Resource = "*"
       },
       {
+        # Detective layer (S3/S4, #305/#306): this account is the org
+        # delegated administrator for GuardDuty + Security Hub (S2, PR #311)
+        # and owns the security/detective Terraform layer. Service-namespace
+        # wildcards mirror the tag:* contract above: GuardDuty detector /
+        # org-configuration and Security Hub hub / standards ARNs are
+        # created-then-referenced by Terraform, so per-ARN scoping would
+        # break the create path; the trust policy `sub: ref:refs/heads/main`
+        # plus branch protection is the gate, and the ADR-020 boundary
+        # ceiling already carries both namespaces.
+        Sid    = "DetectiveServicesAdmin"
+        Effect = "Allow"
+        Action = [
+          "guardduty:*",
+          "securityhub:*",
+        ]
+        Resource = "*"
+      },
+      {
         # Read shapes for `terraform plan` after apply (refresh + drift
         # detection). Resource: "*" is acceptable here because every
         # action listed is read-only — metadata disclosure is classified
@@ -165,6 +187,9 @@ resource "aws_iam_role_policy" "gh_tf_apply_baseline" {
           "kms:List*",
           "kms:GetKeyRotationStatus",
           "kms:GetKeyPolicy",
+          # Read-only CT Config-aggregator check (security/detective layer,
+          # #306). Outside the ADR-020 boundary ceiling today — see header.
+          "config:Describe*",
           "tag:Get*",
           "sts:GetCallerIdentity",
         ]

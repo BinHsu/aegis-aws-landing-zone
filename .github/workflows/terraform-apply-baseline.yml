@@ -39,6 +39,7 @@ on:
       - 'terraform/environments/staging/bootstrap/**'
       - 'terraform/environments/prod/bootstrap/**'
       - 'terraform/environments/security/bootstrap/**'
+      - 'terraform/environments/security/detective/**'
       - 'terraform/environments/logarchive/bootstrap/**'
       - 'config/**'
 

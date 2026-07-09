@@ -14,11 +14,13 @@
 # (which CLAUDE.md classifies as not-secret). This is the unlocking move
 # for closing fork-PR-OIDC as a meaningful blast-radius source.
 #
-# Scope note (LZ-baseline S1, #303): this is the plain member-account subset —
-# IAM-prefix reads, state bucket, KMS-via-S3, tagging, generic read-only API
-# surface. No GuardDuty / Security Hub read shapes yet; those land with the
-# detective-service permissions in #305/#306 once this account owns those
-# resources.
+# Scope note (LZ-baseline S3/S4, #305/#306 — supersedes the S1 note): this
+# account owns the `security/detective` layer, so the read-only surface now
+# includes GuardDuty / Security Hub / Config read shapes for planning that
+# layer. `config:Describe*` backs the read-only CT-aggregator check
+# (ct-config-aggregator-check.tf); note it is currently OUTSIDE the ADR-020
+# boundary ceiling, so CI plans degrade that check to a warning until the
+# org-uniform boundary adds the `config` namespace (see ADR-023).
 # -----------------------------------------------------------------------------
 
 resource "aws_iam_role" "gh_tf_plan" {
@@ -165,6 +167,16 @@ resource "aws_iam_role_policy" "gh_tf_plan" {
           "ecr:Get*",
           "ecr:List*",
           "elasticloadbalancing:Describe*",
+          # Detective layer (S3/S4, #305/#306): plan-time refresh of the
+          # security/detective resources + the read-only CT Config-aggregator
+          # check. All read-shape.
+          "guardduty:Get*",
+          "guardduty:List*",
+          "guardduty:Describe*",
+          "securityhub:Get*",
+          "securityhub:List*",
+          "securityhub:Describe*",
+          "config:Describe*",
           "tag:Get*",
           "sts:GetCallerIdentity",
         ]

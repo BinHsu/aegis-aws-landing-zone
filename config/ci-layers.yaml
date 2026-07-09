@@ -40,6 +40,13 @@ layers:
     account: security
   - env: logarchive/bootstrap
     account: logarchive
+  # Detective services (epic #302 S3/S4): GuardDuty org auto-enable +
+  # Security Hub FSBP from the delegated-admin (security) account. Ordered
+  # AFTER security/bootstrap — the same apply run must land the detective
+  # IAM Sids on the security account's gh-tf-* roles before this layer
+  # applies with them.
+  - env: security/detective
+    account: security
   # Org-root SCPs: applied LAST (foundation-first ordering) and the single
   # highest-blast-radius layer. `gate: scps` routes it through the human-review
   # apply path (issue #316) instead of the auto-apply matrix.
