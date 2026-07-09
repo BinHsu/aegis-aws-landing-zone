@@ -18,6 +18,16 @@ data "aws_organizations_organization" "current" {}
 
 locals {
   root_id = data.aws_organizations_organization.current.roots[0].id
+
+  # ADR-020 boundary identity. The SCP is one document attached at the org root
+  # and evaluated in every member account, so the boundary ARN it references is
+  # account-wildcarded (`::*:`) — each account holds its own copy of the
+  # byte-identical `aegis-landing-zone-aws-ci-boundary` policy (ADR-020 OQ-1). A
+  # permissions boundary must live in the same account as the role it caps, so
+  # the wildcard cannot match a cross-account attacker-controlled policy; it
+  # only ever resolves to the in-account Aegis boundary.
+  ci_boundary_name        = "aegis-landing-zone-aws-ci-boundary"
+  ci_boundary_arn_pattern = "arn:aws:iam::*:policy/${local.ci_boundary_name}"
 }
 
 # -----------------------------------------------------------------------------
@@ -192,11 +202,47 @@ resource "aws_organizations_policy_attachment" "deny_leave_org" {
 # principals (users + roles) only. This is documented AWS behavior; see
 # https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_policies_scps.html
 # under "What SCPs don't affect."
+#
+# ADR-020 extension (S1 + S2) — closes the residual the name exemption above
+# leaves open. The base statement watches the CALLER'S name; it exempts
+# `gh-tf-*` because the apply tier legitimately runs `iam:CreateRole`. But a
+# name exemption cannot constrain what the exempted identity CREATES, so a
+# hijacked `gh-tf-*` role could still mint `aegis-evil`, attach
+# `AdministratorAccess`, and assume it (#313). ADR-020 caps that by forcing the
+# `aegis-landing-zone-aws-ci-boundary` permissions boundary onto everything the
+# CI tier creates, and protecting the boundary document from the CI tier:
+#
+#   S1 (DenyUnboundedRoleCreateByCi + DenyBoundaryStripByCi) — deny-SCOPED-TO
+#      `gh-tf-*` (ArnLike, not the base statement's ArnNotLike allow-list).
+#      Every OTHER identity is out of S1's scope BY CONSTRUCTION, not by
+#      exemption — so break-glass seeding of `gh-tf-*` roles (Runbook 002) and
+#      any future IAM-mutating identity never trip S1. This is the shape #319
+#      wants for the base statement; S1 does not add to the name-exemption debt
+#      #319 tracks, and deliberately does not "fix" #319 here.
+#   S2 (ProtectBoundaryPolicy) — deny mutation of the boundary DOCUMENT by all
+#      member principals except `aegis-emergency-*`. The single break-glass
+#      carve-out is the in-account repair path (ADR-020 D3): IAM policies are
+#      account-local, so without it a corrupted boundary would be unrepairable
+#      short of detaching this whole SCP at the org root. It is one narrowly
+#      scoped exemption (one resource, one principal family already trusted as
+#      break-glass), not a widening of the base allow-list.
+#
+# Boundary-ARN matching uses ArnLike/ArnNotLike with an account-wildcarded ARN
+# (`local.ci_boundary_arn_pattern`) because this one SCP document is evaluated
+# in every account and each holds its own copy of the boundary. ADR-020 D2
+# phrases this as `StringNotEquals the boundary ARN`; StringNotEquals cannot
+# wildcard the account segment, so ArnNotLike is the faithful cross-account
+# implementation of the same intent (see PR body).
+#
+# Rollout ordering (ADR-020 D4): S1/S2 land ONLY after PR-1's boundary policy is
+# applied in every member account. Otherwise CI's first `CreateRole` here would
+# reference a nonexistent boundary ARN and fail. PR-1 (#325) is merged and
+# applied in all accounts before this statement lands.
 # -----------------------------------------------------------------------------
 
 resource "aws_organizations_policy" "deny_iam_privilege_escalation" {
   name        = "deny-iam-privilege-escalation"
-  description = "Deny IAM principal/policy mutation by anything other than AWS-managed and break-glass identities. ISO 27001 A.8.2."
+  description = "Deny IAM principal/policy mutation by non-AWS-managed/break-glass identities; force+protect the CI permissions boundary (ADR-015 Item A + ADR-020 S1/S2). ISO 27001 A.8.2."
   type        = "SERVICE_CONTROL_POLICY"
 
   content = jsonencode({
@@ -234,7 +280,78 @@ resource "aws_organizations_policy" "deny_iam_privilege_escalation" {
             ]
           }
         }
-      }
+      },
+      # --- ADR-020 S1 -------------------------------------------------------
+      # Force the boundary onto everything the CI tier creates. Deny-scoped-TO
+      # `gh-tf-*` (ArnLike). `iam:CreateRole` / `iam:PutRolePermissionsBoundary`
+      # are denied unless `iam:PermissionsBoundary` is the Aegis boundary. When
+      # a `gh-tf-*` caller creates a role WITHOUT any boundary, the
+      # `iam:PermissionsBoundary` key is absent and the negated ArnNotLike
+      # matches → the create is denied. Converging a boundary-less break-glass-
+      # seeded role IS `PutRolePermissionsBoundary` to the correct ARN, which
+      # this statement allows (ArnNotLike false) — so cold-start seeding
+      # (Runbook 002) is untouched. `iam:PermissionsBoundary` exists only on
+      # Create*/Put*PermissionsBoundary, so those are the only actions this
+      # statement can and needs to condition (ADR-020 D2 technical note).
+      {
+        Sid    = "DenyUnboundedRoleCreateByCi"
+        Effect = "Deny"
+        Action = [
+          "iam:CreateRole",
+          "iam:PutRolePermissionsBoundary",
+        ]
+        Resource = "*"
+        Condition = {
+          ArnLike = {
+            "aws:PrincipalArn" = "arn:aws:iam::*:role/gh-tf-*"
+          }
+          ArnNotLike = {
+            "iam:PermissionsBoundary" = local.ci_boundary_arn_pattern
+          }
+        }
+      },
+      # A bounded CI identity can never strip a boundary (its own or another's).
+      # Unconditional for `gh-tf-*` callers — `iam:DeleteRolePermissionsBoundary`
+      # carries no `iam:PermissionsBoundary` key to condition on. Split from the
+      # statement above so the "unconditional" intent (ADR-020 D2) is explicit
+      # rather than resting on absent-key semantics.
+      {
+        Sid    = "DenyBoundaryStripByCi"
+        Effect = "Deny"
+        Action = [
+          "iam:DeleteRolePermissionsBoundary",
+        ]
+        Resource = "*"
+        Condition = {
+          ArnLike = {
+            "aws:PrincipalArn" = "arn:aws:iam::*:role/gh-tf-*"
+          }
+        }
+      },
+      # --- ADR-020 S2 -------------------------------------------------------
+      # Protect the boundary DOCUMENT from rewrite/removal. Denied for every
+      # member principal EXCEPT `aegis-emergency-*` (ArnNotLike) — the break-
+      # glass in-account repair path (ADR-020 D3). No `gh-tf-*` exemption by
+      # design: a CI role that can rewrite its own boundary defeats the whole
+      # control, so post-PR-2 boundary evolution is a break-glass ceremony
+      # (ADR-020 Consequences → Makes harder). `iam:CreatePolicy` is NOT denied,
+      # so break-glass cold-start creation of the boundary still works.
+      {
+        Sid    = "ProtectBoundaryPolicy"
+        Effect = "Deny"
+        Action = [
+          "iam:CreatePolicyVersion",
+          "iam:SetDefaultPolicyVersion",
+          "iam:DeletePolicy",
+          "iam:DeletePolicyVersion",
+        ]
+        Resource = local.ci_boundary_arn_pattern
+        Condition = {
+          ArnNotLike = {
+            "aws:PrincipalArn" = "arn:aws:iam::*:role/aegis-emergency-*"
+          }
+        }
+      },
     ]
   })
 }
