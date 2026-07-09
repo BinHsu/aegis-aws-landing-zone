@@ -52,7 +52,7 @@ Runbook 002 resolves both with a two-phase, operator-laptop ceremony run by
   operator's ambient `PlatformAdmin` SSO identity (which *can* write state),
   while the **provider** temporarily assumes CT-exec via a generated
   `*_override.tf`. Run with `-var=adopt_seeded_iam_roles=true`, which flips
-  `iam-survivor-import.tf` from *create* to *import* so the eight
+  `iam-survivor-import.tf` from *create* to *import* so the nine
   already-existing resources are imported into S3 state rather than
   re-created.
 

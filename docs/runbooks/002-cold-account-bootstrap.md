@@ -26,8 +26,9 @@ scaffold the environment first (mirror an existing `bootstrap/` layer, see #303)
 Every environment's `bootstrap/` layer creates three roles GitHub Actions
 assumes via OIDC — `gh-tf-plan` (read-only, on pull requests),
 `gh-tf-apply-baseline` (on merge to `main`, per ADR-014) — plus
-`aegis-emergency-break-glass` (ADR-015), the GitHub OIDC provider, and the
-account alias. Eight resources in total.
+`aegis-emergency-break-glass` (ADR-015), the GitHub OIDC provider, the
+account alias, and the ADR-020 `aegis-landing-zone-aws-ci-boundary`
+permissions boundary policy. Nine resources in total.
 
 CI's `terraform-plan.yml` / `terraform-apply-baseline.yml` workflows assume one
 of those roles to run. On a cold account, none of them exist — CI has nothing
@@ -50,7 +51,7 @@ The procedure is two phases against the same account:
 
 - **SEED** — `terraform apply` under `AWSControlTowerExecution`, with
   `backend.tf` moved aside so state is local and throwaway. This actually
-  creates the eight resources in the account. Local state is fine here
+  creates the nine resources in the account. Local state is fine here
   because nothing durable needs to survive this phase — the resources
   themselves are the durable output, not the state file.
 - **ADOPT** — a **split-credential** apply: the Terraform **backend**
@@ -59,8 +60,8 @@ The procedure is two phases against the same account:
   actually talks to the target account's resources) temporarily assumes
   `AWSControlTowerExecution` via a generated override file. Run with
   `-var=adopt_seeded_iam_roles=true`, which flips the environment's
-  `iam-survivor-import.tf` from *create* to *import* for the eight resources
-  SEED just created — so ADOPT's plan is exactly eight imports and (ideally)
+  `iam-survivor-import.tf` from *create* to *import* for the nine resources
+  SEED just created — so ADOPT's plan is exactly nine imports and (ideally)
   no other changes.
 
 After ADOPT, the S3 state matches reality. The committed default of
@@ -193,10 +194,10 @@ The script:
    on any exit — it is never committed.
 4. Runs `terraform init` against the real S3 backend under the ambient
    profile, then `terraform plan -var=adopt_seeded_iam_roles=true` — expect
-   exactly eight imports and no other changes.
+   exactly nine imports and no other changes.
 5. Prompts interactively for confirmation, same pattern as Seed.
 6. On confirmation, applies (imports land in S3 state) and prints
-   `terraform state list` to confirm all eight resources are now tracked.
+   `terraform state list` to confirm all nine resources are now tracked.
 
 ### Both in one run
 
@@ -223,7 +224,7 @@ its `terraform-plan.yml` run should also show no diff once merged and
 
 ## Gotchas
 
-- **Do not run Adopt before Seed.** Adopt's plan expects the eight resources
+- **Do not run Adopt before Seed.** Adopt's plan expects the nine resources
   to already exist in the account; running it first produces an empty import
   set and then a normal (failing) create attempt under the wrong credentials.
 - **`--profile` must be able to do both things Adopt needs**: assume
@@ -236,17 +237,15 @@ its `terraform-plan.yml` run should also show no diff once merged and
   trap can catch) blocks the next run. The script's own EXIT/INT/TERM trap
   cleans these up on every normal exit and on `Ctrl-C`; if one is still
   present, delete it manually before re-running.
-- **The ADR-020 boundary is not yet in the `iam-survivor-import.tf` gate.** The
-  import blocks adopt the eight original bootstrap resources; PR-1 added
-  `aws_iam_policy.ci_boundary` on top of them but did not extend the import
-  gate. On the normal seed then adopt path this is harmless — seed discards its
-  local state and adopt re-imports only the gated eight, then apply *creates*
-  the boundary fresh in S3 state. It only bites the manual hand-seed escape
-  hatch (`var.adopt_seeded_iam_roles=true` after pre-creating resources by
-  hand): adopt would then `EntityAlreadyExists` on the boundary. If you hit
-  that, add a gated `import` block for `aws_iam_policy.ci_boundary` (mirror the
-  role blocks), or delete the hand-created boundary before adopt. Tracked as an
-  ADR-020 PR-1 follow-up.
+- **Fixed: the ADR-020 boundary is now in the `iam-survivor-import.tf` gate.**
+  PR-1 added `aws_iam_policy.ci_boundary` alongside the original eight
+  bootstrap resources but did not extend the import gate to cover it, so the
+  manual hand-seed escape hatch (`var.adopt_seeded_iam_roles=true` after
+  pre-creating resources by hand) hit `EntityAlreadyExists` on the boundary.
+  All three `iam-survivor-import.tf` files (`prod`, `security`, `logarchive`
+  bootstrap) now carry a gated `import` block for `aws_iam_policy.ci_boundary`
+  mirroring the role blocks, so Adopt's plan is exactly nine imports on every
+  path, including hand-seed. Tracked as an ADR-020 PR-1 follow-up.
 
 ## Cross-references
 
