@@ -6,9 +6,17 @@
 # state-bucket / SLR. Cost-incurring workload-tier surfaces (EC2 / VPC / EKS /
 # ELB / RDS) are not part of this repository's scope.
 #
-# Trust policy is keyed on the OIDC `sub` claim `ref:refs/heads/main` only —
-# the `pull_request` trigger assumes its own read-only role, `gh-tf-plan`. See
+# Trust policy is keyed on the OIDC `sub` claim `ref:refs/heads/main` — the
+# `pull_request` trigger assumes its own read-only role, `gh-tf-plan`. See
 # ADR-014 for the full identity-by-trigger split.
+#
+# ADR-022 (`terraform-apply-baseline.yml` gated SCP apply) binds the
+# `apply-scps` job to GitHub Environment `landing-zone-apply-scps`. A job
+# running under a GitHub Environment presents `sub:
+# repo:<org>/<repo>:environment:<name>` instead of `...:ref:refs/heads/main` —
+# a second, additive sub pattern is required or that job's OIDC assumption
+# fails closed (Incident: run 29015217599, PR #330 bound the environment
+# without updating this trust policy).
 #
 # Scope per account: this is the management-account variant. It covers the
 # union of API surfaces mutated by `terraform/environments/management/
@@ -44,8 +52,16 @@ resource "aws_iam_role" "gh_tf_apply_baseline" {
           # Rename-proof: the immutable repository_id (StringEquals above) is the
           # binding; the sub wildcards the repo NAME so a repo rename cannot break
           # OIDC auth (the failure this trust restructure fixes).
+          #
+          # Two sub shapes are accepted: the `ref:refs/heads/main` push trigger
+          # (apply-baseline, plan-scps, and apply-scps all assume this role) and
+          # the `environment:landing-zone-apply-scps` shape GitHub presents when
+          # a job is bound to that Environment (apply-scps only, ADR-022).
           StringLike = {
-            "${replace(local.github_oidc_url, "https://", "")}:sub" = "repo:${local.github_org}/*:ref:refs/heads/main"
+            "${replace(local.github_oidc_url, "https://", "")}:sub" = [
+              "repo:${local.github_org}/*:ref:refs/heads/main",
+              "repo:${local.github_org}/*:environment:landing-zone-apply-scps",
+            ]
           }
         }
       }
