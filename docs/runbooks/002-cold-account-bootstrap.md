@@ -250,12 +250,17 @@ its `terraform-plan.yml` run should also show no diff once merged and
 
 ## Cross-references
 
-- Issue [#309](https://github.com/BinHsu/aegis-landing-zone-aws/issues/309) —
-  future ADR to eliminate this manual ceremony entirely with an AFT-style
-  (AWS Account Factory for Terraform) pattern: a management-level bootstrap
-  role that can assume into a newly-enrolled account *and* write the S3 state
-  bucket in one CI run, retiring `iam-survivor-import.tf` and
-  `var.adopt_seeded_iam_roles` once cold-start no longer needs them.
+- Issue [#309](https://github.com/BinHsu/aegis-landing-zone-aws/issues/309) /
+  [ADR-021](../decisions/021-ci-native-cold-account-bootstrap.md) (**Proposed**)
+  — the design to eliminate this manual ceremony with a CI-native bootstrap: a
+  management-level bootstrap role that assumes into a newly-enrolled account
+  *and* writes the S3 state bucket in one CI run, retiring
+  `iam-survivor-import.tf` and `var.adopt_seeded_iam_roles` once cold-start no
+  longer needs them. ADR-021 is not yet accepted — this runbook remains the
+  live procedure until it is, and is scheduled for rewrite at ADR-021 Migration
+  Stage 3. Note: "AFT-style" there means a central CI-driven bootstrap, *not*
+  activating the real AFT layer (ADR-011 Path B), which automates account
+  creation rather than this configuration bootstrap.
 - Issue [#303](https://github.com/BinHsu/aegis-landing-zone-aws/issues/303) —
   the `security`/`logarchive` environment creation this runbook's procedure
   was first exercised against.
