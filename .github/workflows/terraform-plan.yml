@@ -24,6 +24,12 @@ jobs:
   discover:
     name: Discover plan matrix
     runs-on: ubuntu-latest
+    # Skipped on Dependabot pull requests. They get no repository secrets, so
+    # LANDING_ZONE_CONFIG is empty, render-ci-matrix.py fails closed on the
+    # missing account IDs, and every plan job downstream is skipped anyway. The
+    # plan needs real account IDs and an assumable role, neither of which exists
+    # on this event, so skipping reports the truth instead of a red matrix.
+    if: ${{ github.actor != 'dependabot[bot]' }}
     outputs:
       matrix: ${{ steps.render.outputs.matrix }}
     steps:

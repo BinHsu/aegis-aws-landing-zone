@@ -30,11 +30,25 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Write config
+        id: config
         run: |
           mkdir -p config
           cat <<'EOFCONFIG' > config/landing-zone.yaml
           ${{ secrets.LANDING_ZONE_CONFIG }}
           EOFCONFIG
+          # Dependabot pull requests receive no repository secrets, so the
+          # heredoc above writes an empty file and the two config-dependent
+          # steps below fail on it — reported as a missing `deployment`
+          # account, which reads like config drift and is not. Record whether
+          # a usable config actually arrived. The example config is not a
+          # substitute: policy_test compares committed backend.tf bucket names
+          # against config-derived ones, so only the real values can match.
+          if grep -q '^accounts:' config/landing-zone.yaml; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::LANDING_ZONE_CONFIG is unavailable on this event; schema validation and the policy suite are skipped. terraform fmt still runs."
+          fi
 
       - name: Install Python deps
         run: python3 -m pip install --quiet pyyaml jsonschema
@@ -47,7 +61,9 @@ jobs:
         run: terraform fmt -check -recursive terraform/
 
       - name: Validate config against schema
+        if: steps.config.outputs.available == 'true'
         run: python3 scripts/validate-config.py
 
       - name: Policy-as-code invariants
+        if: steps.config.outputs.available == 'true'
         run: python3 scripts/ci/policy_test.py
