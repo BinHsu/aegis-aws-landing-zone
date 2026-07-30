@@ -6,6 +6,14 @@
 ![Terraform](https://img.shields.io/badge/Terraform-%E2%89%A51.10-5C4EE5?logo=terraform)
 ![License](https://img.shields.io/badge/License-MIT-yellow.svg)
 
+## Maintenance status
+
+Actively maintained until 2026-07-31. Paused after that date while the owner
+starts a new job; expected to resume around 2026-Q1/Q2. Security updates keep
+flowing during the pause — only version-update PRs are paused. Issues and PRs
+may not get a timely response in the meantime. The repo is left in a
+known-good state at the freeze point, not mid-refactor.
+
 **Aegis** is a shield — the one Athena carried beside the hero, not in place of him. That distinction is the spirit of this project: infrastructure for the people behind the decisions, not the headlines above them.
 
 Software is a bridge; business is the ground beneath it. A bridge can be rebuilt; a foundation cannot. This landing zone is built in that posture — speed where it helps, sovereignty where it matters, automation that assumes human judgment rather than replaces it — so that whatever the principals above decide to build can stand on ground that holds.
